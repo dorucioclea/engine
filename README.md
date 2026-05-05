@@ -6,6 +6,14 @@ Single binary. One dependency: PostgreSQL (or SQLite for dev/embedded).
 
 [Docs](https://orch8.io/docs) · [Discord](https://discord.gg/BAbx7Dshu) · [Cloud](https://cloud.orch8.io) · [Playbook](https://orch8.io/playbook)
 
+![Orch8 demo — orch8 init → orch8-server → engine ready in seconds](docs/demo.gif)
+
+## Why Orch8
+
+Existing durable workflow engines either ship a multi-service cluster (Temporal: Cassandra + Elasticsearch + JVM workers) or assume Python everywhere (Airflow: Celery + Redis + scheduler). Both are full-time operational jobs on a small team.
+
+Orch8 keeps the execution model — state-snapshot durability, retries, replay-on-restart — but trades the ecosystem for one Rust binary and Postgres. Workers in any language via REST long-poll. Higher-level building blocks (Parallel, Race, TryCatch, CancellationScope, plus LLM/HumanReview/ToolCall) shipped as first-class instead of patterns you build on activities.
+
 ## Features
 
 **Workflow Primitives** — Step, Parallel, Race, TryCatch, Loop, ForEach, Router, SubSequence, CancellationScope, AB Split
@@ -24,24 +32,21 @@ Single binary. One dependency: PostgreSQL (or SQLite for dev/embedded).
 
 **Observability** — Prometheus metrics, structured JSON logging, audit log, execution tree visualization, Grafana dashboard template
 
-**AI Agent Support** — Dynamic step injection (self_modify), LLM call handler (OpenAI, Anthropic, Gemini, DeepSeek, Groq, Together, Mistral, Qwen, Perplexity, OpenRouter), human-in-the-loop with timeout/escalation, SSE streaming, query-instance handler for cross-workflow coordination
+**AI Agent Support** — Unified `llm_call` handler covering all major providers (OpenAI, Anthropic, Gemini + 7 more), dynamic step injection (self_modify), human-in-the-loop with timeout/escalation, SSE streaming, query-instance handler for cross-workflow coordination
 
 **Security** — AES-256-GCM encryption at rest for context and credentials, OAuth2 credential refresh, API key authentication, CORS configuration
 
 ## Install
 
 ```bash
-# One-liner (downloads binary, starts engine, runs a sample sequence)
-curl -fsSL https://orch8.io/start.sh | sh
+# Docker (fastest)
+docker run -d -p 8080:8080 ghcr.io/orch8-io/engine:latest
+
+# Binary release (downloads from GitHub releases)
+curl -fsSL https://raw.githubusercontent.com/orch8-io/engine/main/install.sh | sh
 
 # Homebrew
 brew tap orch8-io/orch8 && brew install orch8-server
-
-# Docker
-docker run -d -p 8080:8080 ghcr.io/orch8-io/engine:latest
-
-# Binary release
-curl -fsSL https://raw.githubusercontent.com/orch8-io/engine/main/install.sh | sh
 ```
 
 ## Quick Start
@@ -285,6 +290,18 @@ Chart repo: [orch8-io/helm-charts](https://github.com/orch8-io/helm-charts)
 - [Discord](https://discord.gg/BAbx7Dshu) — questions, patterns, show & tell
 - [GitHub Issues](https://github.com/orch8-io/engine/issues) — bug reports and feature requests
 - [Playbook](https://orch8.io/playbook) — 22 workflow patterns with full JSON definitions
+
+## Status & Limitations
+
+Pre-1.0. This is the public release of an engine that has been running my own production for several months, with 2,028 tests covering core paths. Honest about what it isn't yet:
+
+- **Not battle-tested at Temporal-scale.** Largest internal load test: ~10K concurrent instances. If you're past that or have multiple engineers depending on uptime, run Temporal until 1.0.
+- **No replay debugger or time-skipping test tooling.** Temporal's SDKs ship deterministic replay + timer-skip helpers; we don't.
+- **Workflow versioning is younger.** Sequence definitions are versioned, but the migration ergonomics for in-flight instances aren't as polished as Temporal's `GetVersion` / patch system.
+- **SDK depth varies.** TypeScript SDK has both authoring + worker support; Go and Python SDKs are worker-focused for now.
+- **API is stable but evolving.** Pre-1.0 means breaking changes are possible; we'll mark them in releases and keep them minimal.
+
+If any of these are dealbreakers, file an issue — the gap-to-feature roadmap is driven by what users hit first.
 
 ## License
 
