@@ -15,7 +15,7 @@ impl PostgresStorage {
              VALUES ($1, $2, $3, NOW())
              ON CONFLICT (instance_id, key) DO UPDATE SET value = $3, updated_at = NOW()",
         )
-        .bind(instance_id.0)
+        .bind(instance_id.into_uuid())
         .bind(key)
         .bind(value)
         .execute(&self.pool)
@@ -32,7 +32,7 @@ impl PostgresStorage {
         let row: Option<(serde_json::Value,)> = sqlx::query_as(
             "SELECT value FROM instance_kv_state WHERE instance_id = $1 AND key = $2",
         )
-        .bind(instance_id.0)
+        .bind(instance_id.into_uuid())
         .bind(key)
         .fetch_optional(&self.pool)
         .await
@@ -46,7 +46,7 @@ impl PostgresStorage {
     ) -> Result<std::collections::HashMap<String, serde_json::Value>, StorageError> {
         let rows: Vec<(String, serde_json::Value)> =
             sqlx::query_as("SELECT key, value FROM instance_kv_state WHERE instance_id = $1")
-                .bind(instance_id.0)
+                .bind(instance_id.into_uuid())
                 .fetch_all(&self.pool)
                 .await
                 .map_err(|e| StorageError::Query(e.to_string()))?;
@@ -59,7 +59,7 @@ impl PostgresStorage {
         key: &str,
     ) -> Result<(), StorageError> {
         sqlx::query("DELETE FROM instance_kv_state WHERE instance_id = $1 AND key = $2")
-            .bind(instance_id.0)
+            .bind(instance_id.into_uuid())
             .bind(key)
             .execute(&self.pool)
             .await

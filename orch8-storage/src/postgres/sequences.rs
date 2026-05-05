@@ -19,9 +19,9 @@ pub(super) async fn create(
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         ",
     )
-    .bind(seq.id.0)
-    .bind(&seq.tenant_id.0)
-    .bind(&seq.namespace.0)
+    .bind(seq.id.into_uuid())
+    .bind(&seq.tenant_id.as_str())
+    .bind(&seq.namespace.as_str())
     .bind(&seq.name)
     .bind(&definition)
     .bind(seq.version)
@@ -39,7 +39,7 @@ pub(super) async fn get(
     let row = sqlx::query_as::<_, SequenceRow>(
         "SELECT id, tenant_id, namespace, name, definition, version, deprecated, created_at FROM sequences WHERE id = $1",
     )
-    .bind(id.0)
+    .bind(id.into_uuid())
     .fetch_optional(&store.pool)
     .await?;
     row.map(SequenceRow::into_definition).transpose()
@@ -58,8 +58,8 @@ pub(super) async fn get_by_name(
                FROM sequences
                WHERE tenant_id = $1 AND namespace = $2 AND name = $3 AND version = $4",
         )
-        .bind(&tenant_id.0)
-        .bind(&namespace.0)
+        .bind(tenant_id.as_str())
+        .bind(namespace.as_str())
         .bind(name)
         .bind(v)
         .fetch_optional(&store.pool)
@@ -72,8 +72,8 @@ pub(super) async fn get_by_name(
                ORDER BY version DESC
                LIMIT 1",
         )
-        .bind(&tenant_id.0)
-        .bind(&namespace.0)
+        .bind(tenant_id.as_str())
+        .bind(namespace.as_str())
         .bind(name)
         .fetch_optional(&store.pool)
         .await?
@@ -93,8 +93,8 @@ pub(super) async fn list_versions(
           WHERE tenant_id = $1 AND namespace = $2 AND name = $3 AND deprecated = false
           ORDER BY version DESC",
     )
-    .bind(&tenant_id.0)
-    .bind(&namespace.0)
+    .bind(tenant_id.as_str())
+    .bind(namespace.as_str())
     .bind(name)
     .fetch_all(&store.pool)
     .await?;
@@ -110,8 +110,8 @@ pub(super) async fn list_all(
 ) -> Result<Vec<SequenceDefinition>, StorageError> {
     // NULL-safe filters: when a filter is None we use "true" so the row always
     // matches. Keeps a single prepared statement rather than six SQL variants.
-    let tenant = tenant_id.map(|t| t.0.as_str());
-    let ns = namespace.map(|n| n.0.as_str());
+    let tenant = tenant_id.map(|t| t.as_str());
+    let ns = namespace.map(|n| n.as_str());
 
     let rows = sqlx::query_as::<_, SequenceRow>(
         r"SELECT id, tenant_id, namespace, name, definition, version, deprecated, created_at
@@ -132,7 +132,7 @@ pub(super) async fn list_all(
 
 pub(super) async fn deprecate(store: &PostgresStorage, id: SequenceId) -> Result<(), StorageError> {
     sqlx::query("UPDATE sequences SET deprecated = TRUE WHERE id = $1")
-        .bind(id.0)
+        .bind(id.into_uuid())
         .execute(&store.pool)
         .await?;
     Ok(())
@@ -147,7 +147,7 @@ pub(super) async fn delete(store: &PostgresStorage, id: SequenceId) -> Result<()
     // Gather instance IDs referencing this sequence.
     let instance_ids: Vec<uuid::Uuid> =
         sqlx::query_scalar("SELECT id FROM task_instances WHERE sequence_id = $1")
-            .bind(id.0)
+            .bind(id.into_uuid())
             .fetch_all(&mut *tx)
             .await?;
 
@@ -177,19 +177,19 @@ pub(super) async fn delete(store: &PostgresStorage, id: SequenceId) -> Result<()
         }
 
         sqlx::query("DELETE FROM task_instances WHERE sequence_id = $1")
-            .bind(id.0)
+            .bind(id.into_uuid())
             .execute(&mut *tx)
             .await?;
     }
 
     // Also remove cron schedules referencing this sequence.
     sqlx::query("DELETE FROM cron_schedules WHERE sequence_id = $1")
-        .bind(id.0)
+        .bind(id.into_uuid())
         .execute(&mut *tx)
         .await?;
 
     sqlx::query("DELETE FROM sequences WHERE id = $1")
-        .bind(id.0)
+        .bind(id.into_uuid())
         .execute(&mut *tx)
         .await?;
 

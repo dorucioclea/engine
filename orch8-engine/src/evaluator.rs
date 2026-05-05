@@ -90,12 +90,12 @@ pub async fn ensure_execution_tree(
         // Check for newly injected blocks that don't have execution nodes yet.
         let mut existing_block_ids = std::collections::HashSet::with_capacity(existing.len());
         for n in &existing {
-            existing_block_ids.insert(n.block_id.0.as_str());
+            existing_block_ids.insert(n.block_id.as_str());
         }
         let mut new_nodes = Vec::with_capacity(blocks.len());
         for block in blocks {
             let (bid, _) = block_meta(block);
-            if !existing_block_ids.contains(bid.0.as_str()) {
+            if !existing_block_ids.contains(bid.as_str()) {
                 build_nodes(
                     instance.id,
                     None,
@@ -930,7 +930,7 @@ pub async fn cancel_subtree(
     for node in tree {
         if to_cancel_set.contains(&node.id) && node.state == NodeState::Waiting {
             storage
-                .cancel_worker_tasks_for_block(instance_id.0, &node.block_id.0)
+                .cancel_worker_tasks_for_block(instance_id.into_uuid(), &node.block_id.as_str())
                 .await?;
         }
     }

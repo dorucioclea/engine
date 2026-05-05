@@ -49,8 +49,8 @@ impl DedupeScope {
     #[must_use]
     pub fn value(&self) -> String {
         match self {
-            Self::Parent(id) => id.0.to_string(),
-            Self::Tenant(t) => t.0.clone(),
+            Self::Parent(id) => id.to_string(),
+            Self::Tenant(t) => t.as_str().to_owned(),
         }
     }
 }
@@ -64,12 +64,12 @@ mod tests {
         let id = InstanceId::new();
         let s = DedupeScope::Parent(id);
         assert_eq!(s.kind(), "parent");
-        assert_eq!(s.value(), id.0.to_string());
+        assert_eq!(s.value(), id.to_string());
     }
 
     #[test]
     fn tenant_scope_kind_and_value() {
-        let s = DedupeScope::Tenant(TenantId("acme".into()));
+        let s = DedupeScope::Tenant(TenantId::unchecked("acme"));
         assert_eq!(s.kind(), "tenant");
         assert_eq!(s.value(), "acme");
     }
@@ -81,7 +81,7 @@ mod tests {
         // part of the dedupe PK on the storage side.
         let id = InstanceId::new();
         let p = DedupeScope::Parent(id);
-        let t = DedupeScope::Tenant(TenantId(id.0.to_string()));
+        let t = DedupeScope::Tenant(TenantId::unchecked(id.to_string()));
         assert_ne!(p.kind(), t.kind());
         assert_eq!(p.value(), t.value());
     }

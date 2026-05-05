@@ -7,28 +7,28 @@ use uuid::Uuid;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, sqlx::Type, ToSchema)]
 #[sqlx(transparent)]
-pub struct InstanceId(pub Uuid);
+pub struct InstanceId(Uuid);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, sqlx::Type, ToSchema)]
 #[sqlx(transparent)]
-pub struct SequenceId(pub Uuid);
+pub struct SequenceId(Uuid);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, sqlx::Type, ToSchema)]
 #[sqlx(transparent)]
-pub struct ExecutionNodeId(pub Uuid);
+pub struct ExecutionNodeId(Uuid);
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, ToSchema)]
-pub struct BlockId(pub String);
+pub struct BlockId(String);
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, ToSchema)]
-pub struct TenantId(pub String);
+pub struct TenantId(String);
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, ToSchema)]
-pub struct Namespace(pub String);
+pub struct Namespace(String);
 
 /// Resource key for rate limiting, e.g. "mailbox:john@acme.com"
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, ToSchema)]
-pub struct ResourceKey(pub String);
+pub struct ResourceKey(String);
 
 // UUIDv7 = 48-bit unix_ms timestamp || 74 bits of randomness. For
 // instance/sequence/node IDs this gives two real wins over v4:
@@ -53,6 +53,24 @@ impl InstanceId {
     pub fn new() -> Self {
         Self(Uuid::now_v7())
     }
+
+    /// Construct from an existing UUID (e.g. from the database).
+    #[must_use]
+    pub fn from_uuid(u: Uuid) -> Self {
+        Self(u)
+    }
+
+    /// Borrow the inner UUID.
+    #[must_use]
+    pub fn as_uuid(&self) -> &Uuid {
+        &self.0
+    }
+
+    /// Consume and return the inner UUID.
+    #[must_use]
+    pub fn into_uuid(self) -> Uuid {
+        self.0
+    }
 }
 
 impl SequenceId {
@@ -60,12 +78,48 @@ impl SequenceId {
     pub fn new() -> Self {
         Self(Uuid::now_v7())
     }
+
+    /// Construct from an existing UUID (e.g. from the database).
+    #[must_use]
+    pub fn from_uuid(u: Uuid) -> Self {
+        Self(u)
+    }
+
+    /// Borrow the inner UUID.
+    #[must_use]
+    pub fn as_uuid(&self) -> &Uuid {
+        &self.0
+    }
+
+    /// Consume and return the inner UUID.
+    #[must_use]
+    pub fn into_uuid(self) -> Uuid {
+        self.0
+    }
 }
 
 impl ExecutionNodeId {
     #[must_use]
     pub fn new() -> Self {
         Self(Uuid::now_v7())
+    }
+
+    /// Construct from an existing UUID (e.g. from the database).
+    #[must_use]
+    pub fn from_uuid(u: Uuid) -> Self {
+        Self(u)
+    }
+
+    /// Borrow the inner UUID.
+    #[must_use]
+    pub fn as_uuid(&self) -> &Uuid {
+        &self.0
+    }
+
+    /// Consume and return the inner UUID.
+    #[must_use]
+    pub fn into_uuid(self) -> Uuid {
+        self.0
     }
 }
 
@@ -105,6 +159,26 @@ impl std::fmt::Display for ExecutionNodeId {
     }
 }
 
+impl BlockId {
+    /// Create a new `BlockId`.
+    #[must_use]
+    pub fn new(s: impl Into<String>) -> Self {
+        Self(s.into())
+    }
+
+    /// Borrow the inner string.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    /// Consume and return the inner string.
+    #[must_use]
+    pub fn into_string(self) -> String {
+        self.0
+    }
+}
+
 impl std::fmt::Display for BlockId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.0.fmt(f)
@@ -122,6 +196,25 @@ impl TenantId {
             Ok(Self(s))
         }
     }
+
+    /// Create a `TenantId` without validation.
+    /// Use in tests or when the value is known-valid (e.g. deserialization).
+    #[must_use]
+    pub fn unchecked(s: impl Into<String>) -> Self {
+        Self(s.into())
+    }
+
+    /// Borrow the inner string.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    /// Consume and return the inner string.
+    #[must_use]
+    pub fn into_string(self) -> String {
+        self.0
+    }
 }
 
 impl std::fmt::Display for TenantId {
@@ -130,9 +223,49 @@ impl std::fmt::Display for TenantId {
     }
 }
 
+impl Namespace {
+    /// Create a new `Namespace`.
+    #[must_use]
+    pub fn new(s: impl Into<String>) -> Self {
+        Self(s.into())
+    }
+
+    /// Borrow the inner string.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    /// Consume and return the inner string.
+    #[must_use]
+    pub fn into_string(self) -> String {
+        self.0
+    }
+}
+
 impl std::fmt::Display for Namespace {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.0.fmt(f)
+    }
+}
+
+impl ResourceKey {
+    /// Create a new `ResourceKey`.
+    #[must_use]
+    pub fn new(s: impl Into<String>) -> Self {
+        Self(s.into())
+    }
+
+    /// Borrow the inner string.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    /// Consume and return the inner string.
+    #[must_use]
+    pub fn into_string(self) -> String {
+        self.0
     }
 }
 
@@ -151,25 +284,25 @@ mod tests {
         let instance_id = InstanceId::new();
         let sequence_id = SequenceId::new();
         // These are different types — mixing them is a compile error.
-        assert_ne!(instance_id.0, sequence_id.0);
+        assert_ne!(instance_id.as_uuid(), sequence_id.as_uuid());
     }
 
     #[test]
     fn instance_id_default_uses_v7() {
         let id = InstanceId::default();
-        assert_eq!(id.0.get_version_num(), 7);
+        assert_eq!(id.as_uuid().get_version_num(), 7);
     }
 
     #[test]
     fn sequence_id_default_uses_v7() {
         let id = SequenceId::default();
-        assert_eq!(id.0.get_version_num(), 7);
+        assert_eq!(id.as_uuid().get_version_num(), 7);
     }
 
     #[test]
     fn execution_node_id_default_uses_v7() {
         let id = ExecutionNodeId::default();
-        assert_eq!(id.0.get_version_num(), 7);
+        assert_eq!(id.as_uuid().get_version_num(), 7);
     }
 
     #[test]
@@ -180,24 +313,24 @@ mod tests {
 
     #[test]
     fn tenant_id_accepts_non_empty() {
-        assert_eq!(TenantId::new("acme").unwrap().0, "acme");
+        assert_eq!(TenantId::new("acme").unwrap().as_str(), "acme");
     }
 
     #[test]
     fn block_id_display() {
-        let id = BlockId("step_1".into());
+        let id = BlockId::new("step_1");
         assert_eq!(id.to_string(), "step_1");
     }
 
     #[test]
     fn namespace_display() {
-        let ns = Namespace("default".into());
+        let ns = Namespace::new("default");
         assert_eq!(ns.to_string(), "default");
     }
 
     #[test]
     fn resource_key_display() {
-        let rk = ResourceKey("api:prod".into());
+        let rk = ResourceKey::new("api:prod");
         assert_eq!(rk.to_string(), "api:prod");
     }
 }

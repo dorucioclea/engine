@@ -16,7 +16,7 @@ pub(super) async fn create(
           VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",
     )
     .bind(session.id)
-    .bind(&session.tenant_id.0)
+    .bind(&session.tenant_id.as_str())
     .bind(&session.session_key)
     .bind(&session.data)
     .bind(session.state.to_string())
@@ -51,7 +51,7 @@ pub(super) async fn get_by_key(
         r"SELECT id, tenant_id, session_key, data, state, created_at, updated_at, expires_at
           FROM sessions WHERE tenant_id = $1 AND session_key = $2",
     )
-    .bind(&tenant_id.0)
+    .bind(tenant_id.as_str())
     .bind(session_key)
     .fetch_optional(&store.pool)
     .await?;

@@ -87,7 +87,7 @@ mod tests {
         let msg = err.to_string();
         assert!(msg.contains("completed"), "got: {msg}");
         assert!(msg.contains("running"), "got: {msg}");
-        assert!(msg.contains(&id.0.to_string()), "got: {msg}");
+        assert!(msg.contains(&id.to_string()), "got: {msg}");
     }
 
     #[test]
@@ -101,20 +101,20 @@ mod tests {
         let inst = InstanceId::new();
         let err = EngineError::StepFailed {
             instance_id: inst,
-            block_id: BlockId("b1".into()),
+            block_id: BlockId::new("b1"),
             message: "boom".into(),
             retryable: true,
         };
         let msg = err.to_string();
         assert!(msg.contains("b1"));
-        assert!(msg.contains(&inst.0.to_string()));
+        assert!(msg.contains(&inst.into_uuid().to_string()));
         assert!(msg.contains("boom"));
     }
 
     #[test]
     fn step_timeout_display_includes_block_and_duration() {
         let err = EngineError::StepTimeout {
-            block_id: BlockId("slow".into()),
+            block_id: BlockId::new("slow"),
             timeout: Duration::from_secs(5),
         };
         let msg = err.to_string();
@@ -126,7 +126,7 @@ mod tests {
     fn max_iterations_and_template_and_shutdown_displays() {
         assert_eq!(
             EngineError::MaxIterationsExceeded {
-                block_id: BlockId("lp".into()),
+                block_id: BlockId::new("lp"),
             }
             .to_string(),
             "max iterations exceeded in loop lp",

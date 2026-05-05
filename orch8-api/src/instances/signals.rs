@@ -30,7 +30,7 @@ pub async fn send_signal(
     Path(id): Path<Uuid>,
     Json(req): Json<SendSignalRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let instance_id = InstanceId(id);
+    let instance_id = InstanceId::from_uuid(id);
 
     // Tenant enforcement still needs the current instance row. This read is
     // the TOCTOU window — between reading here and persisting the signal

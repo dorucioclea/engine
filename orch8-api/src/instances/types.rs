@@ -26,7 +26,7 @@ pub struct CreateInstanceRequest {
     pub(crate) context: ExecutionContext,
     pub(crate) next_fire_at: Option<DateTime<Utc>>,
     pub(crate) concurrency_key: Option<String>,
-    pub(crate) max_concurrency: Option<i32>,
+    pub(crate) max_concurrency: Option<u32>,
     pub(crate) idempotency_key: Option<String>,
 }
 

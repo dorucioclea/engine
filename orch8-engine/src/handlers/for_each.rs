@@ -86,7 +86,7 @@ pub async fn execute_for_each(
 
     let prior_marker = storage.get_block_output(instance.id, &fe_def.id).await?;
 
-    let snapshot_ref_key = format!("inst:{}:foreach:{}:items", instance.id.0, fe_def.id.0);
+    let snapshot_ref_key = format!("inst:{}:foreach:{}:items", instance.id.into_uuid(), fe_def.id.as_str());
 
     let (snapshot_items, index): (Vec<serde_json::Value>, u32) = if let Some(m) = &prior_marker {
         // Subsequent tick — resolve the snapshot from externalized_state
@@ -223,7 +223,7 @@ pub async fn execute_for_each(
             }),
             output_ref: None,
             output_size: 0,
-            attempt: i16::try_from(next_index).unwrap_or(i16::MAX),
+            attempt: u16::try_from(next_index).unwrap_or(u16::MAX),
             created_at: chrono::Utc::now(),
         };
         storage.save_block_output(&marker).await?;
@@ -331,10 +331,10 @@ async fn reset_subtree_to_pending(
     // no-op for them, so we include all block_ids unconditionally.
     let all_block_ids: Vec<String> = descendants
         .iter()
-        .map(|(_, _, bid)| bid.0.clone())
+        .map(|(_, _, bid)| bid.as_str().to_owned())
         .collect();
     storage
-        .cancel_worker_tasks_for_blocks(instance_id.0, &all_block_ids)
+        .cancel_worker_tasks_for_blocks(instance_id.into_uuid(), &all_block_ids)
         .await?;
     Ok(())
 }
@@ -420,8 +420,8 @@ mod tests {
         let now = chrono::Utc::now();
         let seq = orch8_types::sequence::SequenceDefinition {
             id: SequenceId::new(),
-            tenant_id: TenantId("t".into()),
-            namespace: Namespace("ns".into()),
+            tenant_id: TenantId::unchecked("t"),
+            namespace: Namespace::new("ns"),
             name: "test".into(),
             version: 1,
             deprecated: false,
@@ -433,8 +433,8 @@ mod tests {
         let inst = TaskInstance {
             id: inst_id,
             sequence_id: seq.id,
-            tenant_id: TenantId("t".into()),
-            namespace: Namespace("ns".into()),
+            tenant_id: TenantId::unchecked("t"),
+            namespace: Namespace::new("ns"),
             state: InstanceState::Running,
             next_fire_at: None,
             priority: Priority::Normal,
@@ -522,7 +522,7 @@ mod tests {
         let bo = orch8_types::output::BlockOutput {
             id: uuid::Uuid::now_v7(),
             instance_id: inst.id,
-            block_id: BlockId("score_markets".into()),
+            block_id: BlockId::new("score_markets"),
             output: json!({"markets": ["BTC", "ETH", "SOL"]}),
             output_ref: None,
             output_size: 0,
@@ -557,7 +557,7 @@ mod tests {
         ExecutionNode {
             id: ExecutionNodeId::new(),
             instance_id,
-            block_id: BlockId(block_id.into()),
+            block_id: BlockId::new(block_id),
             parent_id,
             block_type,
             branch_index: None,
@@ -571,7 +571,7 @@ mod tests {
         BlockOutput {
             id: uuid::Uuid::now_v7(),
             instance_id: inst,
-            block_id: BlockId(block.into()),
+            block_id: BlockId::new(block),
             output: json!({ "_iterations": value }),
             output_ref: None,
             output_size: 0,
@@ -585,13 +585,13 @@ mod tests {
         let now = chrono::Utc::now();
         let seq = SequenceDefinition {
             id: SequenceId::new(),
-            tenant_id: TenantId("t".into()),
-            namespace: Namespace("ns".into()),
+            tenant_id: TenantId::unchecked("t"),
+            namespace: Namespace::new("ns"),
             name: "test".into(),
             version: 1,
             deprecated: false,
             blocks: vec![BlockDefinition::Step(Box::new(StepDef {
-                id: BlockId("noop".into()),
+                id: BlockId::new("noop"),
                 handler: "noop".into(),
                 params: json!({}),
                 delay: None,
@@ -615,8 +615,8 @@ mod tests {
         let inst_row = TaskInstance {
             id: inst_id,
             sequence_id: seq.id,
-            tenant_id: TenantId("t".into()),
-            namespace: Namespace("ns".into()),
+            tenant_id: TenantId::unchecked("t"),
+            namespace: Namespace::new("ns"),
             state: InstanceState::Running,
             next_fire_at: None,
             priority: Priority::Normal,
@@ -644,8 +644,8 @@ mod tests {
         TaskInstance {
             id: inst_id,
             sequence_id: SequenceId::new(),
-            tenant_id: TenantId("t".into()),
-            namespace: Namespace("ns".into()),
+            tenant_id: TenantId::unchecked("t"),
+            namespace: Namespace::new("ns"),
             state: InstanceState::Running,
             next_fire_at: None,
             priority: Priority::Normal,
@@ -842,7 +842,7 @@ mod tests {
         s.save_block_output(&BlockOutput {
             id: uuid::Uuid::now_v7(),
             instance_id: inst_id,
-            block_id: BlockId("fe".into()),
+            block_id: BlockId::new("fe"),
             output: json!({"_index": 3, "_total": 4, "_item_var": "item"}),
             output_ref: None,
             output_size: 0,
@@ -854,17 +854,17 @@ mod tests {
 
         // Reset purges fe's marker only as a descendant — but in this test
         // we want H2 to reflect "after reset" semantics, so purge directly.
-        s.delete_block_outputs(inst_id, &BlockId("fe".into()))
+        s.delete_block_outputs(inst_id, &BlockId::new("fe"))
             .await
             .unwrap();
 
         let fe_def = ForEachDef {
-            id: BlockId("fe".into()),
+            id: BlockId::new("fe"),
             collection: "items".into(),
             item_var: "item".into(),
             body: vec![orch8_types::sequence::BlockDefinition::Step(Box::new(
                 orch8_types::sequence::StepDef {
-                    id: BlockId("body".into()),
+                    id: BlockId::new("body"),
                     handler: "noop".into(),
                     params: json!({}),
                     delay: None,
@@ -886,7 +886,7 @@ mod tests {
         };
         let registry = HandlerRegistry::new();
         let tree = s.get_execution_tree(inst_id).await.unwrap();
-        let fe_node = tree.iter().find(|n| n.block_id.0 == "fe").unwrap().clone();
+        let fe_node = tree.iter().find(|n| n.block_id.as_str() == "fe").unwrap().clone();
 
         let outputs = OutputsSnapshot::new();
         execute_for_each(&s, &registry, &inst, &fe_node, &fe_def, &tree, &outputs)
@@ -896,7 +896,7 @@ mod tests {
         // After execution, the body should be Running and the bound item
         // should be `items[0]`.
         let after = s.get_execution_tree(inst_id).await.unwrap();
-        let body = after.iter().find(|n| n.block_id.0 == "body").unwrap();
+        let body = after.iter().find(|n| n.block_id.as_str() == "body").unwrap();
         assert_eq!(body.state, NodeState::Running);
 
         let updated = s.get_instance(inst_id).await.unwrap().unwrap();

@@ -19,13 +19,13 @@ use orch8_types::sequence::{BlockDefinition, SequenceDefinition, StepDef};
 fn make_sequence() -> SequenceDefinition {
     SequenceDefinition {
         id: SequenceId::new(),
-        tenant_id: TenantId("bench".into()),
-        namespace: Namespace("default".into()),
+        tenant_id: TenantId::unchecked("bench"),
+        namespace: Namespace::new("default"),
         name: "bench_seq".into(),
         version: 1,
         deprecated: false,
         blocks: vec![BlockDefinition::Step(Box::new(StepDef {
-            id: BlockId("s1".into()),
+            id: BlockId::new("s1"),
             handler: "noop".into(),
             params: json!({}),
             delay: None,
@@ -52,8 +52,8 @@ fn make_instance(seq_id: SequenceId) -> TaskInstance {
     TaskInstance {
         id: InstanceId::new(),
         sequence_id: seq_id,
-        tenant_id: TenantId("bench".into()),
-        namespace: Namespace("default".into()),
+        tenant_id: TenantId::unchecked("bench"),
+        namespace: Namespace::new("default"),
         state: InstanceState::Scheduled,
         next_fire_at: Some(now - chrono::Duration::seconds(10)),
         priority: Priority::Normal,
@@ -248,8 +248,8 @@ fn mk_instance(data: serde_json::Value) -> TaskInstance {
     TaskInstance {
         id: InstanceId::new(),
         sequence_id: SequenceId::new(),
-        tenant_id: TenantId("bench".into()),
-        namespace: Namespace("ns".into()),
+        tenant_id: TenantId::unchecked("bench"),
+        namespace: Namespace::new("ns"),
         state: InstanceState::Running,
         next_fire_at: None,
         priority: Priority::Normal,
@@ -305,7 +305,7 @@ async fn seed_preload_batch(
             _ => serde_json::Map::new(),
         };
         for j in 0..refs_per_instance {
-            let ref_k = format!("{}:ctx:data:f{}_{}", inst_id.0, i, j);
+            let ref_k = format!("{}:ctx:data:f{}_{}", inst_id.into_uuid(), i, j);
             storage
                 .save_externalized_state(inst_id, &ref_k, &payload)
                 .await
@@ -373,7 +373,7 @@ fn make_nested_blocks(depth: usize, breadth: usize) -> Vec<orch8_types::sequence
             return (0..breadth)
                 .map(|i| {
                     BlockDefinition::Step(Box::new(StepDef {
-                        id: BlockId(format!("s_{level}_{i}")),
+                        id: BlockId::new(format!("s_{level}_{i}")),
                         handler: "noop".into(),
                         params: serde_json::json!({}),
                         delay: None,
@@ -395,7 +395,7 @@ fn make_nested_blocks(depth: usize, breadth: usize) -> Vec<orch8_types::sequence
         }
         vec![BlockDefinition::Parallel(Box::new(
             orch8_types::sequence::ParallelDef {
-                id: BlockId(format!("p_{level}")),
+                id: BlockId::new(format!("p_{level}")),
                 branches: (0..breadth)
                     .map(|_| build_level(level - 1, breadth))
                     .collect(),
@@ -444,7 +444,7 @@ fn bench_evaluate_deep_tree(c: &mut Criterion) {
                     nodes.push(ExecutionNode {
                         id: ExecutionNodeId::new(),
                         instance_id: inst.id,
-                        block_id: BlockId(format!("s1_{i}")),
+                        block_id: BlockId::new(format!("s1_{i}")),
                         parent_id: None,
                         block_type: BlockType::Step,
                         branch_index: None,
@@ -472,18 +472,18 @@ fn bench_evaluate_deep_tree(c: &mut Criterion) {
                 let s = rt.block_on(SqliteStorage::in_memory()).unwrap();
                 let seq = SequenceDefinition {
                     id: SequenceId::new(),
-                    tenant_id: TenantId("bench".into()),
-                    namespace: Namespace("default".into()),
+                    tenant_id: TenantId::unchecked("bench"),
+                    namespace: Namespace::new("default"),
                     name: "parallel_seq".into(),
                     version: 1,
                     deprecated: false,
                     blocks: vec![BlockDefinition::Parallel(Box::new(
                         orch8_types::sequence::ParallelDef {
-                            id: BlockId("par1".into()),
+                            id: BlockId::new("par1"),
                             branches: (0..4)
                                 .map(|i| {
                                     vec![BlockDefinition::Step(Box::new(StepDef {
-                                        id: BlockId(format!("par_step_{i}")),
+                                        id: BlockId::new(format!("par_step_{i}")),
                                         handler: "noop".into(),
                                         params: serde_json::json!({}),
                                         delay: None,

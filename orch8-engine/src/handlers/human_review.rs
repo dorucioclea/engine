@@ -98,8 +98,8 @@ pub async fn handle_human_review(ctx: StepContext) -> Result<Value, StepError> {
 
         let payload = json!({
             "type": "human_review_pending",
-            "instance_id": ctx.instance_id.0.to_string(),
-            "block_id": ctx.block_id.0,
+            "instance_id": ctx.instance_id.into_uuid().to_string(),
+            "block_id": ctx.block_id.as_str(),
             "reviewer": reviewer,
             "instructions": instructions,
             "review_data": review_data,
@@ -136,8 +136,8 @@ pub async fn handle_human_review(ctx: StepContext) -> Result<Value, StepError> {
         "reviewer": reviewer,
         "instructions": instructions,
         "review_data": review_data,
-        "instance_id": ctx.instance_id.0.to_string(),
-        "block_id": ctx.block_id.0,
+        "instance_id": ctx.instance_id.into_uuid().to_string(),
+        "block_id": ctx.block_id.as_str(),
         "choices": choices_json,
     }))
 }
@@ -158,8 +158,8 @@ mod tests {
     async fn returns_review_context() {
         let ctx = StepContext {
             instance_id: InstanceId::new(),
-            tenant_id: TenantId("T".into()),
-            block_id: BlockId("review".into()),
+            tenant_id: TenantId::unchecked("T"),
+            block_id: BlockId::new("review"),
             params: json!({
                 "review_data": {"text": "LLM generated this"},
                 "instructions": "Check for accuracy",
@@ -181,8 +181,8 @@ mod tests {
     async fn defaults_when_minimal_params() {
         let ctx = StepContext {
             instance_id: InstanceId::new(),
-            tenant_id: TenantId("T".into()),
-            block_id: BlockId("r".into()),
+            tenant_id: TenantId::unchecked("T"),
+            block_id: BlockId::new("r"),
             params: json!({}),
             context: ExecutionContext::default(),
             attempt: 0,
@@ -205,8 +205,8 @@ mod tests {
         };
         let ctx = StepContext {
             instance_id: InstanceId::new(),
-            tenant_id: TenantId("T".into()),
-            block_id: BlockId("r".into()),
+            tenant_id: TenantId::unchecked("T"),
+            block_id: BlockId::new("r"),
             params: json!({}),
             context: ExecutionContext::default(),
             attempt: 0,
@@ -244,8 +244,8 @@ mod tests {
         };
         let ctx = StepContext {
             instance_id: InstanceId::new(),
-            tenant_id: TenantId("T".into()),
-            block_id: BlockId("r".into()),
+            tenant_id: TenantId::unchecked("T"),
+            block_id: BlockId::new("r"),
             params: json!({}),
             context: ExecutionContext::default(),
             attempt: 0,

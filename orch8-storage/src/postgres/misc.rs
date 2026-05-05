@@ -23,7 +23,7 @@ pub(super) async fn find_by_idempotency_key(
            FROM task_instances
            WHERE tenant_id = $1 AND idempotency_key = $2",
     )
-    .bind(&tenant_id.0)
+    .bind(tenant_id.as_str())
     .bind(idempotency_key)
     .fetch_optional(&store.pool)
     .await?;
@@ -82,7 +82,7 @@ pub(super) async fn concurrency_position(
             )",
     )
     .bind(concurrency_key)
-    .bind(instance_id.0)
+    .bind(instance_id.into_uuid())
     .fetch_one(&store.pool)
     .await?;
     Ok(row.0)
@@ -122,7 +122,7 @@ pub(super) async fn get_child_instances(
                   session_id, parent_instance_id, created_at, updated_at
            FROM task_instances WHERE parent_instance_id = $1 ORDER BY created_at",
     )
-    .bind(parent_instance_id.0)
+    .bind(parent_instance_id.into_uuid())
     .fetch_all(&store.pool)
     .await?;
     rows.into_iter().map(InstanceRow::into_instance).collect()
@@ -194,7 +194,7 @@ pub(super) async fn claim_worker_tasks_from_queue_for_tenant(
     .bind(worker_id)
     .bind(queue_name)
     .bind(i64::from(limit))
-    .bind(&tenant_id.0)
+    .bind(tenant_id.as_str())
     .fetch_all(&store.pool)
     .await?;
     Ok(rows.into_iter().map(WorkerTaskRow::into_task).collect())
@@ -220,7 +220,7 @@ pub(super) async fn inject_blocks(
               updated_at = NOW()
           WHERE id = $1",
     )
-    .bind(instance_id.0)
+    .bind(instance_id.into_uuid())
     .bind(blocks_json)
     .execute(&store.pool)
     .await?;
@@ -233,7 +233,7 @@ pub(super) async fn get_injected_blocks(
 ) -> Result<Option<serde_json::Value>, StorageError> {
     let row: Option<(Option<serde_json::Value>,)> =
         sqlx::query_as("SELECT metadata->'_injected_blocks' FROM task_instances WHERE id = $1")
-            .bind(instance_id.0)
+            .bind(instance_id.into_uuid())
             .fetch_optional(&store.pool)
             .await?;
     Ok(row
@@ -256,7 +256,7 @@ pub(super) async fn inject_blocks_at_position(
         let row: Option<(Option<serde_json::Value>,)> = sqlx::query_as(
             "SELECT metadata->'_injected_blocks' FROM task_instances WHERE id = $1 FOR UPDATE",
         )
-        .bind(instance_id.0)
+        .bind(instance_id.into_uuid())
         .fetch_optional(&mut *tx)
         .await?;
 
@@ -287,7 +287,7 @@ pub(super) async fn inject_blocks_at_position(
               updated_at = NOW()
           WHERE id = $1",
     )
-    .bind(instance_id.0)
+    .bind(instance_id.into_uuid())
     .bind(&final_value)
     .execute(&mut *tx)
     .await?;
@@ -316,7 +316,7 @@ pub(super) async fn record_or_get_emit_dedupe(
     .bind(scope_kind)
     .bind(&scope_value)
     .bind(key)
-    .bind(candidate_child.0)
+    .bind(candidate_child.into_uuid())
     .fetch_optional(&store.pool)
     .await?;
 
@@ -334,7 +334,7 @@ pub(super) async fn record_or_get_emit_dedupe(
     .fetch_one(&store.pool)
     .await?;
 
-    Ok(crate::EmitDedupeOutcome::AlreadyExists(InstanceId(
+    Ok(crate::EmitDedupeOutcome::AlreadyExists(InstanceId::from_uuid(
         existing,
     )))
 }
@@ -376,7 +376,7 @@ pub(super) async fn create_instance_with_dedupe(
     .bind(scope_kind)
     .bind(&scope_value)
     .bind(key)
-    .bind(instance.id.0)
+    .bind(instance.id.into_uuid())
     .fetch_optional(&mut *tx)
     .await?;
 
@@ -398,7 +398,7 @@ pub(super) async fn create_instance_with_dedupe(
     .bind(key)
     .fetch_one(&store.pool)
     .await?;
-    Ok(crate::EmitDedupeOutcome::AlreadyExists(InstanceId(
+    Ok(crate::EmitDedupeOutcome::AlreadyExists(InstanceId::from_uuid(
         existing,
     )))
 }

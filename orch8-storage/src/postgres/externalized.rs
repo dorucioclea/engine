@@ -30,7 +30,7 @@ pub(super) async fn save(
                     size_bytes = EXCLUDED.size_bytes",
         )
         .bind(Uuid::now_v7())
-        .bind(instance_id.0)
+        .bind(instance_id.into_uuid())
         .bind(ref_key)
         .bind(&compressed)
         .bind(raw_size)
@@ -48,7 +48,7 @@ pub(super) async fn save(
                     size_bytes = EXCLUDED.size_bytes",
         )
         .bind(Uuid::now_v7())
-        .bind(instance_id.0)
+        .bind(instance_id.into_uuid())
         .bind(ref_key)
         .bind(payload)
         .bind(raw_size)
@@ -135,7 +135,7 @@ pub(super) async fn batch_save(
         );
         qb.push_values(chunk, |mut b, (ref_key, payload_bytes, size_bytes)| {
             b.push_bind(Uuid::now_v7())
-                .push_bind(instance_id.0)
+                .push_bind(instance_id.into_uuid())
                 .push_bind(ref_key)
                 .push_bind(None::<serde_json::Value>)
                 .push_bind(payload_bytes)
@@ -161,7 +161,7 @@ pub(super) async fn batch_save(
         );
         qb.push_values(chunk, |mut b, (ref_key, payload, size_bytes)| {
             b.push_bind(Uuid::now_v7())
-                .push_bind(instance_id.0)
+                .push_bind(instance_id.into_uuid())
                 .push_bind(ref_key)
                 .push_bind(payload)
                 .push_bind(None::<Vec<u8>>)

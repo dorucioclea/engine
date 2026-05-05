@@ -69,8 +69,8 @@ pub async fn handle_tool_call(ctx: StepContext) -> Result<Value, StepError> {
         "tool_name": tool_name,
         "arguments": arguments,
         "context": {
-            "instance_id": ctx.instance_id.0.to_string(),
-            "block_id": ctx.block_id.0,
+            "instance_id": ctx.instance_id.into_uuid().to_string(),
+            "block_id": ctx.block_id.as_str(),
             "attempt": ctx.attempt,
         }
     });
@@ -205,8 +205,8 @@ mod tests {
         let storage: Arc<dyn StorageBackend> = Arc::new(SqliteStorage::in_memory().await.unwrap());
         let ctx = StepContext {
             instance_id: InstanceId::new(),
-            tenant_id: TenantId("T".into()),
-            block_id: BlockId("t".into()),
+            tenant_id: TenantId::unchecked("T"),
+            block_id: BlockId::new("t"),
             params: json!({"tool_name": "search"}),
             context: ExecutionContext::default(),
             attempt: 0,

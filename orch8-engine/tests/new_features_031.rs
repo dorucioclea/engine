@@ -25,7 +25,7 @@ use orch8_types::sequence::{BlockDefinition, SequenceDefinition, StepDef};
 
 fn mk_step(id: &str, handler: &str, params: serde_json::Value) -> BlockDefinition {
     BlockDefinition::Step(Box::new(StepDef {
-        id: BlockId(id.into()),
+        id: BlockId::new(id),
         handler: handler.into(),
         params,
         delay: None,
@@ -51,7 +51,7 @@ fn mk_step_cached(
     cache_key: &str,
 ) -> BlockDefinition {
     BlockDefinition::Step(Box::new(StepDef {
-        id: BlockId(id.into()),
+        id: BlockId::new(id),
         handler: handler.into(),
         params,
         delay: None,
@@ -73,8 +73,8 @@ fn mk_step_cached(
 fn mk_sequence(blocks: Vec<BlockDefinition>) -> SequenceDefinition {
     SequenceDefinition {
         id: SequenceId::new(),
-        tenant_id: TenantId("t".into()),
-        namespace: Namespace("ns".into()),
+        tenant_id: TenantId::unchecked("t"),
+        namespace: Namespace::new("ns"),
         name: "test-flow".into(),
         version: 1,
         deprecated: false,
@@ -89,8 +89,8 @@ fn mk_instance_with_ctx(seq_id: SequenceId, data: serde_json::Value) -> TaskInst
     TaskInstance {
         id: InstanceId::new(),
         sequence_id: seq_id,
-        tenant_id: TenantId("t".into()),
-        namespace: Namespace("ns".into()),
+        tenant_id: TenantId::unchecked("t"),
+        namespace: Namespace::new("ns"),
         state: InstanceState::Running,
         next_fire_at: None,
         priority: Priority::Normal,
@@ -200,7 +200,7 @@ async fn transform_end_to_end() {
     assert_eq!(final_inst.state, InstanceState::Completed);
 
     let output = storage
-        .get_block_output(inst.id, &BlockId("t1".into()))
+        .get_block_output(inst.id, &BlockId::new("t1"))
         .await
         .unwrap()
         .unwrap();
@@ -226,7 +226,7 @@ async fn transform_resolves_context_templates() {
     assert_eq!(final_inst.state, InstanceState::Completed);
 
     let output = storage
-        .get_block_output(inst.id, &BlockId("t1".into()))
+        .get_block_output(inst.id, &BlockId::new("t1"))
         .await
         .unwrap()
         .unwrap();
@@ -251,7 +251,7 @@ async fn assert_passing_completes() {
     assert_eq!(final_inst.state, InstanceState::Completed);
 
     let output = storage
-        .get_block_output(inst.id, &BlockId("a1".into()))
+        .get_block_output(inst.id, &BlockId::new("a1"))
         .await
         .unwrap()
         .unwrap();
@@ -278,7 +278,7 @@ async fn assert_failing_causes_instance_failure() {
     let nodes = storage.get_execution_tree(inst.id).await.unwrap();
     let node = nodes
         .iter()
-        .find(|n| n.block_id == BlockId("a1".into()))
+        .find(|n| n.block_id == BlockId::new("a1"))
         .unwrap();
     assert_eq!(node.state, NodeState::Failed);
 }
@@ -309,14 +309,14 @@ async fn merge_state_stores_and_readable_via_get_state() {
     assert_eq!(final_inst.state, InstanceState::Completed);
 
     let out1 = storage
-        .get_block_output(inst.id, &BlockId("gs1".into()))
+        .get_block_output(inst.id, &BlockId::new("gs1"))
         .await
         .unwrap()
         .unwrap();
     assert_eq!(out1.output["value"], "green");
 
     let out2 = storage
-        .get_block_output(inst.id, &BlockId("gs2".into()))
+        .get_block_output(inst.id, &BlockId::new("gs2"))
         .await
         .unwrap()
         .unwrap();
@@ -348,7 +348,7 @@ async fn state_template_reads_kv_state() {
     assert_eq!(final_inst.state, InstanceState::Completed);
 
     let output = storage
-        .get_block_output(inst.id, &BlockId("t1".into()))
+        .get_block_output(inst.id, &BlockId::new("t1"))
         .await
         .unwrap()
         .unwrap();
@@ -376,7 +376,7 @@ async fn state_template_with_merge_state() {
     assert_eq!(final_inst.state, InstanceState::Completed);
 
     let output = storage
-        .get_block_output(inst.id, &BlockId("t1".into()))
+        .get_block_output(inst.id, &BlockId::new("t1"))
         .await
         .unwrap()
         .unwrap();
@@ -408,7 +408,7 @@ async fn cache_key_caches_step_output() {
     assert_eq!(final_inst.state, InstanceState::Completed);
 
     let output = storage
-        .get_block_output(inst.id, &BlockId("c1".into()))
+        .get_block_output(inst.id, &BlockId::new("c1"))
         .await
         .unwrap()
         .unwrap();
@@ -451,8 +451,8 @@ async fn cache_key_serves_from_cache_on_second_instance() {
     let inst = TaskInstance {
         id: instance_id,
         sequence_id: seq_id,
-        tenant_id: TenantId("t".into()),
-        namespace: Namespace("ns".into()),
+        tenant_id: TenantId::unchecked("t"),
+        namespace: Namespace::new("ns"),
         state: InstanceState::Running,
         next_fire_at: None,
         priority: Priority::Normal,
@@ -481,7 +481,7 @@ async fn cache_key_serves_from_cache_on_second_instance() {
     assert_eq!(final_inst.state, InstanceState::Completed);
 
     let output = storage
-        .get_block_output(inst.id, &BlockId("c2".into()))
+        .get_block_output(inst.id, &BlockId::new("c2"))
         .await
         .unwrap()
         .unwrap();

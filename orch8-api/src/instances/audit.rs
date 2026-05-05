@@ -24,7 +24,7 @@ pub async fn list_audit_log(
     // Verify instance belongs to caller's tenant
     let instance = state
         .storage
-        .get_instance(InstanceId(id))
+        .get_instance(InstanceId::from_uuid(id))
         .await
         .map_err(|e| ApiError::from_storage(e, "instance"))?
         .ok_or_else(|| ApiError::NotFound(format!("instance {id}")))?;
@@ -36,7 +36,7 @@ pub async fn list_audit_log(
 
     let entries = state
         .storage
-        .list_audit_log(InstanceId(id), 200)
+        .list_audit_log(InstanceId::from_uuid(id), 200)
         .await
         .map_err(|e| ApiError::from_storage(e, "audit_log"))?;
     Ok(Json(entries))

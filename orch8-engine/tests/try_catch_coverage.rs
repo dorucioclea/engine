@@ -20,7 +20,7 @@ use orch8_types::sequence::{BlockDefinition, SequenceDefinition, StepDef, TryCat
 
 fn mk_step(id: &str) -> BlockDefinition {
     BlockDefinition::Step(Box::new(StepDef {
-        id: BlockId(id.into()),
+        id: BlockId::new(id),
         handler: "builtin.noop".into(),
         params: serde_json::Value::Null,
         delay: None,
@@ -51,8 +51,8 @@ async fn setup(
 
     let seq = SequenceDefinition {
         id: SequenceId::new(),
-        tenant_id: TenantId("t".into()),
-        namespace: Namespace("ns".into()),
+        tenant_id: TenantId::unchecked("t"),
+        namespace: Namespace::new("ns"),
         name: "tc-cov".into(),
         version: 1,
         deprecated: false,
@@ -66,8 +66,8 @@ async fn setup(
     let instance = TaskInstance {
         id: InstanceId::new(),
         sequence_id: seq.id,
-        tenant_id: TenantId("t".into()),
-        namespace: Namespace("ns".into()),
+        tenant_id: TenantId::unchecked("t"),
+        namespace: Namespace::new("ns"),
         state: InstanceState::Running,
         next_fire_at: None,
         priority: Priority::Normal,
@@ -109,7 +109,7 @@ fn node_by_block<'a>(
     block_id: &str,
 ) -> &'a orch8_types::execution::ExecutionNode {
     tree.iter()
-        .find(|n| n.block_id.0 == block_id)
+        .find(|n| n.block_id.as_str() == block_id)
         .expect("block in tree")
 }
 
@@ -124,7 +124,7 @@ async fn refresh(
 #[tokio::test]
 async fn try_success_skips_catch_then_runs_finally() {
     let tc = TryCatchDef {
-        id: BlockId("tc".into()),
+        id: BlockId::new("tc"),
         try_block: vec![mk_step("t1")],
         catch_block: vec![mk_step("c1")],
         finally_block: Some(vec![mk_step("f1")]),
@@ -160,7 +160,7 @@ async fn try_success_skips_catch_then_runs_finally() {
 #[tokio::test]
 async fn try_failure_runs_catch_then_finally() {
     let tc = TryCatchDef {
-        id: BlockId("tc".into()),
+        id: BlockId::new("tc"),
         try_block: vec![mk_step("t1")],
         catch_block: vec![mk_step("c1")],
         finally_block: Some(vec![mk_step("f1")]),
@@ -194,7 +194,7 @@ async fn try_failure_runs_catch_then_finally() {
 #[tokio::test]
 async fn catch_success_recovers_node_completes() {
     let tc = TryCatchDef {
-        id: BlockId("tc".into()),
+        id: BlockId::new("tc"),
         try_block: vec![mk_step("t1")],
         catch_block: vec![mk_step("c1")],
         finally_block: None,
@@ -239,7 +239,7 @@ async fn catch_success_recovers_node_completes() {
 #[tokio::test]
 async fn catch_failure_fails_node_even_after_finally_runs() {
     let tc = TryCatchDef {
-        id: BlockId("tc".into()),
+        id: BlockId::new("tc"),
         try_block: vec![mk_step("t1")],
         catch_block: vec![mk_step("c1")],
         finally_block: Some(vec![mk_step("f1")]),
@@ -288,7 +288,7 @@ async fn catch_failure_fails_node_even_after_finally_runs() {
 #[tokio::test]
 async fn finally_runs_when_try_and_catch_both_fail() {
     let tc = TryCatchDef {
-        id: BlockId("tc".into()),
+        id: BlockId::new("tc"),
         try_block: vec![mk_step("t1")],
         catch_block: vec![mk_step("c1")],
         finally_block: Some(vec![mk_step("f1")]),
@@ -334,7 +334,7 @@ async fn finally_runs_when_try_and_catch_both_fail() {
 #[tokio::test]
 async fn error_context_injected_into_catch() {
     let tc = TryCatchDef {
-        id: BlockId("tc".into()),
+        id: BlockId::new("tc"),
         try_block: vec![mk_step("t1")],
         catch_block: vec![mk_step("c1")],
         finally_block: None,
@@ -373,7 +373,7 @@ async fn error_context_injected_into_catch() {
 #[tokio::test]
 async fn error_context_lists_failed_block_ids() {
     let tc = TryCatchDef {
-        id: BlockId("tc".into()),
+        id: BlockId::new("tc"),
         try_block: vec![mk_step("t1"), mk_step("t2")],
         catch_block: vec![mk_step("c1")],
         finally_block: None,
@@ -417,7 +417,7 @@ async fn error_context_lists_failed_block_ids() {
 #[tokio::test]
 async fn empty_try_block_immediate_success() {
     let tc = TryCatchDef {
-        id: BlockId("tc".into()),
+        id: BlockId::new("tc"),
         try_block: vec![],
         catch_block: vec![mk_step("c1")],
         finally_block: None,
@@ -442,7 +442,7 @@ async fn empty_try_block_immediate_success() {
 #[tokio::test]
 async fn empty_catch_block_swallows_try_failure() {
     let tc = TryCatchDef {
-        id: BlockId("tc".into()),
+        id: BlockId::new("tc"),
         try_block: vec![mk_step("t1")],
         catch_block: vec![],
         finally_block: None,
@@ -471,7 +471,7 @@ async fn empty_catch_block_swallows_try_failure() {
 #[tokio::test]
 async fn empty_finally_block_is_noop() {
     let tc = TryCatchDef {
-        id: BlockId("tc".into()),
+        id: BlockId::new("tc"),
         try_block: vec![mk_step("t1")],
         catch_block: vec![mk_step("c1")],
         finally_block: Some(vec![]),

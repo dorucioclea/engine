@@ -46,16 +46,16 @@ fn validate_injected_blocks(blocks: &serde_json::Value) -> Result<Vec<String>, A
 fn block_def_id(def: &orch8_types::sequence::BlockDefinition) -> String {
     use orch8_types::sequence::BlockDefinition;
     match def {
-        BlockDefinition::Step(s) => s.id.0.clone(),
-        BlockDefinition::Parallel(p) => p.id.0.clone(),
-        BlockDefinition::Race(r) => r.id.0.clone(),
-        BlockDefinition::Loop(l) => l.id.0.clone(),
-        BlockDefinition::ForEach(f) => f.id.0.clone(),
-        BlockDefinition::Router(r) => r.id.0.clone(),
-        BlockDefinition::TryCatch(t) => t.id.0.clone(),
-        BlockDefinition::SubSequence(s) => s.id.0.clone(),
-        BlockDefinition::ABSplit(a) => a.id.0.clone(),
-        BlockDefinition::CancellationScope(cs) => cs.id.0.clone(),
+        BlockDefinition::Step(s) => s.id.as_str().to_owned(),
+        BlockDefinition::Parallel(p) => p.id.as_str().to_owned(),
+        BlockDefinition::Race(r) => r.id.as_str().to_owned(),
+        BlockDefinition::Loop(l) => l.id.as_str().to_owned(),
+        BlockDefinition::ForEach(f) => f.id.as_str().to_owned(),
+        BlockDefinition::Router(r) => r.id.as_str().to_owned(),
+        BlockDefinition::TryCatch(t) => t.id.as_str().to_owned(),
+        BlockDefinition::SubSequence(s) => s.id.as_str().to_owned(),
+        BlockDefinition::ABSplit(a) => a.id.as_str().to_owned(),
+        BlockDefinition::CancellationScope(cs) => cs.id.as_str().to_owned(),
     }
 }
 
@@ -75,7 +75,7 @@ pub async fn inject_blocks(
     // Verify instance belongs to caller's tenant
     let instance = state
         .storage
-        .get_instance(InstanceId(id))
+        .get_instance(InstanceId::from_uuid(id))
         .await
         .map_err(|e| ApiError::from_storage(e, "instance"))?
         .ok_or_else(|| ApiError::NotFound(format!("instance {id}")))?;
@@ -92,7 +92,7 @@ pub async fn inject_blocks(
     // clobber each other on the write-back.
     let final_blocks = state
         .storage
-        .inject_blocks_at_position(InstanceId(id), &body.blocks, body.position)
+        .inject_blocks_at_position(InstanceId::from_uuid(id), &body.blocks, body.position)
         .await
         .map_err(|e| ApiError::from_storage(e, "instance"))?;
 
@@ -112,7 +112,7 @@ mod tests {
     #[test]
     fn block_def_id_extracts_step_id() {
         let def = BlockDefinition::Step(Box::new(StepDef {
-            id: BlockId("step_1".into()),
+            id: BlockId::new("step_1"),
             handler: "noop".into(),
             params: serde_json::Value::Null,
             delay: None,

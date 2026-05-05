@@ -13,9 +13,9 @@ pub(super) async fn create(storage: &SqliteStorage, s: &CronSchedule) -> Result<
         "INSERT INTO cron_schedules (id,tenant_id,namespace,sequence_id,cron_expr,timezone,enabled,metadata,next_fire_at,last_triggered_at,created_at,updated_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)"
     )
     .bind(s.id.to_string())
-    .bind(&s.tenant_id.0)
-    .bind(&s.namespace.0)
-    .bind(s.sequence_id.0.to_string())
+    .bind(&s.tenant_id.as_str())
+    .bind(&s.namespace.as_str())
+    .bind(s.sequence_id.into_uuid().to_string())
     .bind(&s.cron_expr)
     .bind(&s.timezone)
     .bind(s.enabled as i32)
@@ -47,7 +47,7 @@ pub(super) async fn list(
     let cap = limit.min(1000) as i64;
     let rows = if let Some(tid) = tenant_id {
         sqlx::query("SELECT * FROM cron_schedules WHERE tenant_id=?1 ORDER BY created_at LIMIT ?2")
-            .bind(&tid.0)
+            .bind(tid.as_str())
             .bind(cap)
             .fetch_all(&storage.pool)
             .await

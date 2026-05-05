@@ -10,7 +10,7 @@ impl SqliteStorage {
         key: &str,
         value: &serde_json::Value,
     ) -> Result<(), StorageError> {
-        let id_str = instance_id.0.to_string();
+        let id_str = instance_id.into_uuid().to_string();
         let val_str =
             serde_json::to_string(value).map_err(|e| StorageError::Query(e.to_string()))?;
         sqlx::query(
@@ -32,7 +32,7 @@ impl SqliteStorage {
         instance_id: InstanceId,
         key: &str,
     ) -> Result<Option<serde_json::Value>, StorageError> {
-        let id_str = instance_id.0.to_string();
+        let id_str = instance_id.into_uuid().to_string();
         let row: Option<(String,)> = sqlx::query_as(
             "SELECT value FROM instance_kv_state WHERE instance_id = ?1 AND key = ?2",
         )
@@ -55,7 +55,7 @@ impl SqliteStorage {
         &self,
         instance_id: InstanceId,
     ) -> Result<std::collections::HashMap<String, serde_json::Value>, StorageError> {
-        let id_str = instance_id.0.to_string();
+        let id_str = instance_id.into_uuid().to_string();
         let rows: Vec<(String, String)> =
             sqlx::query_as("SELECT key, value FROM instance_kv_state WHERE instance_id = ?1")
                 .bind(&id_str)
@@ -76,7 +76,7 @@ impl SqliteStorage {
         instance_id: InstanceId,
         key: &str,
     ) -> Result<(), StorageError> {
-        let id_str = instance_id.0.to_string();
+        let id_str = instance_id.into_uuid().to_string();
         sqlx::query("DELETE FROM instance_kv_state WHERE instance_id = ?1 AND key = ?2")
             .bind(&id_str)
             .bind(key)

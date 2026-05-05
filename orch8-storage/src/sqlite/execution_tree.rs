@@ -12,10 +12,10 @@ pub(super) async fn create_node(
     sqlx::query(
         "INSERT INTO execution_tree (id,instance_id,block_id,parent_id,block_type,branch_index,state,started_at,completed_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)"
     )
-    .bind(node.id.0.to_string())
-    .bind(node.instance_id.0.to_string())
-    .bind(&node.block_id.0)
-    .bind(node.parent_id.map(|p| p.0.to_string()))
+    .bind(node.id.into_uuid().to_string())
+    .bind(node.instance_id.into_uuid().to_string())
+    .bind(&node.block_id.as_str())
+    .bind(node.parent_id.map(|p| p.to_string()))
     .bind(node.block_type.to_string())
     .bind(node.branch_index.map(|b| b as i32))
     .bind(node.state.to_string())
@@ -34,10 +34,10 @@ pub(super) async fn create_batch(
         sqlx::query(
             "INSERT INTO execution_tree (id,instance_id,block_id,parent_id,block_type,branch_index,state,started_at,completed_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)"
         )
-        .bind(node.id.0.to_string())
-        .bind(node.instance_id.0.to_string())
-        .bind(&node.block_id.0)
-        .bind(node.parent_id.map(|p| p.0.to_string()))
+        .bind(node.id.into_uuid().to_string())
+        .bind(node.instance_id.into_uuid().to_string())
+        .bind(&node.block_id.as_str())
+        .bind(node.parent_id.map(|p| p.to_string()))
         .bind(node.block_type.to_string())
         .bind(node.branch_index.map(|b| b as i32))
         .bind(node.state.to_string())
@@ -54,7 +54,7 @@ pub(super) async fn get_tree(
     instance_id: InstanceId,
 ) -> Result<Vec<ExecutionNode>, StorageError> {
     let rows = sqlx::query("SELECT * FROM execution_tree WHERE instance_id=?1 ORDER BY id")
-        .bind(instance_id.0.to_string())
+        .bind(instance_id.into_uuid().to_string())
         .fetch_all(&storage.pool)
         .await?;
     rows.iter().map(row_to_node).collect()
@@ -75,21 +75,21 @@ pub(super) async fn update_node_state(
     };
     if let Some(ref s) = started {
         sqlx::query("UPDATE execution_tree SET state=?2, started_at=?3 WHERE id=?1")
-            .bind(node_id.0.to_string())
+            .bind(node_id.into_uuid().to_string())
             .bind(state.to_string())
             .bind(s)
             .execute(&storage.pool)
             .await?;
     } else if let Some(ref c) = completed {
         sqlx::query("UPDATE execution_tree SET state=?2, completed_at=?3 WHERE id=?1")
-            .bind(node_id.0.to_string())
+            .bind(node_id.into_uuid().to_string())
             .bind(state.to_string())
             .bind(c)
             .execute(&storage.pool)
             .await?;
     } else {
         sqlx::query("UPDATE execution_tree SET state=?2 WHERE id=?1")
-            .bind(node_id.0.to_string())
+            .bind(node_id.into_uuid().to_string())
             .bind(state.to_string())
             .execute(&storage.pool)
             .await?;
@@ -133,7 +133,7 @@ pub(super) async fn update_nodes_state(
     qb.push(" WHERE id IN (");
     let mut sep = qb.separated(", ");
     for id in node_ids {
-        sep.push_bind(id.0.to_string());
+        sep.push_bind(id.to_string());
     }
     sep.push_unseparated(")");
     qb.build().execute(&storage.pool).await?;
@@ -153,7 +153,7 @@ pub(super) async fn batch_activate_nodes(
     qb.push(" WHERE state='pending' AND id IN (");
     let mut sep = qb.separated(", ");
     for id in node_ids {
-        sep.push_bind(id.0.to_string());
+        sep.push_bind(id.to_string());
     }
     sep.push_unseparated(")");
     qb.build().execute(&storage.pool).await?;
@@ -165,7 +165,7 @@ pub(super) async fn delete_tree(
     instance_id: InstanceId,
 ) -> Result<(), StorageError> {
     sqlx::query("DELETE FROM execution_tree WHERE instance_id = ?1")
-        .bind(instance_id.0.to_string())
+        .bind(instance_id.into_uuid().to_string())
         .execute(&storage.pool)
         .await?;
     Ok(())
@@ -176,7 +176,7 @@ pub(super) async fn get_children(
     parent_id: ExecutionNodeId,
 ) -> Result<Vec<ExecutionNode>, StorageError> {
     let rows = sqlx::query("SELECT * FROM execution_tree WHERE parent_id=?1")
-        .bind(parent_id.0.to_string())
+        .bind(parent_id.into_uuid().to_string())
         .fetch_all(&storage.pool)
         .await?;
     rows.iter().map(row_to_node).collect()

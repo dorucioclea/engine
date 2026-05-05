@@ -11,8 +11,8 @@ use uuid::Uuid;
 
 #[test]
 fn build_prefetch_map_merges_signals_and_blocks() {
-    let id1 = InstanceId(Uuid::now_v7());
-    let id2 = InstanceId(Uuid::now_v7());
+    let id1 = InstanceId::new();
+    let id2 = InstanceId::new();
 
     let mut signals = HashMap::new();
     signals.insert(
@@ -29,8 +29,8 @@ fn build_prefetch_map_merges_signals_and_blocks() {
     );
 
     let mut completed = HashMap::new();
-    completed.insert(id1, vec![BlockId("step1".into())]);
-    completed.insert(id2, vec![BlockId("step2".into())]);
+    completed.insert(id1, vec![BlockId::new("step1")]);
+    completed.insert(id2, vec![BlockId::new("step2")]);
 
     let result = build_prefetch_map(signals, completed);
 
@@ -50,7 +50,7 @@ fn build_prefetch_map_empty_inputs() {
 #[test]
 fn build_prefetch_map_signals_only_instance() {
     // An instance with signals but no completed blocks must still appear.
-    let id = InstanceId(Uuid::now_v7());
+    let id = InstanceId::new();
     let mut signals = HashMap::new();
     signals.insert(
         id,
@@ -74,9 +74,9 @@ fn build_prefetch_map_signals_only_instance() {
 #[test]
 fn build_prefetch_map_completed_only_instance() {
     // An instance with only completed-block data must still appear with empty signals.
-    let id = InstanceId(Uuid::now_v7());
+    let id = InstanceId::new();
     let mut completed = HashMap::new();
-    completed.insert(id, vec![BlockId("step-a".into()), BlockId("step-b".into())]);
+    completed.insert(id, vec![BlockId::new("step-a"), BlockId::new("step-b")]);
 
     let result = build_prefetch_map(HashMap::new(), completed);
     assert_eq!(result.len(), 1);
@@ -104,8 +104,8 @@ async fn seed_instance_with_context(
     let inst = TaskInstance {
         id,
         sequence_id: SequenceId::new(),
-        tenant_id: TenantId("t".into()),
-        namespace: Namespace("ns".into()),
+        tenant_id: TenantId::unchecked("t"),
+        namespace: Namespace::new("ns"),
         state: InstanceState::Running,
         next_fire_at: None,
         priority: Priority::Normal,
@@ -125,7 +125,7 @@ async fn seed_instance_with_context(
 
 fn mk_step_def(id: &str, handler: &str, params: serde_json::Value) -> StepDef {
     StepDef {
-        id: BlockId(id.into()),
+        id: BlockId::new(id),
         handler: handler.into(),
         params,
         delay: None,
@@ -319,8 +319,8 @@ use orch8_types::sequence::{BlockDefinition, DelaySpec, SequenceDefinition};
 fn mk_sequence(blocks: Vec<BlockDefinition>) -> SequenceDefinition {
     SequenceDefinition {
         id: SequenceId::new(),
-        tenant_id: TenantId("t".into()),
-        namespace: Namespace("ns".into()),
+        tenant_id: TenantId::unchecked("t"),
+        namespace: Namespace::new("ns"),
         name: "cache-test".into(),
         version: 1,
         deprecated: false,
@@ -377,8 +377,8 @@ async fn seed_instance_in_state(
     let inst = TaskInstance {
         id,
         sequence_id: SequenceId::new(),
-        tenant_id: TenantId("t".into()),
-        namespace: Namespace("ns".into()),
+        tenant_id: TenantId::unchecked("t"),
+        namespace: Namespace::new("ns"),
         state,
         next_fire_at: None,
         priority: Priority::Normal,
@@ -535,8 +535,8 @@ async fn seed_rate_limit_at_cap(
     storage
         .upsert_rate_limit(&RateLimit {
             id: Uuid::now_v7(),
-            tenant_id: TenantId(tenant.into()),
-            resource_key: ResourceKey(resource_key.into()),
+            tenant_id: TenantId::unchecked(tenant),
+            resource_key: ResourceKey::new(resource_key),
             max_count,
             window_seconds: 60,
             // Fill the bucket to its cap so the next `check_rate_limit`
@@ -624,15 +624,15 @@ async fn seed_instance_with_concurrency(
     storage: &dyn StorageBackend,
     id: InstanceId,
     key: Option<&str>,
-    max: Option<i32>,
+    max: Option<u32>,
     state: InstanceState,
 ) {
     let now = Utc::now();
     let inst = TaskInstance {
         id,
         sequence_id: SequenceId::new(),
-        tenant_id: TenantId("t".into()),
-        namespace: Namespace("ns".into()),
+        tenant_id: TenantId::unchecked("t"),
+        namespace: Namespace::new("ns"),
         state,
         next_fire_at: None,
         priority: Priority::Normal,

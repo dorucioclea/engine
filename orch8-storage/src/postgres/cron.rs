@@ -16,9 +16,9 @@ pub(super) async fn create(store: &PostgresStorage, s: &CronSchedule) -> Result<
           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)",
     )
     .bind(s.id)
-    .bind(&s.tenant_id.0)
-    .bind(&s.namespace.0)
-    .bind(s.sequence_id.0)
+    .bind(&s.tenant_id.as_str())
+    .bind(&s.namespace.as_str())
+    .bind(s.sequence_id.into_uuid())
     .bind(&s.cron_expr)
     .bind(&s.timezone)
     .bind(s.enabled)
@@ -59,7 +59,7 @@ pub(super) async fn list(
                      metadata, last_triggered_at, next_fire_at, created_at, updated_at
               FROM cron_schedules WHERE tenant_id = $1 ORDER BY created_at LIMIT $2",
         )
-        .bind(&tid.0)
+        .bind(tid.as_str())
         .bind(cap)
         .fetch_all(&store.pool)
         .await?

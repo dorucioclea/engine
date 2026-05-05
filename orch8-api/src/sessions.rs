@@ -114,7 +114,7 @@ async fn get_session_by_key(
     }
     let session = state
         .storage
-        .get_session_by_key(&TenantId(tenant_id), &key)
+        .get_session_by_key(&TenantId::unchecked(tenant_id), &key)
         .await
         .map_err(|e| ApiError::from_storage(e, "session"))?
         .ok_or_else(|| ApiError::NotFound("session not found".into()))?;

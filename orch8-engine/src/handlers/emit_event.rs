@@ -119,7 +119,7 @@ pub(crate) async fn handle_emit_event(ctx: StepContext) -> Result<Value, StepErr
     meta_obj.insert("source".into(), Value::String("emit_event".into()));
     meta_obj.insert(
         "parent_instance_id".into(),
-        Value::String(ctx.instance_id.0.to_string()),
+        Value::String(ctx.instance_id.into_uuid().to_string()),
     );
     let meta_with_source = Value::Object(meta_obj);
 
@@ -155,12 +155,12 @@ pub(crate) async fn handle_emit_event(ctx: StepContext) -> Result<Value, StepErr
             .map_err(|e| map_storage_err(&e))?;
         return Ok(match outcome {
             EmitDedupeOutcome::AlreadyExists(existing_id) => json!({
-                "instance_id": existing_id.0.to_string(),
+                "instance_id": existing_id.to_string(),
                 "sequence_name": sequence_name,
                 "deduped": true,
             }),
             EmitDedupeOutcome::Inserted => json!({
-                "instance_id": candidate_child_id.0.to_string(),
+                "instance_id": candidate_child_id.to_string(),
                 "sequence_name": sequence_name,
                 "deduped": false,
             }),
@@ -179,7 +179,7 @@ pub(crate) async fn handle_emit_event(ctx: StepContext) -> Result<Value, StepErr
     .map_err(|e| permanent(format!("failed to create child instance: {e}")))?;
 
     Ok(json!({
-        "instance_id": candidate_child_id.0.to_string(),
+        "instance_id": candidate_child_id.to_string(),
         "sequence_name": sequence_name,
         "deduped": false,
     }))
@@ -205,8 +205,8 @@ mod tests {
         TaskInstance {
             id: InstanceId::new(),
             sequence_id: SequenceId::new(),
-            tenant_id: TenantId(tenant.into()),
-            namespace: Namespace("default".into()),
+            tenant_id: TenantId::unchecked(tenant),
+            namespace: Namespace::new("default"),
             state,
             next_fire_at: Some(now),
             priority: Priority::Normal,
@@ -232,8 +232,8 @@ mod tests {
         let id = SequenceId::new();
         let seq = SequenceDefinition {
             id,
-            tenant_id: TenantId(tenant.into()),
-            namespace: Namespace("default".into()),
+            tenant_id: TenantId::unchecked(tenant),
+            namespace: Namespace::new("default"),
             name: name.into(),
             version: 1,
             deprecated: false,
@@ -251,7 +251,7 @@ mod tests {
             slug: slug.into(),
             sequence_name: seq_name.into(),
             version: None,
-            tenant_id: TenantId(tenant.into()),
+            tenant_id: TenantId::unchecked(tenant),
             namespace: "default".into(),
             enabled: true,
             secret: None,
@@ -270,7 +270,7 @@ mod tests {
         StepContext {
             instance_id: caller.id,
             tenant_id: caller.tenant_id.clone(),
-            block_id: BlockId("emit".into()),
+            block_id: BlockId::new("emit"),
             params,
             context: ExecutionContext::default(),
             attempt: 1,
@@ -312,18 +312,18 @@ mod tests {
 
         let child_uuid = uuid::Uuid::parse_str(child_id_str).unwrap();
         let child = storage
-            .get_instance(InstanceId(child_uuid))
+            .get_instance(InstanceId::from_uuid(child_uuid))
             .await
             .unwrap()
             .expect("child instance exists");
-        assert_eq!(child.tenant_id.0, "T1");
+        assert_eq!(child.tenant_id.as_str(), "T1");
         // The child's _trigger_event meta should contain our system-set fields,
         // with "source" overwritten by the handler (not "spoofed").
         let event_meta = &child.metadata["_trigger_event"];
         assert_eq!(event_meta["source"], json!("emit_event"));
         assert_eq!(
             event_meta["parent_instance_id"],
-            json!(caller.id.0.to_string())
+            json!(caller.id.into_uuid().to_string())
         );
         assert_eq!(event_meta["custom"], json!("value"));
         // Payload preserved.
@@ -403,7 +403,7 @@ mod tests {
 
         // Verify no child instance was created in either tenant (no leakage).
         let filter_t1 = orch8_types::filter::InstanceFilter {
-            tenant_id: Some(TenantId("T1".into())),
+            tenant_id: Some(TenantId::unchecked("T1")),
             ..Default::default()
         };
         let pagination = orch8_types::filter::Pagination::default();
@@ -415,7 +415,7 @@ mod tests {
         assert_eq!(instances_t1.len(), 1);
         assert_eq!(instances_t1[0].id, caller.id);
         let filter_t2 = orch8_types::filter::InstanceFilter {
-            tenant_id: Some(TenantId("T2".into())),
+            tenant_id: Some(TenantId::unchecked("T2")),
             ..Default::default()
         };
         let instances_t2 = storage
@@ -456,11 +456,11 @@ mod tests {
             .expect("instance_id in response");
         let child_uuid = uuid::Uuid::parse_str(child_id_str).unwrap();
         let child = storage
-            .get_instance(InstanceId(child_uuid))
+            .get_instance(InstanceId::from_uuid(child_uuid))
             .await
             .unwrap()
             .expect("child instance exists");
-        assert_eq!(child.tenant_id.0, "T1");
+        assert_eq!(child.tenant_id.as_str(), "T1");
     }
 
     #[tokio::test]
@@ -508,7 +508,7 @@ mod tests {
 
         // Only ONE child instance exists in storage (caller + one child = 2).
         let filter = orch8_types::filter::InstanceFilter {
-            tenant_id: Some(TenantId("T1".into())),
+            tenant_id: Some(TenantId::unchecked("T1")),
             ..Default::default()
         };
         let pagination = orch8_types::filter::Pagination::default();
@@ -558,7 +558,7 @@ mod tests {
 
         // Two callers + two distinct children in T1 = 4 instances.
         let filter = orch8_types::filter::InstanceFilter {
-            tenant_id: Some(TenantId("T1".into())),
+            tenant_id: Some(TenantId::unchecked("T1")),
             ..Default::default()
         };
         let pagination = orch8_types::filter::Pagination::default();
@@ -603,7 +603,7 @@ mod tests {
         // the atomic method existed, a crash between the dedupe insert and
         // the instance create could leave this lookup returning None while
         // the dedupe row still pointed at the id.
-        let fetched = storage.get_instance(InstanceId(child_uuid)).await.unwrap();
+        let fetched = storage.get_instance(InstanceId::from_uuid(child_uuid)).await.unwrap();
         assert!(
             fetched.is_some(),
             "dedupe Inserted must imply child instance persisted (finding #2)"
@@ -664,7 +664,7 @@ mod tests {
 
         // Two callers + exactly one child = 3 instances in T1.
         let filter = orch8_types::filter::InstanceFilter {
-            tenant_id: Some(TenantId("T1".into())),
+            tenant_id: Some(TenantId::unchecked("T1")),
             ..Default::default()
         };
         let pagination = orch8_types::filter::Pagination::default();

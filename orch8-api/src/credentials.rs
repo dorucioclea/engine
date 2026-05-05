@@ -168,12 +168,12 @@ async fn create_credential(
     }
 
     let tenant_id =
-        crate::auth::enforce_tenant_create(&tenant_ctx, &TenantId(body.tenant_id.clone()))?;
+        crate::auth::enforce_tenant_create(&tenant_ctx, &TenantId::unchecked(body.tenant_id.clone()))?;
 
     let now = chrono::Utc::now();
     let credential = CredentialDef {
         id: body.id,
-        tenant_id: tenant_id.0,
+        tenant_id: tenant_id.into_string(),
         name: body.name,
         kind: body.kind,
         value: SecretString::new(body.value),
@@ -226,7 +226,7 @@ async fn get_credential(
         .ok_or_else(|| ApiError::NotFound(format!("credential '{id}'")))?;
     crate::auth::enforce_tenant_access(
         &tenant_ctx,
-        &TenantId(credential.tenant_id.clone()),
+        &TenantId::unchecked(credential.tenant_id.clone()),
         &format!("credential '{id}'"),
     )?;
     Ok(Json(CredentialResponse::from(credential)))
@@ -246,7 +246,7 @@ async fn update_credential(
         .ok_or_else(|| ApiError::NotFound(format!("credential '{id}'")))?;
     crate::auth::enforce_tenant_access(
         &tenant_ctx,
-        &TenantId(credential.tenant_id.clone()),
+        &TenantId::unchecked(credential.tenant_id.clone()),
         &format!("credential '{id}'"),
     )?;
 
@@ -298,7 +298,7 @@ async fn delete_credential(
         .ok_or_else(|| ApiError::NotFound(format!("credential '{id}'")))?;
     crate::auth::enforce_tenant_access(
         &tenant_ctx,
-        &TenantId(credential.tenant_id.clone()),
+        &TenantId::unchecked(credential.tenant_id.clone()),
         &format!("credential '{id}'"),
     )?;
 

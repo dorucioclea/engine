@@ -27,7 +27,7 @@ pub(super) async fn save(
              VALUES (?1, ?2, NULL, ?3, 'zstd', ?4, ?5)",
         )
         .bind(ref_key)
-        .bind(instance_id.0.to_string())
+        .bind(instance_id.into_uuid().to_string())
         .bind(compressed)
         .bind(raw_size)
         .bind(ts(Utc::now()))
@@ -40,7 +40,7 @@ pub(super) async fn save(
              VALUES (?1, ?2, ?3, NULL, NULL, ?4, ?5)",
         )
         .bind(ref_key)
-        .bind(instance_id.0.to_string())
+        .bind(instance_id.into_uuid().to_string())
         .bind(serde_json::to_string(payload).map_err(StorageError::Serialization)?)
         .bind(raw_size)
         .bind(ts(Utc::now()))
@@ -119,7 +119,7 @@ pub(super) async fn batch_save(
     }
 
     let now = ts(Utc::now());
-    let inst_id = instance_id.0.to_string();
+    let inst_id = instance_id.into_uuid().to_string();
     let mut tx = storage.pool.begin().await?;
 
     if !compressed.is_empty() {
@@ -276,7 +276,7 @@ mod tests {
             "INSERT INTO task_instances (id, sequence_id, tenant_id, namespace, created_at, updated_at) \
              VALUES (?1, 'seq', 'tenant', 'default', ?2, ?2)",
         )
-        .bind(id.0.to_string())
+        .bind(id.to_string())
         .bind(&now)
         .execute(&store.pool)
         .await
@@ -404,21 +404,21 @@ mod tests {
         // Sanity: all three rows present before the delete.
         let before: i64 =
             sqlx::query_scalar("SELECT COUNT(*) FROM externalized_state WHERE instance_id = ?1")
-                .bind(inst.0.to_string())
+                .bind(inst.to_string())
                 .fetch_one(&store.pool)
                 .await
                 .unwrap();
         assert_eq!(before, 3);
 
         sqlx::query("DELETE FROM task_instances WHERE id = ?1")
-            .bind(inst.0.to_string())
+            .bind(inst.to_string())
             .execute(&store.pool)
             .await
             .unwrap();
 
         let after: i64 =
             sqlx::query_scalar("SELECT COUNT(*) FROM externalized_state WHERE instance_id = ?1")
-                .bind(inst.0.to_string())
+                .bind(inst.to_string())
                 .fetch_one(&store.pool)
                 .await
                 .unwrap();
@@ -472,7 +472,7 @@ mod tests {
         // Neither row persisted — transaction rolled back.
         let count: i64 =
             sqlx::query_scalar("SELECT COUNT(*) FROM externalized_state WHERE instance_id = ?1")
-                .bind(orphan.0.to_string())
+                .bind(orphan.to_string())
                 .fetch_one(&store.pool)
                 .await
                 .unwrap();
@@ -496,7 +496,7 @@ mod tests {
         set_expires_at(&store, "will:cascade", Some(&future)).await;
 
         sqlx::query("DELETE FROM task_instances WHERE id = ?1")
-            .bind(inst.0.to_string())
+            .bind(inst.to_string())
             .execute(&store.pool)
             .await
             .unwrap();

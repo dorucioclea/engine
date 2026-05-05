@@ -59,7 +59,7 @@ pub(super) async fn list(
                 r"SELECT id, tenant_id, name, kind, value, expires_at, refresh_url, refresh_token, enabled, description, created_at, updated_at
                   FROM credentials WHERE tenant_id = ?1 OR tenant_id = '' ORDER BY id LIMIT ?2",
             )
-            .bind(&tid.0)
+            .bind(tid.as_str())
             .bind(cap)
             .fetch_all(&store.pool)
             .await?

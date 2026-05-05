@@ -763,8 +763,8 @@ mod tests {
         let storage: Arc<dyn StorageBackend> = mk_test_storage().await;
         StepContext {
             instance_id: InstanceId::new(),
-            tenant_id: TenantId("t".into()),
-            block_id: BlockId("test".into()),
+            tenant_id: TenantId::unchecked("t"),
+            block_id: BlockId::new("test"),
             params,
             context: ExecutionContext::default(),
             attempt: 0,
@@ -862,8 +862,8 @@ mod tests {
 
         let set_ctx = StepContext {
             instance_id,
-            tenant_id: TenantId("t".into()),
-            block_id: BlockId("s1".into()),
+            tenant_id: TenantId::unchecked("t"),
+            block_id: BlockId::new("s1"),
             params: json!({"key": "color", "value": "blue"}),
             context: ExecutionContext::default(),
             attempt: 0,
@@ -874,8 +874,8 @@ mod tests {
 
         let get_ctx = StepContext {
             instance_id,
-            tenant_id: TenantId("t".into()),
-            block_id: BlockId("s2".into()),
+            tenant_id: TenantId::unchecked("t"),
+            block_id: BlockId::new("s2"),
             params: json!({"key": "color"}),
             context: ExecutionContext::default(),
             attempt: 0,
@@ -893,8 +893,8 @@ mod tests {
 
         let set_ctx = StepContext {
             instance_id,
-            tenant_id: TenantId("t".into()),
-            block_id: BlockId("s1".into()),
+            tenant_id: TenantId::unchecked("t"),
+            block_id: BlockId::new("s1"),
             params: json!({"key": "temp", "value": true}),
             context: ExecutionContext::default(),
             attempt: 0,
@@ -905,8 +905,8 @@ mod tests {
 
         let del_ctx = StepContext {
             instance_id,
-            tenant_id: TenantId("t".into()),
-            block_id: BlockId("s2".into()),
+            tenant_id: TenantId::unchecked("t"),
+            block_id: BlockId::new("s2"),
             params: json!({"key": "temp"}),
             context: ExecutionContext::default(),
             attempt: 0,
@@ -918,8 +918,8 @@ mod tests {
 
         let get_ctx = StepContext {
             instance_id,
-            tenant_id: TenantId("t".into()),
-            block_id: BlockId("s3".into()),
+            tenant_id: TenantId::unchecked("t"),
+            block_id: BlockId::new("s3"),
             params: json!({"key": "temp"}),
             context: ExecutionContext::default(),
             attempt: 0,
@@ -1037,8 +1037,8 @@ mod tests {
 
         let ctx = StepContext {
             instance_id,
-            tenant_id: TenantId("t".into()),
-            block_id: BlockId("ms".into()),
+            tenant_id: TenantId::unchecked("t"),
+            block_id: BlockId::new("ms"),
             params: json!({"values": {"color": "red", "count": 42, "active": true}}),
             context: ExecutionContext::default(),
             attempt: 0,

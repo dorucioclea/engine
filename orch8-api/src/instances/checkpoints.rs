@@ -40,7 +40,7 @@ pub async fn save_checkpoint(
     Path(id): Path<Uuid>,
     Json(req): Json<SaveCheckpointRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let instance_id = InstanceId(id);
+    let instance_id = InstanceId::from_uuid(id);
 
     let instance = state
         .storage
@@ -86,7 +86,7 @@ pub async fn list_checkpoints(
     // Verify instance belongs to caller's tenant
     let instance = state
         .storage
-        .get_instance(InstanceId(id))
+        .get_instance(InstanceId::from_uuid(id))
         .await
         .map_err(|e| ApiError::from_storage(e, "instance"))?
         .ok_or_else(|| ApiError::NotFound(format!("instance {id}")))?;
@@ -98,7 +98,7 @@ pub async fn list_checkpoints(
 
     let checkpoints = state
         .storage
-        .list_checkpoints(InstanceId(id), 100)
+        .list_checkpoints(InstanceId::from_uuid(id), 100)
         .await
         .map_err(|e| ApiError::from_storage(e, "checkpoints"))?;
 
@@ -120,7 +120,7 @@ pub async fn get_latest_checkpoint(
     // Verify instance belongs to caller's tenant
     let instance = state
         .storage
-        .get_instance(InstanceId(id))
+        .get_instance(InstanceId::from_uuid(id))
         .await
         .map_err(|e| ApiError::from_storage(e, "instance"))?
         .ok_or_else(|| ApiError::NotFound(format!("instance {id}")))?;
@@ -132,7 +132,7 @@ pub async fn get_latest_checkpoint(
 
     let checkpoint = state
         .storage
-        .get_latest_checkpoint(InstanceId(id))
+        .get_latest_checkpoint(InstanceId::from_uuid(id))
         .await
         .map_err(|e| ApiError::from_storage(e, "checkpoint"))?
         .ok_or_else(|| ApiError::NotFound(format!("checkpoint for instance {id}")))?;
@@ -154,7 +154,7 @@ pub async fn prune_checkpoints(
     // Verify instance belongs to caller's tenant
     let instance = state
         .storage
-        .get_instance(InstanceId(id))
+        .get_instance(InstanceId::from_uuid(id))
         .await
         .map_err(|e| ApiError::from_storage(e, "instance"))?
         .ok_or_else(|| ApiError::NotFound(format!("instance {id}")))?;
@@ -166,7 +166,7 @@ pub async fn prune_checkpoints(
 
     let count = state
         .storage
-        .prune_checkpoints(InstanceId(id), req.keep)
+        .prune_checkpoints(InstanceId::from_uuid(id), req.keep)
         .await
         .map_err(|e| ApiError::from_storage(e, "checkpoints"))?;
 

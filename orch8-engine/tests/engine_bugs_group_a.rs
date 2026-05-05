@@ -45,7 +45,7 @@ use orch8_types::sequence::{
 
 fn mk_step(id: &str, handler: &str) -> BlockDefinition {
     BlockDefinition::Step(Box::new(StepDef {
-        id: BlockId(id.into()),
+        id: BlockId::new(id),
         handler: handler.into(),
         params: serde_json::Value::Null,
         delay: None,
@@ -69,8 +69,8 @@ fn mk_instance(ctx_data: serde_json::Value, seq_id: SequenceId) -> TaskInstance 
     TaskInstance {
         id: InstanceId::new(),
         sequence_id: seq_id,
-        tenant_id: TenantId("t".into()),
-        namespace: Namespace("ns".into()),
+        tenant_id: TenantId::unchecked("t"),
+        namespace: Namespace::new("ns"),
         state: InstanceState::Running,
         next_fire_at: None,
         priority: Priority::Normal,
@@ -107,8 +107,8 @@ async fn setup_tree(
 
     let seq = SequenceDefinition {
         id: SequenceId::new(),
-        tenant_id: TenantId("t".into()),
-        namespace: Namespace("ns".into()),
+        tenant_id: TenantId::unchecked("t"),
+        namespace: Namespace::new("ns"),
         name: "bug-repro".into(),
         version: 1,
         deprecated: false,
@@ -148,7 +148,7 @@ async fn setup_tree(
 async fn a1_parallel_activates_only_first_step_per_branch() {
     // Parallel with two branches, each of two sequential steps.
     let par = BlockDefinition::Parallel(Box::new(ParallelDef {
-        id: BlockId("par".into()),
+        id: BlockId::new("par"),
         branches: vec![
             vec![
                 mk_step("b0s0", "builtin.noop"),
@@ -166,7 +166,7 @@ async fn a1_parallel_activates_only_first_step_per_branch() {
         unreachable!()
     };
     let par_def = ParallelDef {
-        id: BlockId("par".into()),
+        id: BlockId::new("par"),
         branches: branches.clone(),
     };
 
@@ -174,7 +174,7 @@ async fn a1_parallel_activates_only_first_step_per_branch() {
 
     let par_node = tree
         .iter()
-        .find(|n| n.block_id == BlockId("par".into()))
+        .find(|n| n.block_id == BlockId::new("par"))
         .expect("parallel node in tree")
         .clone();
 
@@ -197,7 +197,7 @@ async fn a1_parallel_activates_only_first_step_per_branch() {
     let state_of = |bid: &str| -> NodeState {
         after
             .iter()
-            .find(|n| n.block_id.0 == bid)
+            .find(|n| n.block_id.as_str() == bid)
             .expect("node exists")
             .state
     };
@@ -240,7 +240,7 @@ async fn a1_parallel_activates_only_first_step_per_branch() {
 #[tokio::test]
 async fn a2_race_fails_when_all_single_step_branches_fail() {
     let race = BlockDefinition::Race(Box::new(RaceDef {
-        id: BlockId("r".into()),
+        id: BlockId::new("r"),
         branches: vec![
             vec![mk_step("rb0", "builtin.noop")],
             vec![mk_step("rb1", "builtin.noop")],
@@ -257,7 +257,7 @@ async fn a2_race_fails_when_all_single_step_branches_fail() {
 
     let race_node = tree
         .iter()
-        .find(|n| n.block_id == BlockId("r".into()))
+        .find(|n| n.block_id == BlockId::new("r"))
         .expect("race node")
         .clone();
 
@@ -318,7 +318,7 @@ async fn a2_race_fails_when_all_single_step_branches_fail() {
 #[tokio::test]
 async fn a3_loop_halts_on_non_retryable_error() {
     let loop_def = LoopDef {
-        id: BlockId("lp".into()),
+        id: BlockId::new("lp"),
         condition: "true".into(),
         body: vec![mk_step("body", "builtin.fail")],
         max_iterations: 5,
@@ -329,10 +329,10 @@ async fn a3_loop_halts_on_non_retryable_error() {
     let lp_block = BlockDefinition::Loop(Box::new(loop_def.clone()));
 
     let (storage, instance, tree) = setup_tree(vec![lp_block], json!({})).await;
-    let lp_node = tree.iter().find(|n| n.block_id.0 == "lp").cloned().unwrap();
+    let lp_node = tree.iter().find(|n| n.block_id.as_str() == "lp").cloned().unwrap();
     let body_node = tree
         .iter()
-        .find(|n| n.block_id.0 == "body")
+        .find(|n| n.block_id.as_str() == "body")
         .cloned()
         .unwrap();
 
@@ -345,7 +345,7 @@ async fn a3_loop_halts_on_non_retryable_error() {
     .await
     .unwrap();
     let after_tick1 = storage.get_execution_tree(instance.id).await.unwrap();
-    let body_after_tick1 = after_tick1.iter().find(|n| n.block_id.0 == "body").unwrap();
+    let body_after_tick1 = after_tick1.iter().find(|n| n.block_id.as_str() == "body").unwrap();
     assert_eq!(
         body_after_tick1.state,
         NodeState::Running,
@@ -369,7 +369,7 @@ async fn a3_loop_halts_on_non_retryable_error() {
     let tree_now = storage.get_execution_tree(instance.id).await.unwrap();
     let lp_node_now = tree_now
         .iter()
-        .find(|n| n.block_id.0 == "lp")
+        .find(|n| n.block_id.as_str() == "lp")
         .cloned()
         .unwrap();
     orch8_engine::handlers::loop_block::execute_loop(
@@ -384,7 +384,7 @@ async fn a3_loop_halts_on_non_retryable_error() {
     .unwrap();
 
     let after_tick2 = storage.get_execution_tree(instance.id).await.unwrap();
-    let lp_after = after_tick2.iter().find(|n| n.block_id.0 == "lp").unwrap();
+    let lp_after = after_tick2.iter().find(|n| n.block_id.as_str() == "lp").unwrap();
     assert_eq!(
         lp_after.state,
         NodeState::Failed,
@@ -407,7 +407,7 @@ async fn a3_loop_halts_on_non_retryable_error() {
 
     // And the failed body child must stay Failed — a buggy reset would have
     // pushed it back to Pending on the way to a retry.
-    let body_after = after_tick2.iter().find(|n| n.block_id.0 == "body").unwrap();
+    let body_after = after_tick2.iter().find(|n| n.block_id.as_str() == "body").unwrap();
     assert_eq!(
         body_after.state,
         NodeState::Failed,
@@ -456,13 +456,13 @@ async fn a4_try_catch_branch_competes_fairly_in_race() {
     //    branch 0: [try_catch { try: [step_slow], catch: [noop_fast] }]
     //    branch 1: [step_fast]
     let tc_def = TryCatchDef {
-        id: BlockId("tc".into()),
+        id: BlockId::new("tc"),
         try_block: vec![mk_step("step_slow", "builtin.noop")],
         catch_block: vec![mk_step("noop_fast", "builtin.noop")],
         finally_block: None,
     };
     let race_def = RaceDef {
-        id: BlockId("r".into()),
+        id: BlockId::new("r"),
         branches: vec![
             vec![BlockDefinition::TryCatch(Box::new(tc_def.clone()))],
             vec![mk_step("step_fast", "builtin.noop")],
@@ -476,27 +476,27 @@ async fn a4_try_catch_branch_competes_fairly_in_race() {
     // Locate the key nodes in the tree.
     let race_node = tree
         .iter()
-        .find(|n| n.block_id.0 == "r")
+        .find(|n| n.block_id.as_str() == "r")
         .cloned()
         .expect("race node");
     let tc_node = tree
         .iter()
-        .find(|n| n.block_id.0 == "tc")
+        .find(|n| n.block_id.as_str() == "tc")
         .cloned()
         .expect("try_catch node");
     let step_fast_node = tree
         .iter()
-        .find(|n| n.block_id.0 == "step_fast")
+        .find(|n| n.block_id.as_str() == "step_fast")
         .cloned()
         .expect("step_fast node");
     let step_slow_node = tree
         .iter()
-        .find(|n| n.block_id.0 == "step_slow")
+        .find(|n| n.block_id.as_str() == "step_slow")
         .cloned()
         .expect("step_slow node");
     let noop_fast_node = tree
         .iter()
-        .find(|n| n.block_id.0 == "noop_fast")
+        .find(|n| n.block_id.as_str() == "noop_fast")
         .cloned()
         .expect("noop_fast node");
 
@@ -529,7 +529,7 @@ async fn a4_try_catch_branch_competes_fairly_in_race() {
     let after_race_tick = storage.get_execution_tree(instance.id).await.unwrap();
     let state_of = |tree: &[orch8_types::execution::ExecutionNode], bid: &str| -> NodeState {
         tree.iter()
-            .find(|n| n.block_id.0 == bid)
+            .find(|n| n.block_id.as_str() == bid)
             .unwrap_or_else(|| panic!("node {bid} missing"))
             .state
     };
@@ -677,7 +677,7 @@ async fn a4_try_catch_branch_competes_fairly_in_race() {
 #[tokio::test]
 async fn a5a_for_each_snapshots_collection_at_iteration_start() {
     let fe = BlockDefinition::ForEach(Box::new(ForEachDef {
-        id: BlockId("fe".into()),
+        id: BlockId::new("fe"),
         collection: "items".into(),
         item_var: "it".into(),
         body: vec![mk_step("body", "builtin.noop")],
@@ -690,7 +690,7 @@ async fn a5a_for_each_snapshots_collection_at_iteration_start() {
     };
 
     let (storage, instance, tree) = setup_tree(vec![fe.clone()], json!({"items": [1, 2, 3]})).await;
-    let fe_node = tree.iter().find(|n| n.block_id.0 == "fe").cloned().unwrap();
+    let fe_node = tree.iter().find(|n| n.block_id.as_str() == "fe").cloned().unwrap();
 
     let registry = HandlerRegistry::new();
     orch8_engine::handlers::for_each::execute_for_each(
@@ -708,7 +708,7 @@ async fn a5a_for_each_snapshots_collection_at_iteration_start() {
     // Simulate body finishing iteration 0.
     let body_node = tree
         .iter()
-        .find(|n| n.block_id.0 == "body")
+        .find(|n| n.block_id.as_str() == "body")
         .cloned()
         .unwrap();
     storage
@@ -745,7 +745,7 @@ async fn a5a_for_each_snapshots_collection_at_iteration_start() {
     .unwrap();
 
     let marker = storage
-        .get_block_output(instance.id, &BlockId("fe".into()))
+        .get_block_output(instance.id, &BlockId::new("fe"))
         .await
         .unwrap()
         .expect("for_each marker");
@@ -783,7 +783,7 @@ async fn a5a_for_each_snapshots_collection_at_iteration_start() {
 async fn a5b_for_each_trycatch_inner_recovers_failed_iteration() {
     // for_each { body: [ try_catch { try: [step_fail], catch: [step_noop] } ] }
     let try_catch_block = BlockDefinition::TryCatch(Box::new(TryCatchDef {
-        id: BlockId("tc".into()),
+        id: BlockId::new("tc"),
         try_block: vec![mk_step("try_step", "builtin.fail")],
         catch_block: vec![mk_step("catch_step", "builtin.noop")],
         finally_block: None,
@@ -795,7 +795,7 @@ async fn a5b_for_each_trycatch_inner_recovers_failed_iteration() {
     };
 
     let fe = BlockDefinition::ForEach(Box::new(ForEachDef {
-        id: BlockId("fe".into()),
+        id: BlockId::new("fe"),
         collection: "items".into(),
         item_var: "it".into(),
         body: vec![try_catch_block.clone()],
@@ -808,7 +808,7 @@ async fn a5b_for_each_trycatch_inner_recovers_failed_iteration() {
     };
 
     let (storage, instance, tree) = setup_tree(vec![fe.clone()], json!({"items": [1, 2]})).await;
-    let fe_node = tree.iter().find(|n| n.block_id.0 == "fe").cloned().unwrap();
+    let fe_node = tree.iter().find(|n| n.block_id.as_str() == "fe").cloned().unwrap();
 
     let registry = HandlerRegistry::new();
 
@@ -832,7 +832,7 @@ async fn a5b_for_each_trycatch_inner_recovers_failed_iteration() {
     let tree_now = storage.get_execution_tree(instance.id).await.unwrap();
     let tc_node = tree_now
         .iter()
-        .find(|n| n.block_id.0 == "tc")
+        .find(|n| n.block_id.as_str() == "tc")
         .cloned()
         .unwrap();
     assert_eq!(
@@ -854,7 +854,7 @@ async fn a5b_for_each_trycatch_inner_recovers_failed_iteration() {
     let tree_now = storage.get_execution_tree(instance.id).await.unwrap();
     let try_step = tree_now
         .iter()
-        .find(|n| n.block_id.0 == "try_step")
+        .find(|n| n.block_id.as_str() == "try_step")
         .cloned()
         .unwrap();
     assert_eq!(
@@ -881,7 +881,7 @@ async fn a5b_for_each_trycatch_inner_recovers_failed_iteration() {
     let tree_now = storage.get_execution_tree(instance.id).await.unwrap();
     let tc_node_now = tree_now
         .iter()
-        .find(|n| n.block_id.0 == "tc")
+        .find(|n| n.block_id.as_str() == "tc")
         .cloned()
         .unwrap();
     let instance_now = storage
@@ -903,7 +903,7 @@ async fn a5b_for_each_trycatch_inner_recovers_failed_iteration() {
     let tree_now = storage.get_execution_tree(instance.id).await.unwrap();
     let catch_step = tree_now
         .iter()
-        .find(|n| n.block_id.0 == "catch_step")
+        .find(|n| n.block_id.as_str() == "catch_step")
         .cloned()
         .unwrap();
     assert_eq!(
@@ -927,7 +927,7 @@ async fn a5b_for_each_trycatch_inner_recovers_failed_iteration() {
     let tree_now = storage.get_execution_tree(instance.id).await.unwrap();
     let tc_node_now = tree_now
         .iter()
-        .find(|n| n.block_id.0 == "tc")
+        .find(|n| n.block_id.as_str() == "tc")
         .cloned()
         .unwrap();
     let instance_now = storage
@@ -949,7 +949,7 @@ async fn a5b_for_each_trycatch_inner_recovers_failed_iteration() {
     let tree_now = storage.get_execution_tree(instance.id).await.unwrap();
     let tc_after = tree_now
         .iter()
-        .find(|n| n.block_id.0 == "tc")
+        .find(|n| n.block_id.as_str() == "tc")
         .cloned()
         .unwrap();
     assert_eq!(
@@ -972,7 +972,7 @@ async fn a5b_for_each_trycatch_inner_recovers_failed_iteration() {
         .expect("instance exists");
     let fe_node_now = tree_now
         .iter()
-        .find(|n| n.block_id.0 == "fe")
+        .find(|n| n.block_id.as_str() == "fe")
         .cloned()
         .unwrap();
     orch8_engine::handlers::for_each::execute_for_each(
@@ -993,7 +993,7 @@ async fn a5b_for_each_trycatch_inner_recovers_failed_iteration() {
     // `try_step:Failed` and take the `fail_node` path at
     // for_each.rs:181-184.
     let tree_final = storage.get_execution_tree(instance.id).await.unwrap();
-    let fe_final = tree_final.iter().find(|n| n.block_id.0 == "fe").unwrap();
+    let fe_final = tree_final.iter().find(|n| n.block_id.as_str() == "fe").unwrap();
     assert_ne!(
         fe_final.state,
         NodeState::Failed,
@@ -1003,7 +1003,7 @@ async fn a5b_for_each_trycatch_inner_recovers_failed_iteration() {
 
     // Marker must reflect the advanced index.
     let marker = storage
-        .get_block_output(instance.id, &BlockId("fe".into()))
+        .get_block_output(instance.id, &BlockId::new("fe"))
         .await
         .unwrap()
         .expect("for_each marker after advance");
@@ -1030,7 +1030,7 @@ async fn a5b_for_each_trycatch_inner_recovers_failed_iteration() {
     // Subtree reset: the try_catch and its branch children must be back
     // to Pending so the next iteration starts cleanly
     // (for_each.rs:220 → reset_subtree_to_pending).
-    let tc_post_reset = tree_final.iter().find(|n| n.block_id.0 == "tc").unwrap();
+    let tc_post_reset = tree_final.iter().find(|n| n.block_id.as_str() == "tc").unwrap();
     assert_eq!(
         tc_post_reset.state,
         NodeState::Pending,
@@ -1038,7 +1038,7 @@ async fn a5b_for_each_trycatch_inner_recovers_failed_iteration() {
     );
     let try_step_post = tree_final
         .iter()
-        .find(|n| n.block_id.0 == "try_step")
+        .find(|n| n.block_id.as_str() == "try_step")
         .unwrap();
     assert_eq!(
         try_step_post.state,
@@ -1047,7 +1047,7 @@ async fn a5b_for_each_trycatch_inner_recovers_failed_iteration() {
     );
     let catch_step_post = tree_final
         .iter()
-        .find(|n| n.block_id.0 == "catch_step")
+        .find(|n| n.block_id.as_str() == "catch_step")
         .unwrap();
     assert_eq!(
         catch_step_post.state,
@@ -1078,7 +1078,7 @@ async fn a5b_for_each_trycatch_inner_recovers_failed_iteration() {
 async fn a5c_loop_in_for_each_state_per_iteration() {
     // Inner loop: condition always truthy, max 2 iterations, single noop step body.
     let inner_loop_def = LoopDef {
-        id: BlockId("inner_lp".into()),
+        id: BlockId::new("inner_lp"),
         condition: "true".into(),
         body: vec![mk_step("lp_body", "builtin.noop")],
         max_iterations: 2,
@@ -1087,7 +1087,7 @@ async fn a5c_loop_in_for_each_state_per_iteration() {
         poll_interval: None,
     };
     let fe_def = ForEachDef {
-        id: BlockId("fe".into()),
+        id: BlockId::new("fe"),
         collection: "xs".into(),
         item_var: "x".into(),
         body: vec![BlockDefinition::Loop(Box::new(inner_loop_def.clone()))],
@@ -1098,15 +1098,15 @@ async fn a5c_loop_in_for_each_state_per_iteration() {
     // xs = [1, 2]: two outer iterations.
     let (storage, instance, tree) = setup_tree(vec![fe_block.clone()], json!({"xs": [1, 2]})).await;
 
-    let fe_node = tree.iter().find(|n| n.block_id.0 == "fe").cloned().unwrap();
+    let fe_node = tree.iter().find(|n| n.block_id.as_str() == "fe").cloned().unwrap();
     let inner_lp_node = tree
         .iter()
-        .find(|n| n.block_id.0 == "inner_lp")
+        .find(|n| n.block_id.as_str() == "inner_lp")
         .cloned()
         .unwrap();
     let lp_body_node = tree
         .iter()
-        .find(|n| n.block_id.0 == "lp_body")
+        .find(|n| n.block_id.as_str() == "lp_body")
         .cloned()
         .unwrap();
 
@@ -1138,7 +1138,7 @@ async fn a5c_loop_in_for_each_state_per_iteration() {
         .save_block_output(&orch8_types::output::BlockOutput {
             id: uuid::Uuid::now_v7(),
             instance_id: instance.id,
-            block_id: BlockId("inner_lp".into()),
+            block_id: BlockId::new("inner_lp"),
             output: json!({ "_iterations": 2 }),
             output_ref: None,
             output_size: 0,
@@ -1157,7 +1157,7 @@ async fn a5c_loop_in_for_each_state_per_iteration() {
         .save_block_output(&orch8_types::output::BlockOutput {
             id: uuid::Uuid::now_v7(),
             instance_id: instance.id,
-            block_id: BlockId("lp_body".into()),
+            block_id: BlockId::new("lp_body"),
             output: json!({ "result": "iter0" }),
             output_ref: None,
             output_size: 0,
@@ -1177,7 +1177,7 @@ async fn a5c_loop_in_for_each_state_per_iteration() {
     // outer iteration would observe iteration >= max and complete without
     // ever running the body — the bug described in the A5c header.
     let before = storage
-        .get_block_output(instance.id, &BlockId("inner_lp".into()))
+        .get_block_output(instance.id, &BlockId::new("inner_lp"))
         .await
         .unwrap()
         .expect("inner loop marker set by outer iteration 0");
@@ -1197,7 +1197,7 @@ async fn a5c_loop_in_for_each_state_per_iteration() {
     let tree_now = storage.get_execution_tree(instance.id).await.unwrap();
     let fe_node_now = tree_now
         .iter()
-        .find(|n| n.block_id.0 == "fe")
+        .find(|n| n.block_id.as_str() == "fe")
         .cloned()
         .unwrap();
     orch8_engine::handlers::for_each::execute_for_each(
@@ -1215,7 +1215,7 @@ async fn a5c_loop_in_for_each_state_per_iteration() {
     // Contract: inner loop's iteration counter has been purged so the next
     // outer iteration starts fresh. This is the core A5c assertion.
     let inner_marker_after = storage
-        .get_block_output(instance.id, &BlockId("inner_lp".into()))
+        .get_block_output(instance.id, &BlockId::new("inner_lp"))
         .await
         .unwrap();
     assert!(
@@ -1232,7 +1232,7 @@ async fn a5c_loop_in_for_each_state_per_iteration() {
     let after_tree = storage.get_execution_tree(instance.id).await.unwrap();
     let inner_lp_after = after_tree
         .iter()
-        .find(|n| n.block_id.0 == "inner_lp")
+        .find(|n| n.block_id.as_str() == "inner_lp")
         .expect("inner loop node present");
     assert_eq!(
         inner_lp_after.state,
@@ -1242,7 +1242,7 @@ async fn a5c_loop_in_for_each_state_per_iteration() {
     );
     let lp_body_after = after_tree
         .iter()
-        .find(|n| n.block_id.0 == "lp_body")
+        .find(|n| n.block_id.as_str() == "lp_body")
         .expect("inner loop body step present");
     assert_eq!(
         lp_body_after.state,
@@ -1271,7 +1271,7 @@ async fn a5c_loop_in_for_each_state_per_iteration() {
     // only composite-block iteration markers are purged by the reset
     // (for_each.rs:289-293 gates deletion on BlockType::Loop|ForEach).
     let preserved = storage
-        .get_block_output(instance.id, &BlockId("lp_body".into()))
+        .get_block_output(instance.id, &BlockId::new("lp_body"))
         .await
         .unwrap()
         .expect("body step output preserved");
@@ -1320,8 +1320,8 @@ async fn a6_reap_stale_worker_tasks_honours_small_threshold() {
     // FK constraint requires a parent task_instance row.
     let seq = SequenceDefinition {
         id: SequenceId::new(),
-        tenant_id: TenantId("t".into()),
-        namespace: Namespace("ns".into()),
+        tenant_id: TenantId::unchecked("t"),
+        namespace: Namespace::new("ns"),
         name: "reap-test".into(),
         version: 1,
         deprecated: false,
@@ -1340,7 +1340,7 @@ async fn a6_reap_stale_worker_tasks_honours_small_threshold() {
     let task = WorkerTask {
         id: task_id,
         instance_id: inst_id,
-        block_id: BlockId("step".into()),
+        block_id: BlockId::new("step"),
         handler_name: "test.handler".into(),
         queue_name: None,
         params: json!({}),
@@ -1603,8 +1603,8 @@ async fn a10_sub_sequence_links_parent_and_propagates_outputs() {
     //     evaluator.rs:738-744.
     let child_seq = SequenceDefinition {
         id: SequenceId::new(),
-        tenant_id: TenantId("t".into()),
-        namespace: Namespace("ns".into()),
+        tenant_id: TenantId::unchecked("t"),
+        namespace: Namespace::new("ns"),
         name: "child-seq".into(),
         version: 1,
         deprecated: false,
@@ -1616,15 +1616,15 @@ async fn a10_sub_sequence_links_parent_and_propagates_outputs() {
     // --- Parent sequence has a single SubSequence block pointing at the
     //     child sequence by name.
     let sub = BlockDefinition::SubSequence(Box::new(SubSequenceDef {
-        id: BlockId("ss".into()),
+        id: BlockId::new("ss"),
         sequence_name: "child-seq".into(),
         version: Some(1),
         input: json!({"from_parent": 42}),
     }));
     let parent_seq = SequenceDefinition {
         id: SequenceId::new(),
-        tenant_id: TenantId("t".into()),
-        namespace: Namespace("ns".into()),
+        tenant_id: TenantId::unchecked("t"),
+        namespace: Namespace::new("ns"),
         name: "parent-seq".into(),
         version: 1,
         deprecated: false,
@@ -1695,7 +1695,7 @@ async fn a10_sub_sequence_links_parent_and_propagates_outputs() {
     let child_output = BlockOutput {
         id: uuid::Uuid::now_v7(),
         instance_id: child.id,
-        block_id: BlockId("child_step".into()),
+        block_id: BlockId::new("child_step"),
         output: json!({"child_said": "hi"}),
         output_ref: None,
         output_size: 0,
@@ -1716,7 +1716,7 @@ async fn a10_sub_sequence_links_parent_and_propagates_outputs() {
     let tree_before = storage.get_execution_tree(parent.id).await.unwrap();
     let ss_node = tree_before
         .iter()
-        .find(|n| n.block_id == BlockId("ss".into()))
+        .find(|n| n.block_id == BlockId::new("ss"))
         .expect("sub_sequence node");
     assert_eq!(
         ss_node.state,
@@ -1744,7 +1744,7 @@ async fn a10_sub_sequence_links_parent_and_propagates_outputs() {
     // --- Assertion 2: parent can now read child outputs through its own
     //     block_id namespace.
     let parent_block_output = storage
-        .get_block_output(parent.id, &BlockId("ss".into()))
+        .get_block_output(parent.id, &BlockId::new("ss"))
         .await
         .unwrap()
         .expect("parent must have a BlockOutput keyed by the sub_sequence block id");
@@ -1765,7 +1765,7 @@ async fn a10_sub_sequence_links_parent_and_propagates_outputs() {
     let tree_after = storage.get_execution_tree(parent.id).await.unwrap();
     let ss_after = tree_after
         .iter()
-        .find(|n| n.block_id == BlockId("ss".into()))
+        .find(|n| n.block_id == BlockId::new("ss"))
         .expect("sub_sequence node still present");
     assert_eq!(
         ss_after.state,
@@ -1816,7 +1816,7 @@ async fn a11_sla_breach_records_block_output() {
     // is unconditional (the escalation block at 513-560 is gated on
     // `on_deadline_breach.is_some()`, but the BlockOutput save is not).
     let step = BlockDefinition::Step(Box::new(StepDef {
-        id: BlockId("slow".into()),
+        id: BlockId::new("slow"),
         handler: "builtin.noop".into(),
         params: serde_json::Value::Null,
         delay: None,
@@ -1837,7 +1837,7 @@ async fn a11_sla_breach_records_block_output() {
     let (storage, instance, tree) = setup_tree(vec![step.clone()], json!({})).await;
     let slow_node = tree
         .iter()
-        .find(|n| n.block_id.0 == "slow")
+        .find(|n| n.block_id.as_str() == "slow")
         .cloned()
         .expect("slow node in tree");
 
@@ -1857,8 +1857,8 @@ async fn a11_sla_breach_records_block_output() {
     // reference; we pass the same shape we persisted in `setup_tree`.
     let seq = SequenceDefinition {
         id: instance.sequence_id,
-        tenant_id: TenantId("t".into()),
-        namespace: Namespace("ns".into()),
+        tenant_id: TenantId::unchecked("t"),
+        namespace: Namespace::new("ns"),
         name: "bug-repro".into(),
         version: 1,
         deprecated: false,
@@ -1882,7 +1882,7 @@ async fn a11_sla_breach_records_block_output() {
     // A regression that removes `storage.save_block_output(&output).await?`
     // at evaluator.rs:580 would flip this to None.
     let breach = storage_arc
-        .get_block_output(instance.id, &BlockId("slow".into()))
+        .get_block_output(instance.id, &BlockId::new("slow"))
         .await
         .unwrap()
         .expect(
@@ -1920,7 +1920,7 @@ async fn a11_sla_breach_records_block_output() {
     let after = storage_arc.get_execution_tree(instance.id).await.unwrap();
     let slow_after = after
         .iter()
-        .find(|n| n.block_id.0 == "slow")
+        .find(|n| n.block_id.as_str() == "slow")
         .expect("slow node still present");
     assert_eq!(
         slow_after.state,
@@ -1956,11 +1956,11 @@ async fn a12_self_modify_injected_block_gets_execution_node() {
         .unwrap();
 
     assert!(
-        tree.iter().any(|n| n.block_id.0 == "s2_injected"),
+        tree.iter().any(|n| n.block_id.as_str() == "s2_injected"),
         "ensure_execution_tree must create an execution node for newly injected \
          blocks after the initial tree is built (evaluator.rs:56-84)"
     );
-    let injected = tree.iter().find(|n| n.block_id.0 == "s2_injected").unwrap();
+    let injected = tree.iter().find(|n| n.block_id.as_str() == "s2_injected").unwrap();
     assert_eq!(
         injected.state,
         NodeState::Pending,
@@ -2142,8 +2142,8 @@ async fn a15_workers_receive_fair_share_under_load() {
 
     let seq = SequenceDefinition {
         id: SequenceId::new(),
-        tenant_id: TenantId("t".into()),
-        namespace: Namespace("ns".into()),
+        tenant_id: TenantId::unchecked("t"),
+        namespace: Namespace::new("ns"),
         name: "fairness".into(),
         version: 1,
         deprecated: false,
@@ -2157,8 +2157,8 @@ async fn a15_workers_receive_fair_share_under_load() {
         let inst = TaskInstance {
             id: InstanceId::new(),
             sequence_id: seq.id,
-            tenant_id: TenantId(format!("t{}", i % 2)),
-            namespace: Namespace("ns".into()),
+            tenant_id: TenantId::unchecked(format!("t{}", i % 2)),
+            namespace: Namespace::new("ns"),
             state: InstanceState::Scheduled,
             next_fire_at: None,
             priority: Priority::Normal,
@@ -2193,7 +2193,7 @@ async fn a15_workers_receive_fair_share_under_load() {
             assert!(
                 claimed_total.insert(inst.id),
                 "instance {} was claimed twice — SKIP LOCKED / state=scheduled filter broken",
-                inst.id.0
+                inst.id.into_uuid()
             );
         }
     }
@@ -2227,7 +2227,7 @@ async fn a15_workers_receive_fair_share_under_load() {
 #[tokio::test]
 async fn a1_sentinel_branch_index_is_tagged_in_tree() {
     let par = BlockDefinition::Parallel(Box::new(ParallelDef {
-        id: BlockId("p".into()),
+        id: BlockId::new("p"),
         branches: vec![
             vec![mk_step("b0s0", "h"), mk_step("b0s1", "h")],
             vec![mk_step("b1s0", "h"), mk_step("b1s1", "h")],
@@ -2236,8 +2236,8 @@ async fn a1_sentinel_branch_index_is_tagged_in_tree() {
 
     let (_storage, _instance, tree) = setup_tree(vec![par], json!({})).await;
 
-    let b0s0 = tree.iter().find(|n| n.block_id.0 == "b0s0").unwrap();
-    let b1s0 = tree.iter().find(|n| n.block_id.0 == "b1s0").unwrap();
+    let b0s0 = tree.iter().find(|n| n.block_id.as_str() == "b0s0").unwrap();
+    let b1s0 = tree.iter().find(|n| n.block_id.as_str() == "b1s0").unwrap();
     assert_eq!(
         b0s0.branch_index,
         Some(0),
@@ -2249,7 +2249,7 @@ async fn a1_sentinel_branch_index_is_tagged_in_tree() {
         "branch 1 nodes must be tagged branch_index=1"
     );
     // Sibling within same branch shares branch_index (by construction).
-    let b0s1 = tree.iter().find(|n| n.block_id.0 == "b0s1").unwrap();
+    let b0s1 = tree.iter().find(|n| n.block_id.as_str() == "b0s1").unwrap();
     assert_eq!(b0s1.branch_index, Some(0));
 }
 
@@ -2260,7 +2260,7 @@ async fn a1_sentinel_branch_index_is_tagged_in_tree() {
 #[tokio::test]
 async fn try_catch_branches_are_indexed_0_and_1() {
     let tc = BlockDefinition::TryCatch(Box::new(TryCatchDef {
-        id: BlockId("tc".into()),
+        id: BlockId::new("tc"),
         try_block: vec![mk_step("t", "h")],
         catch_block: vec![mk_step("c", "h")],
         finally_block: None,
@@ -2268,8 +2268,8 @@ async fn try_catch_branches_are_indexed_0_and_1() {
 
     let (_s, _i, tree) = setup_tree(vec![tc], json!({})).await;
 
-    let t = tree.iter().find(|n| n.block_id.0 == "t").unwrap();
-    let c = tree.iter().find(|n| n.block_id.0 == "c").unwrap();
+    let t = tree.iter().find(|n| n.block_id.as_str() == "t").unwrap();
+    let c = tree.iter().find(|n| n.block_id.as_str() == "c").unwrap();
     assert_eq!(t.branch_index, Some(0), "try_block is branch 0");
     assert_eq!(c.branch_index, Some(1), "catch_block is branch 1");
 }
@@ -2288,8 +2288,8 @@ async fn calculate_next_fire_respects_timezone() {
     // Schedule in UTC
     let utc_schedule = CronSchedule {
         id: uuid::Uuid::now_v7(),
-        tenant_id: TenantId("t".into()),
-        namespace: Namespace("ns".into()),
+        tenant_id: TenantId::unchecked("t"),
+        namespace: Namespace::new("ns"),
         sequence_id: SequenceId::new(),
         cron_expr: "0 12 * * *".into(),
         timezone: "UTC".into(),
@@ -2331,8 +2331,8 @@ async fn calculate_next_fire_falls_back_to_utc_for_invalid_timezone() {
     let now = Utc::now();
     let schedule = CronSchedule {
         id: uuid::Uuid::now_v7(),
-        tenant_id: TenantId("t".into()),
-        namespace: Namespace("ns".into()),
+        tenant_id: TenantId::unchecked("t"),
+        namespace: Namespace::new("ns"),
         sequence_id: SequenceId::new(),
         cron_expr: "0 12 * * *".into(),
         timezone: "Invalid/Timezone".into(),

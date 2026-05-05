@@ -703,7 +703,7 @@ pub fn validate_sequence_templates(seq: &SequenceDefinition) -> Vec<TemplateWarn
 fn validate_block_templates(block: &BlockDefinition, warnings: &mut Vec<TemplateWarning>) {
     match block {
         BlockDefinition::Step(s) => {
-            validate_json_templates(&s.id.0, "params", &s.params, warnings);
+            validate_json_templates(&s.id.as_str(), "params", &s.params, warnings);
         }
         BlockDefinition::Parallel(p) => {
             for branch in &p.branches {
@@ -720,23 +720,23 @@ fn validate_block_templates(block: &BlockDefinition, warnings: &mut Vec<Template
             }
         }
         BlockDefinition::Loop(l) => {
-            validate_expr_string(&l.id.0, "condition", &l.condition, warnings);
+            validate_expr_string(&l.id.as_str(), "condition", &l.condition, warnings);
             if let Some(ref break_on) = l.break_on {
-                validate_expr_string(&l.id.0, "break_on", break_on, warnings);
+                validate_expr_string(&l.id.as_str(), "break_on", break_on, warnings);
             }
             for b in &l.body {
                 validate_block_templates(b, warnings);
             }
         }
         BlockDefinition::ForEach(fe) => {
-            validate_template_string(&fe.id.0, "collection", &fe.collection, warnings);
+            validate_template_string(&fe.id.as_str(), "collection", &fe.collection, warnings);
             for b in &fe.body {
                 validate_block_templates(b, warnings);
             }
         }
         BlockDefinition::Router(r) => {
             for route in &r.routes {
-                validate_expr_string(&r.id.0, "route.condition", &route.condition, warnings);
+                validate_expr_string(&r.id.as_str(), "route.condition", &route.condition, warnings);
                 for b in &route.blocks {
                     validate_block_templates(b, warnings);
                 }
@@ -1841,7 +1841,7 @@ mod tests {
     fn mk_step_block(id: &str, params: serde_json::Value) -> BlockDefinition {
         use orch8_types::sequence::StepDef;
         BlockDefinition::Step(Box::new(StepDef {
-            id: BlockId(id.into()),
+            id: BlockId::new(id),
             handler: "noop".into(),
             params,
             delay: None,
@@ -1862,9 +1862,9 @@ mod tests {
 
     fn mk_seq(blocks: Vec<BlockDefinition>) -> SequenceDefinition {
         SequenceDefinition {
-            id: orch8_types::ids::SequenceId(uuid::Uuid::nil()),
-            tenant_id: orch8_types::ids::TenantId("t".into()),
-            namespace: orch8_types::ids::Namespace("ns".into()),
+            id: orch8_types::ids::SequenceId::from_uuid(uuid::Uuid::nil()),
+            tenant_id: orch8_types::ids::TenantId::unchecked("t"),
+            namespace: orch8_types::ids::Namespace::new("ns"),
             name: "test".into(),
             version: 1,
             deprecated: false,
@@ -1931,7 +1931,7 @@ mod tests {
     fn validate_loop_condition() {
         use orch8_types::sequence::LoopDef;
         let lp = BlockDefinition::Loop(Box::new(LoopDef {
-            id: BlockId("lp".into()),
+            id: BlockId::new("lp"),
             condition: "{{ unknown_root.x }}".into(),
             body: vec![],
             max_iterations: 5,

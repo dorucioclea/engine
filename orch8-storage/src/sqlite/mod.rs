@@ -798,8 +798,8 @@ impl StorageBackend for SqliteStorage {
               VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)",
         )
         .bind(new_task.id.to_string())
-        .bind(new_task.instance_id.0.to_string())
-        .bind(&new_task.block_id.0)
+        .bind(new_task.instance_id.into_uuid().to_string())
+        .bind(&new_task.block_id.as_str())
         .bind(&new_task.handler_name)
         .bind(&new_task.queue_name)
         .bind(&new_task.params)
@@ -813,13 +813,13 @@ impl StorageBackend for SqliteStorage {
 
         if let Some(nid) = node_id {
             sqlx::query("UPDATE execution_tree SET state = 'pending' WHERE id = ?1")
-                .bind(nid.0.to_string())
+                .bind(nid.to_string())
                 .execute(&mut *tx)
                 .await?;
         }
 
         sqlx::query("UPDATE task_instances SET state = 'scheduled', next_fire_at = ?2, updated_at = ?3 WHERE id = ?1")
-            .bind(instance_id.0.to_string())
+            .bind(instance_id.into_uuid().to_string())
             .bind(fire_at.to_rfc3339())
             .bind(chrono::Utc::now().to_rfc3339())
             .execute(&mut *tx)
@@ -1402,13 +1402,13 @@ mod tests {
         let now = Utc::now();
         let seq = orch8_types::sequence::SequenceDefinition {
             id: SequenceId::new(),
-            tenant_id: TenantId("t1".into()),
-            namespace: Namespace("default".into()),
+            tenant_id: TenantId::unchecked("t1"),
+            namespace: Namespace::new("default"),
             name: "test_seq".into(),
             version: 1,
             deprecated: false,
             blocks: vec![BlockDefinition::Step(Box::new(StepDef {
-                id: BlockId("s1".into()),
+                id: BlockId::new("s1"),
                 handler: "noop".into(),
                 params: serde_json::Value::Null,
                 delay: None,
@@ -1441,8 +1441,8 @@ mod tests {
         let inst = TaskInstance {
             id: InstanceId::new(),
             sequence_id: SequenceId::new(),
-            tenant_id: TenantId("t1".into()),
-            namespace: Namespace("default".into()),
+            tenant_id: TenantId::unchecked("t1"),
+            namespace: Namespace::new("default"),
             state: InstanceState::Scheduled,
             next_fire_at: Some(now),
             priority: Priority::High,
@@ -1459,7 +1459,7 @@ mod tests {
         };
         storage.create_instance(&inst).await.unwrap();
         let fetched = storage.get_instance(inst.id).await.unwrap().unwrap();
-        assert_eq!(fetched.tenant_id.0, "t1");
+        assert_eq!(fetched.tenant_id.as_str(), "t1");
         assert_eq!(fetched.priority, Priority::High);
     }
 
@@ -1470,8 +1470,8 @@ mod tests {
         let inst = TaskInstance {
             id: InstanceId::new(),
             sequence_id: SequenceId::new(),
-            tenant_id: TenantId("t1".into()),
-            namespace: Namespace("default".into()),
+            tenant_id: TenantId::unchecked("t1"),
+            namespace: Namespace::new("default"),
             state: InstanceState::Scheduled,
             next_fire_at: Some(now - chrono::Duration::seconds(10)),
             priority: Priority::Normal,
@@ -1621,7 +1621,7 @@ mod tests {
              WHERE scope_kind = 'parent' AND scope_value = ?2 AND dedupe_key = ?3",
         )
         .bind(&backdated)
-        .bind(parent.0.to_string())
+        .bind(parent.to_string())
         .bind("old")
         .execute(&storage.pool)
         .await
@@ -1674,8 +1674,8 @@ mod tests {
         TaskInstance {
             id,
             sequence_id: SequenceId::new(),
-            tenant_id: TenantId("t1".into()),
-            namespace: Namespace("default".into()),
+            tenant_id: TenantId::unchecked("t1"),
+            namespace: Namespace::new("default"),
             state: InstanceState::Scheduled,
             next_fire_at: Some(now),
             priority: Priority::Normal,
@@ -1778,7 +1778,7 @@ mod tests {
     async fn create_instance_with_dedupe_tenant_scope_dedupes_across_parents() {
         use crate::{DedupeScope, EmitDedupeOutcome};
         let storage = SqliteStorage::in_memory().await.unwrap();
-        let tenant = TenantId("acme".into());
+        let tenant = TenantId::unchecked("acme");
         let first_id = InstanceId::new();
         let second_id = InstanceId::new();
         let mut inst1 = mk_inst_for_dedupe(first_id);
@@ -1814,8 +1814,8 @@ mod tests {
     async fn create_instance_with_dedupe_tenant_scope_isolates_tenants() {
         use crate::{DedupeScope, EmitDedupeOutcome};
         let storage = SqliteStorage::in_memory().await.unwrap();
-        let t1 = TenantId("acme".into());
-        let t2 = TenantId("globex".into());
+        let t1 = TenantId::unchecked("acme");
+        let t2 = TenantId::unchecked("globex");
         let c1 = InstanceId::new();
         let c2 = InstanceId::new();
         let mut i1 = mk_inst_for_dedupe(c1);
@@ -1844,7 +1844,7 @@ mod tests {
         use crate::{DedupeScope, EmitDedupeOutcome};
         let storage = SqliteStorage::in_memory().await.unwrap();
         let parent = InstanceId::new();
-        let tenant = TenantId("acme".into());
+        let tenant = TenantId::unchecked("acme");
         let cp = InstanceId::new();
         let ct = InstanceId::new();
         let mut ip = mk_inst_for_dedupe(cp);
@@ -2031,7 +2031,7 @@ mod tests {
         // corrupted file.
         sqlx::query("UPDATE task_instances SET state = ?1 WHERE id = ?2")
             .bind("totally_bogus_state")
-            .bind(target.id.0.to_string())
+            .bind(target.id.to_string())
             .execute(&storage.pool)
             .await
             .unwrap();
@@ -2069,13 +2069,13 @@ mod tests {
 
         let seq = orch8_types::sequence::SequenceDefinition {
             id: SequenceId::new(),
-            tenant_id: TenantId("t".into()),
-            namespace: Namespace("ns".into()),
+            tenant_id: TenantId::unchecked("t"),
+            namespace: Namespace::new("ns"),
             name: "fk-test".into(),
             version: 1,
             deprecated: false,
             blocks: vec![BlockDefinition::Step(Box::new(StepDef {
-                id: BlockId("s1".into()),
+                id: BlockId::new("s1"),
                 handler: "h".into(),
                 params: serde_json::Value::Null,
                 delay: None,
@@ -2100,8 +2100,8 @@ mod tests {
         let inst = TaskInstance {
             id: InstanceId::new(),
             sequence_id: seq.id,
-            tenant_id: TenantId("t".into()),
-            namespace: Namespace("ns".into()),
+            tenant_id: TenantId::unchecked("t"),
+            namespace: Namespace::new("ns"),
             state: InstanceState::Running,
             next_fire_at: None,
             priority: Priority::Normal,
@@ -2123,7 +2123,7 @@ mod tests {
             .create_execution_node(&ExecutionNode {
                 id: ExecutionNodeId::new(),
                 instance_id: inst.id,
-                block_id: BlockId("s1".into()),
+                block_id: BlockId::new("s1"),
                 parent_id: None,
                 block_type: BlockType::Step,
                 branch_index: None,
@@ -2138,7 +2138,7 @@ mod tests {
             .save_block_output(&BlockOutput {
                 id: Uuid::now_v7(),
                 instance_id: inst.id,
-                block_id: BlockId("s1".into()),
+                block_id: BlockId::new("s1"),
                 output: serde_json::json!({}),
                 output_ref: None,
                 output_size: 0,
@@ -2166,7 +2166,7 @@ mod tests {
             .create_worker_task(&WorkerTask {
                 id: wt_id,
                 instance_id: inst.id,
-                block_id: BlockId("s1".into()),
+                block_id: BlockId::new("s1"),
                 handler_name: "h".into(),
                 queue_name: None,
                 params: serde_json::json!({}),
@@ -2196,7 +2196,7 @@ mod tests {
 
         // Delete instance via raw SQL (no trait method exists)
         sqlx::query("DELETE FROM task_instances WHERE id = ?1")
-            .bind(inst.id.0.to_string())
+            .bind(inst.id.into_uuid().to_string())
             .execute(&storage.pool)
             .await
             .unwrap();

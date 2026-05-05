@@ -10,7 +10,7 @@ pub(super) async fn save(storage: &SqliteStorage, cp: &Checkpoint) -> Result<(),
         "INSERT INTO checkpoints (id,instance_id,checkpoint_data,created_at) VALUES (?1,?2,?3,?4)",
     )
     .bind(cp.id.to_string())
-    .bind(cp.instance_id.0.to_string())
+    .bind(cp.instance_id.into_uuid().to_string())
     .bind(serde_json::to_string(&cp.checkpoint_data)?)
     .bind(ts(cp.created_at))
     .execute(&storage.pool)
@@ -25,7 +25,7 @@ pub(super) async fn get_latest(
     let row = sqlx::query(
         "SELECT * FROM checkpoints WHERE instance_id=?1 ORDER BY created_at DESC LIMIT 1",
     )
-    .bind(instance_id.0.to_string())
+    .bind(instance_id.into_uuid().to_string())
     .fetch_optional(&storage.pool)
     .await?;
     row.as_ref().map(row_to_checkpoint).transpose()
@@ -40,7 +40,7 @@ pub(super) async fn list(
     let rows = sqlx::query(
         "SELECT * FROM checkpoints WHERE instance_id=?1 ORDER BY created_at DESC LIMIT ?2",
     )
-    .bind(instance_id.0.to_string())
+    .bind(instance_id.into_uuid().to_string())
     .bind(cap)
     .fetch_all(&storage.pool)
     .await?;
@@ -56,7 +56,7 @@ pub(super) async fn prune(
     let result = sqlx::query(
         "DELETE FROM checkpoints WHERE instance_id=?1 AND id NOT IN (SELECT id FROM checkpoints WHERE instance_id=?1 ORDER BY created_at DESC LIMIT ?2)"
     )
-    .bind(instance_id.0.to_string())
+    .bind(instance_id.into_uuid().to_string())
     .bind(keep as i64)
     .execute(&storage.pool)
     .await

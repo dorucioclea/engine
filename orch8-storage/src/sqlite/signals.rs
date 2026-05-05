@@ -35,7 +35,7 @@ fn bind_signal_insert<'q>(
     s: &'q Signal,
 ) -> Result<sqlx::query::Query<'q, sqlx::Sqlite, sqlx::sqlite::SqliteArguments<'q>>, StorageError> {
     Ok(q.bind(s.id.to_string())
-        .bind(s.instance_id.0.to_string())
+        .bind(s.instance_id.into_uuid().to_string())
         .bind(serde_json::to_string(&s.signal_type)?)
         .bind(serde_json::to_string(&s.payload)?)
         .bind(ts(s.created_at)))
@@ -77,7 +77,7 @@ pub(super) async fn enqueue_if_active(
 
     let row: Option<(String,)> =
         match sqlx::query_as("SELECT state FROM task_instances WHERE id = ?1")
-            .bind(signal.instance_id.0.to_string())
+            .bind(signal.instance_id.into_uuid().to_string())
             .fetch_optional(&mut *conn)
             .await
         {
@@ -92,7 +92,7 @@ pub(super) async fn enqueue_if_active(
         rollback_quiet(&mut conn).await;
         return Err(StorageError::NotFound {
             entity: "task_instance",
-            id: signal.instance_id.0.to_string(),
+            id: signal.instance_id.into_uuid().to_string(),
         });
     };
 
@@ -108,7 +108,7 @@ pub(super) async fn enqueue_if_active(
         rollback_quiet(&mut conn).await;
         return Err(StorageError::TerminalTarget {
             entity: "task_instance".to_string(),
-            id: signal.instance_id.0.to_string(),
+            id: signal.instance_id.into_uuid().to_string(),
         });
     }
 
@@ -135,7 +135,7 @@ pub(super) async fn get_pending(
     let rows = sqlx::query(
         "SELECT * FROM signal_inbox WHERE instance_id=?1 AND delivered=0 ORDER BY created_at",
     )
-    .bind(instance_id.0.to_string())
+    .bind(instance_id.into_uuid().to_string())
     .fetch_all(&storage.pool)
     .await?;
     rows.iter().map(row_to_signal).collect()
@@ -151,7 +151,7 @@ pub(super) async fn get_pending_batch(
     let mut qb = sqlx::QueryBuilder::new("SELECT * FROM signal_inbox WHERE instance_id IN (");
     let mut separated = qb.separated(",");
     for id in instance_ids {
-        separated.push_bind(id.0.to_string());
+        separated.push_bind(id.to_string());
     }
     separated.push_unseparated(") AND delivered=0 ORDER BY created_at");
     let query = qb.build();
@@ -219,7 +219,7 @@ pub(super) async fn get_signalled_instance_ids(
             let id = Uuid::parse_str(&id_str)
                 .map_err(|e| StorageError::Query(format!("invalid UUID '{id_str}': {e}")))?;
             let state = InstanceState::from_str(&state_str).map_err(StorageError::Query)?;
-            Ok((InstanceId(id), state))
+            Ok((InstanceId::from_uuid(id), state))
         })
         .collect()
 }

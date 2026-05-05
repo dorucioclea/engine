@@ -143,8 +143,8 @@ mod tests {
         TaskInstance {
             id: InstanceId::new(),
             sequence_id: SequenceId::new(),
-            tenant_id: TenantId("t".into()),
-            namespace: Namespace("ns".into()),
+            tenant_id: TenantId::unchecked("t"),
+            namespace: Namespace::new("ns"),
             state: InstanceState::Scheduled,
             next_fire_at: Some(now),
             priority: Priority::Normal,
@@ -454,7 +454,7 @@ mod tests {
             .await
             .unwrap();
         let orphan = InstanceId::new();
-        let tenant = TenantId("t".into());
+        let tenant = TenantId::unchecked("t");
 
         audit_transition(
             &storage,

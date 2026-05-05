@@ -123,7 +123,7 @@ pub struct WorkerTask {
     pub params: serde_json::Value,
     /// Serialized `ExecutionContext` — kept as raw JSON to avoid coupling workers to Rust types.
     pub context: serde_json::Value,
-    pub attempt: i16,
+    pub attempt: u16,
     pub timeout_ms: Option<i64>,
     pub state: WorkerTaskState,
     pub worker_id: Option<String>,

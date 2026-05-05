@@ -78,7 +78,7 @@ pub(crate) async fn handle_send_signal(ctx: StepContext) -> Result<Value, StepEr
         Err(StorageError::NotFound { .. }) => Err(permanent("target instance not found")),
         Err(StorageError::TerminalTarget { .. }) => Err(StepError::Permanent {
             message: "cannot send signal to terminal instance".to_string(),
-            details: Some(json!({ "instance_id": target_id.0.to_string() })),
+            details: Some(json!({ "instance_id": target_id.to_string() })),
         }),
         Err(other) => Err(map_storage_err(&other)),
     }
@@ -102,8 +102,8 @@ mod tests {
         TaskInstance {
             id: InstanceId::new(),
             sequence_id: SequenceId::new(),
-            tenant_id: TenantId(tenant.into()),
-            namespace: Namespace("default".into()),
+            tenant_id: TenantId::unchecked(tenant),
+            namespace: Namespace::new("default"),
             state,
             next_fire_at: Some(now),
             priority: Priority::Normal,
@@ -133,7 +133,7 @@ mod tests {
         StepContext {
             instance_id: caller.id,
             tenant_id: caller.tenant_id.clone(),
-            block_id: BlockId("s".into()),
+            block_id: BlockId::new("s"),
             params,
             context: ExecutionContext::default(),
             attempt: 1,
@@ -155,7 +155,7 @@ mod tests {
             &caller,
             storage_dyn,
             json!({
-                "instance_id": target.id.0.to_string(),
+                "instance_id": target.id.to_string(),
                 "signal_type": "cancel",
             }),
         );
@@ -184,7 +184,7 @@ mod tests {
             &caller,
             storage_dyn,
             json!({
-                "instance_id": missing_target.0.to_string(),
+                "instance_id": missing_target.to_string(),
                 "signal_type": "cancel",
             }),
         );
@@ -208,7 +208,7 @@ mod tests {
             &caller,
             storage_dyn,
             json!({
-                "instance_id": target.id.0.to_string(),
+                "instance_id": target.id.to_string(),
                 "signal_type": "cancel",
             }),
         );
@@ -232,7 +232,7 @@ mod tests {
             &caller,
             storage_dyn,
             json!({
-                "instance_id": target.id.0.to_string(),
+                "instance_id": target.id.to_string(),
                 "signal_type": "cancel",
             }),
         );
@@ -307,7 +307,7 @@ mod tests {
             &caller,
             storage_dyn,
             json!({
-                "instance_id": target.id.0.to_string(),
+                "instance_id": target.id.to_string(),
                 "signal_type": "cancel",
             }),
         );
@@ -343,7 +343,7 @@ mod tests {
             &caller,
             storage_dyn,
             json!({
-                "instance_id": target.id.0.to_string(),
+                "instance_id": target.id.to_string(),
                 "signal_type": "bogus_signal",
             }),
         );
@@ -368,7 +368,7 @@ mod tests {
             &caller,
             storage_dyn,
             json!({
-                "instance_id": target.id.0.to_string(),
+                "instance_id": target.id.to_string(),
                 "signal_type": "pause",
             }),
         );
@@ -393,7 +393,7 @@ mod tests {
             &caller,
             storage_dyn,
             json!({
-                "instance_id": target.id.0.to_string(),
+                "instance_id": target.id.to_string(),
                 "signal_type": { "custom": "approval_granted" },
                 "payload": { "by": "alice", "level": 2 },
             }),
@@ -424,7 +424,7 @@ mod tests {
         let ctx = mk_ctx(
             &caller,
             storage_dyn,
-            json!({ "instance_id": target.id.0.to_string() }),
+            json!({ "instance_id": target.id.to_string() }),
         );
         let err = handle_send_signal(ctx).await.unwrap_err();
         assert!(matches!(err, StepError::Permanent { .. }));
@@ -443,7 +443,7 @@ mod tests {
             &caller,
             storage_dyn,
             json!({
-                "instance_id": target.id.0.to_string(),
+                "instance_id": target.id.to_string(),
                 "signal_type": "cancel",
             }),
         );
@@ -465,7 +465,7 @@ mod tests {
             &caller,
             storage_dyn,
             json!({
-                "instance_id": target.id.0.to_string(),
+                "instance_id": target.id.to_string(),
                 "signal_type": "resume",
             }),
         );
@@ -522,7 +522,7 @@ mod tests {
             &caller,
             storage_dyn,
             json!({
-                "instance_id": target.id.0.to_string(),
+                "instance_id": target.id.to_string(),
                 "signal_type": "cancel",
             }),
         );
@@ -544,7 +544,7 @@ mod tests {
             &caller,
             storage_dyn,
             json!({
-                "instance_id": target.id.0.to_string(),
+                "instance_id": target.id.to_string(),
                 "signal_type": "cancel",
             }),
         );
@@ -567,7 +567,7 @@ mod tests {
             &caller,
             storage_dyn,
             json!({
-                "instance_id": target.id.0.to_string(),
+                "instance_id": target.id.to_string(),
                 "signal_type": "cancel",
             }),
         );
@@ -588,7 +588,7 @@ mod tests {
             &caller,
             storage_dyn,
             json!({
-                "instance_id": target.id.0.to_string(),
+                "instance_id": target.id.to_string(),
                 "signal_type": "cancel",
             }),
         );

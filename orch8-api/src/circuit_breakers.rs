@@ -17,7 +17,7 @@ use orch8_types::ids::TenantId;
 /// `enforce_tenant_access` elsewhere in the API — avoids leaking which
 /// tenants have breakers registered.
 fn guard_tenant(tenant_ctx: &OptionalTenant, url_tenant_id: &str) -> Result<TenantId, ApiError> {
-    let url_tid = TenantId(url_tenant_id.to_string());
+    let url_tid = TenantId::unchecked(url_tenant_id.to_string());
     enforce_tenant_access(tenant_ctx, &url_tid, "circuit_breaker")?;
     Ok(url_tid)
 }

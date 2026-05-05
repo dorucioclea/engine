@@ -36,7 +36,7 @@ async fn drive_to_completion(
 
 fn mk_step(id: &str, handler: &str) -> BlockDefinition {
     BlockDefinition::Step(Box::new(StepDef {
-        id: BlockId(id.into()),
+        id: BlockId::new(id),
         handler: handler.into(),
         params: json!({}),
         delay: None,
@@ -58,8 +58,8 @@ fn mk_step(id: &str, handler: &str) -> BlockDefinition {
 fn mk_sequence(blocks: Vec<BlockDefinition>) -> SequenceDefinition {
     SequenceDefinition {
         id: SequenceId::new(),
-        tenant_id: TenantId("t".into()),
-        namespace: Namespace("ns".into()),
+        tenant_id: TenantId::unchecked("t"),
+        namespace: Namespace::new("ns"),
         name: "test-flow".into(),
         version: 1,
         deprecated: false,
@@ -74,8 +74,8 @@ fn mk_instance(seq_id: SequenceId) -> TaskInstance {
     TaskInstance {
         id: InstanceId::new(),
         sequence_id: seq_id,
-        tenant_id: TenantId("t".into()),
-        namespace: Namespace("ns".into()),
+        tenant_id: TenantId::unchecked("t"),
+        namespace: Namespace::new("ns"),
         state: InstanceState::Running,
         next_fire_at: None,
         priority: Priority::Normal,
@@ -130,7 +130,7 @@ async fn run_100_exhaustive_flow_tests() {
         let catch_blocks = vec![mk_step("c1", "noop")];
         let finally_blocks = Some(vec![mk_step("f1", "noop")]);
         let tc = BlockDefinition::TryCatch(Box::new(TryCatchDef {
-            id: BlockId("tc".into()),
+            id: BlockId::new("tc"),
             try_block: try_blocks,
             catch_block: catch_blocks,
             finally_block: finally_blocks,
@@ -166,7 +166,7 @@ async fn run_100_exhaustive_flow_tests() {
             blocks: vec![mk_step("match", "noop")],
         });
         let router_block = BlockDefinition::Router(Box::new(RouterDef {
-            id: BlockId("router".into()),
+            id: BlockId::new("router"),
             routes,
             default: Some(vec![mk_step("def", "fail")]),
         }));
@@ -196,7 +196,7 @@ async fn run_100_exhaustive_flow_tests() {
         }
 
         let par = BlockDefinition::Parallel(Box::new(ParallelDef {
-            id: BlockId("par".into()),
+            id: BlockId::new("par"),
             branches,
         }));
 
@@ -227,7 +227,7 @@ async fn run_100_exhaustive_flow_tests() {
         }
 
         let race = BlockDefinition::Race(Box::new(orch8_types::sequence::RaceDef {
-            id: BlockId("race".into()),
+            id: BlockId::new("race"),
             branches,
             semantics: RaceSemantics::default(),
         }));
@@ -255,7 +255,7 @@ async fn run_100_exhaustive_flow_tests() {
     for i in 0..20 {
         let max_iters = (i % 5) + 1;
         let lp = BlockDefinition::Loop(Box::new(LoopDef {
-            id: BlockId("l1".into()),
+            id: BlockId::new("l1"),
             condition: "true".into(),
             body: vec![mk_step("step1", "noop")],
             max_iterations: max_iters,

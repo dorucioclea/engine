@@ -30,7 +30,7 @@ pub(super) async fn upsert(
             cooldown_secs=excluded.cooldown_secs, \
             opened_at=excluded.opened_at",
     )
-    .bind(&state.tenant_id.0)
+    .bind(&state.tenant_id.as_str())
     .bind(&state.handler)
     .bind(state.state.to_string())
     .bind(state.failure_count as i64)
@@ -68,7 +68,7 @@ pub(super) async fn list_open(
             let opened_at: Option<DateTime<Utc>> =
                 parse_ts_opt(row.get::<Option<String>, _>("opened_at"))?;
             Ok(CircuitBreakerState {
-                tenant_id: TenantId(row.get::<String, _>("tenant_id")),
+                tenant_id: TenantId::unchecked(row.get::<String, _>("tenant_id")),
                 handler: row.get::<String, _>("handler"),
                 state,
                 failure_count: row.get::<i64, _>("failure_count") as u32,
@@ -86,7 +86,7 @@ pub(super) async fn delete(
     handler: &str,
 ) -> Result<(), StorageError> {
     sqlx::query("DELETE FROM circuit_breakers WHERE tenant_id=?1 AND handler=?2")
-        .bind(&tenant_id.0)
+        .bind(tenant_id.as_str())
         .bind(handler)
         .execute(&storage.pool)
         .await?;

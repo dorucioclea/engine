@@ -6,7 +6,7 @@ use orch8_types::sequence::StepDef;
 #[test]
 fn find_block_in_flat_list() {
     let blocks = vec![BlockDefinition::Step(Box::new(StepDef {
-        id: BlockId("step_1".into()),
+        id: BlockId::new("step_1"),
         handler: "test".into(),
         params: serde_json::Value::Null,
         delay: None,
@@ -24,10 +24,10 @@ fn find_block_in_flat_list() {
         cache_key: None,
     }))];
 
-    let found = find_block(&blocks, &BlockId("step_1".into()));
+    let found = find_block(&blocks, &BlockId::new("step_1"));
     assert!(found.is_some());
 
-    let not_found = find_block(&blocks, &BlockId("step_999".into()));
+    let not_found = find_block(&blocks, &BlockId::new("step_999"));
     assert!(not_found.is_none());
 }
 
@@ -35,9 +35,9 @@ fn find_block_in_flat_list() {
 fn find_block_nested_in_parallel() {
     let blocks = vec![BlockDefinition::Parallel(Box::new(
         orch8_types::sequence::ParallelDef {
-            id: BlockId("par_1".into()),
+            id: BlockId::new("par_1"),
             branches: vec![vec![BlockDefinition::Step(Box::new(StepDef {
-                id: BlockId("nested_step".into()),
+                id: BlockId::new("nested_step"),
                 handler: "test".into(),
                 params: serde_json::Value::Null,
                 delay: None,
@@ -57,14 +57,14 @@ fn find_block_nested_in_parallel() {
         },
     ))];
 
-    let found = find_block(&blocks, &BlockId("nested_step".into()));
+    let found = find_block(&blocks, &BlockId::new("nested_step"));
     assert!(found.is_some());
 }
 
 #[test]
 fn block_meta_returns_correct_types() {
     let step = BlockDefinition::Step(Box::new(StepDef {
-        id: BlockId("s".into()),
+        id: BlockId::new("s"),
         handler: "h".into(),
         params: serde_json::Value::Null,
         delay: None,
@@ -82,13 +82,13 @@ fn block_meta_returns_correct_types() {
         cache_key: None,
     }));
     let (id, bt) = block_meta(&step);
-    assert_eq!(id.0, "s");
+    assert_eq!(id.as_str(), "s");
     assert_eq!(bt, BlockType::Step);
 }
 
 fn mk_step(id: &str) -> BlockDefinition {
     BlockDefinition::Step(Box::new(StepDef {
-        id: BlockId(id.into()),
+        id: BlockId::new(id),
         handler: "h".into(),
         params: serde_json::Value::Null,
         delay: None,
@@ -119,7 +119,7 @@ fn mk_node(
         id,
         instance_id: orch8_types::ids::InstanceId::new(),
         parent_id: parent,
-        block_id: BlockId(block_id.into()),
+        block_id: BlockId::new(block_id),
         block_type: bt,
         branch_index,
         state,
@@ -132,7 +132,7 @@ fn mk_node(
 fn find_block_nested_in_loop_body() {
     use orch8_types::sequence::LoopDef;
     let loop_block = BlockDefinition::Loop(Box::new(LoopDef {
-        id: BlockId("loop".into()),
+        id: BlockId::new("loop"),
         condition: "true".into(),
         body: vec![mk_step("inner")],
         max_iterations: 5,
@@ -140,56 +140,56 @@ fn find_block_nested_in_loop_body() {
         continue_on_error: false,
         poll_interval: None,
     }));
-    assert!(find_block(std::slice::from_ref(&loop_block), &BlockId("inner".into())).is_some());
-    assert!(find_block(&[loop_block], &BlockId("loop".into())).is_some());
+    assert!(find_block(std::slice::from_ref(&loop_block), &BlockId::new("inner")).is_some());
+    assert!(find_block(&[loop_block], &BlockId::new("loop")).is_some());
 }
 
 #[test]
 fn find_block_nested_in_for_each_and_router() {
     use orch8_types::sequence::{ForEachDef, Route, RouterDef};
     let fe = BlockDefinition::ForEach(Box::new(ForEachDef {
-        id: BlockId("fe".into()),
+        id: BlockId::new("fe"),
         collection: "xs".into(),
         item_var: "item".into(),
         body: vec![mk_step("fe-child")],
         max_iterations: 5,
     }));
     let router = BlockDefinition::Router(Box::new(RouterDef {
-        id: BlockId("r".into()),
+        id: BlockId::new("r"),
         routes: vec![Route {
             condition: "true".into(),
             blocks: vec![mk_step("route-child")],
         }],
         default: Some(vec![mk_step("default-child")]),
     }));
-    assert!(find_block(std::slice::from_ref(&fe), &BlockId("fe-child".into())).is_some());
+    assert!(find_block(std::slice::from_ref(&fe), &BlockId::new("fe-child")).is_some());
     assert!(find_block(
         std::slice::from_ref(&router),
-        &BlockId("route-child".into())
+        &BlockId::new("route-child")
     )
     .is_some());
-    assert!(find_block(&[router], &BlockId("default-child".into())).is_some());
+    assert!(find_block(&[router], &BlockId::new("default-child")).is_some());
 }
 
 #[test]
 fn find_block_nested_in_try_catch_finally() {
     use orch8_types::sequence::TryCatchDef;
     let tc = BlockDefinition::TryCatch(Box::new(TryCatchDef {
-        id: BlockId("tc".into()),
+        id: BlockId::new("tc"),
         try_block: vec![mk_step("t")],
         catch_block: vec![mk_step("c")],
         finally_block: Some(vec![mk_step("f")]),
     }));
-    assert!(find_block(std::slice::from_ref(&tc), &BlockId("t".into())).is_some());
-    assert!(find_block(std::slice::from_ref(&tc), &BlockId("c".into())).is_some());
-    assert!(find_block(&[tc], &BlockId("f".into())).is_some());
+    assert!(find_block(std::slice::from_ref(&tc), &BlockId::new("t")).is_some());
+    assert!(find_block(std::slice::from_ref(&tc), &BlockId::new("c")).is_some());
+    assert!(find_block(&[tc], &BlockId::new("f")).is_some());
 }
 
 #[test]
 fn find_block_nested_in_ab_split_and_cancellation_scope() {
     use orch8_types::sequence::{ABSplitDef, ABVariant, CancellationScopeDef};
     let ab = BlockDefinition::ABSplit(Box::new(ABSplitDef {
-        id: BlockId("ab".into()),
+        id: BlockId::new("ab"),
         variants: vec![ABVariant {
             name: "control".into(),
             weight: 50,
@@ -197,11 +197,11 @@ fn find_block_nested_in_ab_split_and_cancellation_scope() {
         }],
     }));
     let cs = BlockDefinition::CancellationScope(Box::new(CancellationScopeDef {
-        id: BlockId("cs".into()),
+        id: BlockId::new("cs"),
         blocks: vec![mk_step("cs-inner")],
     }));
-    assert!(find_block(&[ab], &BlockId("ab-inner".into())).is_some());
-    assert!(find_block(&[cs], &BlockId("cs-inner".into())).is_some());
+    assert!(find_block(&[ab], &BlockId::new("ab-inner")).is_some());
+    assert!(find_block(&[cs], &BlockId::new("cs-inner")).is_some());
 }
 
 #[test]
@@ -210,19 +210,19 @@ fn find_block_sub_sequence_only_finds_root_not_internals() {
     // inside the *parent* definition must not descend into it.
     use orch8_types::sequence::SubSequenceDef;
     let sub = BlockDefinition::SubSequence(Box::new(SubSequenceDef {
-        id: BlockId("sub".into()),
+        id: BlockId::new("sub"),
         sequence_name: "child".into(),
         version: None,
         input: serde_json::Value::Null,
     }));
-    assert!(find_block(std::slice::from_ref(&sub), &BlockId("sub".into())).is_some());
-    assert!(find_block(&[sub], &BlockId("child-step".into())).is_none());
+    assert!(find_block(std::slice::from_ref(&sub), &BlockId::new("sub")).is_some());
+    assert!(find_block(&[sub], &BlockId::new("child-step")).is_none());
 }
 
 #[test]
 fn find_block_returns_none_for_unknown_id() {
     let blocks = vec![mk_step("a"), mk_step("b")];
-    assert!(find_block(&blocks, &BlockId("not-there".into())).is_none());
+    assert!(find_block(&blocks, &BlockId::new("not-there")).is_none());
 }
 
 #[test]
@@ -447,16 +447,16 @@ fn block_meta_recognizes_each_variant() {
         RaceSemantics, RouterDef, SubSequenceDef, TryCatchDef,
     };
     let par = BlockDefinition::Parallel(Box::new(ParallelDef {
-        id: BlockId("p".into()),
+        id: BlockId::new("p"),
         branches: vec![],
     }));
     let race = BlockDefinition::Race(Box::new(RaceDef {
-        id: BlockId("race".into()),
+        id: BlockId::new("race"),
         branches: vec![],
         semantics: RaceSemantics::default(),
     }));
     let lp = BlockDefinition::Loop(Box::new(LoopDef {
-        id: BlockId("lp".into()),
+        id: BlockId::new("lp"),
         condition: "false".into(),
         body: vec![],
         max_iterations: 1,
@@ -465,31 +465,31 @@ fn block_meta_recognizes_each_variant() {
         poll_interval: None,
     }));
     let fe = BlockDefinition::ForEach(Box::new(ForEachDef {
-        id: BlockId("fe".into()),
+        id: BlockId::new("fe"),
         collection: "x".into(),
         item_var: "i".into(),
         body: vec![],
         max_iterations: 1,
     }));
     let router = BlockDefinition::Router(Box::new(RouterDef {
-        id: BlockId("r".into()),
+        id: BlockId::new("r"),
         routes: vec![],
         default: None,
     }));
     let tc = BlockDefinition::TryCatch(Box::new(TryCatchDef {
-        id: BlockId("tc".into()),
+        id: BlockId::new("tc"),
         try_block: vec![],
         catch_block: vec![],
         finally_block: None,
     }));
     let sub = BlockDefinition::SubSequence(Box::new(SubSequenceDef {
-        id: BlockId("sub".into()),
+        id: BlockId::new("sub"),
         sequence_name: "s".into(),
         version: None,
         input: serde_json::Value::Null,
     }));
     let ab = BlockDefinition::ABSplit(Box::new(ABSplitDef {
-        id: BlockId("ab".into()),
+        id: BlockId::new("ab"),
         variants: vec![ABVariant {
             name: "a".into(),
             weight: 1,
@@ -497,7 +497,7 @@ fn block_meta_recognizes_each_variant() {
         }],
     }));
     let cs = BlockDefinition::CancellationScope(Box::new(CancellationScopeDef {
-        id: BlockId("cs".into()),
+        id: BlockId::new("cs"),
         blocks: vec![],
     }));
     assert_eq!(block_meta(&par).1, BlockType::Parallel);
@@ -515,12 +515,12 @@ fn block_meta_recognizes_each_variant() {
 fn find_block_nested_in_race_branches() {
     use orch8_types::sequence::{RaceDef, RaceSemantics};
     let race = BlockDefinition::Race(Box::new(RaceDef {
-        id: BlockId("race".into()),
+        id: BlockId::new("race"),
         branches: vec![vec![mk_step("fast")], vec![mk_step("slow")]],
         semantics: RaceSemantics::default(),
     }));
-    assert!(find_block(std::slice::from_ref(&race), &BlockId("fast".into())).is_some());
-    assert!(find_block(&[race], &BlockId("slow".into())).is_some());
+    assert!(find_block(std::slice::from_ref(&race), &BlockId::new("fast")).is_some());
+    assert!(find_block(&[race], &BlockId::new("slow")).is_some());
 }
 
 #[test]
@@ -529,7 +529,7 @@ fn find_running_step_prefers_step_over_composite() {
     let par_node_id = ExecutionNodeId::new();
     let step_node_id = ExecutionNodeId::new();
     let par = BlockDefinition::Parallel(Box::new(ParallelDef {
-        id: BlockId("p".into()),
+        id: BlockId::new("p"),
         branches: vec![vec![mk_step("s")]],
     }));
     let blocks = vec![par];
@@ -557,7 +557,7 @@ fn find_running_step_prefers_step_over_composite() {
     let node_map: std::collections::HashMap<_, _> = tree.iter().map(|n| (n.id, n)).collect();
     let (found_node, found_block) = find_running_step(&tree, &block_map, &handlers, &pm, &node_map)
         .expect("should find the running step");
-    assert_eq!(found_node.block_id.0, "s");
+    assert_eq!(found_node.block_id.as_str(), "s");
     assert!(matches!(found_block, BlockDefinition::Step(_)));
 }
 
@@ -575,8 +575,8 @@ async fn seed_instance_ev(s: &SqliteStorage, id: InstanceId) {
     let inst = TaskInstance {
         id,
         sequence_id: SequenceId::new(),
-        tenant_id: TenantId("t".into()),
-        namespace: Namespace("ns".into()),
+        tenant_id: TenantId::unchecked("t"),
+        namespace: Namespace::new("ns"),
         state: InstanceState::Running,
         next_fire_at: None,
         priority: Priority::Normal,
@@ -606,7 +606,7 @@ fn mk_exec_node(
         id,
         instance_id: inst,
         parent_id: parent,
-        block_id: BlockId(bid.into()),
+        block_id: BlockId::new(bid),
         block_type: bt,
         branch_index: None,
         state,
@@ -740,8 +740,8 @@ async fn merged_blocks_no_injection_borrows() {
     seed_instance_ev(&s, inst_id).await;
     let seq = SequenceDefinition {
         id: SequenceId::new(),
-        tenant_id: TenantId("t".into()),
-        namespace: Namespace("ns".into()),
+        tenant_id: TenantId::unchecked("t"),
+        namespace: Namespace::new("ns"),
         name: "test".into(),
         version: 1,
         deprecated: false,
@@ -763,8 +763,8 @@ async fn merged_blocks_with_injection_owns() {
     seed_instance_ev(&s, inst_id).await;
     let seq = SequenceDefinition {
         id: SequenceId::new(),
-        tenant_id: TenantId("t".into()),
-        namespace: Namespace("ns".into()),
+        tenant_id: TenantId::unchecked("t"),
+        namespace: Namespace::new("ns"),
         name: "test".into(),
         version: 1,
         deprecated: false,
@@ -790,8 +790,8 @@ async fn merged_blocks_empty_injection_still_borrows() {
     seed_instance_ev(&s, inst_id).await;
     let seq = SequenceDefinition {
         id: SequenceId::new(),
-        tenant_id: TenantId("t".into()),
-        namespace: Namespace("ns".into()),
+        tenant_id: TenantId::unchecked("t"),
+        namespace: Namespace::new("ns"),
         name: "test".into(),
         version: 1,
         deprecated: false,
@@ -840,7 +840,7 @@ async fn ensure_execution_tree_adds_injected_nodes() {
         .await
         .unwrap();
     assert_eq!(after.len(), 2);
-    let block_ids: Vec<&str> = after.iter().map(|n| n.block_id.0.as_str()).collect();
+    let block_ids: Vec<&str> = after.iter().map(|n| n.block_id.as_str()).collect();
     assert!(block_ids.contains(&"a"));
     assert!(block_ids.contains(&"new"));
 }
@@ -854,7 +854,7 @@ fn is_inside_decided_race_no_winner() {
     let br1_id = ExecutionNodeId::new();
     let leaf_id = ExecutionNodeId::new();
     let race_block = BlockDefinition::Race(Box::new(RaceDef {
-        id: BlockId("race".into()),
+        id: BlockId::new("race"),
         branches: vec![vec![mk_step("b0")], vec![mk_step("b1")]],
         semantics: RaceSemantics::default(),
     }));
@@ -910,7 +910,7 @@ fn is_inside_decided_race_with_winner() {
     let br0_id = ExecutionNodeId::new();
     let br1_id = ExecutionNodeId::new();
     let race_block = BlockDefinition::Race(Box::new(RaceDef {
-        id: BlockId("race".into()),
+        id: BlockId::new("race"),
         branches: vec![vec![mk_step("b0")], vec![mk_step("b1")]],
         semantics: RaceSemantics::default(),
     }));
@@ -966,48 +966,48 @@ fn flatten_blocks_flat_steps() {
     let blocks = vec![mk_step("a"), mk_step("b"), mk_step("c")];
     let map = flatten_blocks(&blocks);
     assert_eq!(map.len(), 3);
-    assert!(map.contains_key(&BlockId("a".into())));
-    assert!(map.contains_key(&BlockId("b".into())));
-    assert!(map.contains_key(&BlockId("c".into())));
+    assert!(map.contains_key(&BlockId::new("a")));
+    assert!(map.contains_key(&BlockId::new("b")));
+    assert!(map.contains_key(&BlockId::new("c")));
 }
 
 #[test]
 fn flatten_blocks_parallel_nested() {
     use orch8_types::sequence::ParallelDef;
     let blocks = vec![BlockDefinition::Parallel(Box::new(ParallelDef {
-        id: BlockId("par".into()),
+        id: BlockId::new("par"),
         branches: vec![vec![mk_step("b1"), mk_step("b2")], vec![mk_step("b3")]],
     }))];
     let map = flatten_blocks(&blocks);
     assert_eq!(map.len(), 4);
-    assert!(map.contains_key(&BlockId("par".into())));
-    assert!(map.contains_key(&BlockId("b1".into())));
-    assert!(map.contains_key(&BlockId("b2".into())));
-    assert!(map.contains_key(&BlockId("b3".into())));
+    assert!(map.contains_key(&BlockId::new("par")));
+    assert!(map.contains_key(&BlockId::new("b1")));
+    assert!(map.contains_key(&BlockId::new("b2")));
+    assert!(map.contains_key(&BlockId::new("b3")));
 }
 
 #[test]
 fn flatten_blocks_try_catch_with_finally() {
     use orch8_types::sequence::TryCatchDef;
     let blocks = vec![BlockDefinition::TryCatch(Box::new(TryCatchDef {
-        id: BlockId("tc".into()),
+        id: BlockId::new("tc"),
         try_block: vec![mk_step("t1")],
         catch_block: vec![mk_step("c1")],
         finally_block: Some(vec![mk_step("f1")]),
     }))];
     let map = flatten_blocks(&blocks);
     assert_eq!(map.len(), 4);
-    assert!(map.contains_key(&BlockId("tc".into())));
-    assert!(map.contains_key(&BlockId("t1".into())));
-    assert!(map.contains_key(&BlockId("c1".into())));
-    assert!(map.contains_key(&BlockId("f1".into())));
+    assert!(map.contains_key(&BlockId::new("tc")));
+    assert!(map.contains_key(&BlockId::new("t1")));
+    assert!(map.contains_key(&BlockId::new("c1")));
+    assert!(map.contains_key(&BlockId::new("f1")));
 }
 
 #[test]
 fn flatten_blocks_router_with_default() {
     use orch8_types::sequence::{Route, RouterDef};
     let blocks = vec![BlockDefinition::Router(Box::new(RouterDef {
-        id: BlockId("router".into()),
+        id: BlockId::new("router"),
         routes: vec![
             Route {
                 condition: "x".into(),
@@ -1022,10 +1022,10 @@ fn flatten_blocks_router_with_default() {
     }))];
     let map = flatten_blocks(&blocks);
     assert_eq!(map.len(), 4);
-    assert!(map.contains_key(&BlockId("router".into())));
-    assert!(map.contains_key(&BlockId("r1".into())));
-    assert!(map.contains_key(&BlockId("r2".into())));
-    assert!(map.contains_key(&BlockId("def".into())));
+    assert!(map.contains_key(&BlockId::new("router")));
+    assert!(map.contains_key(&BlockId::new("r1")));
+    assert!(map.contains_key(&BlockId::new("r2")));
+    assert!(map.contains_key(&BlockId::new("def")));
 }
 
 #[test]

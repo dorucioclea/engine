@@ -150,7 +150,7 @@ mod tests {
 
     fn step_def(id: &str, access: Option<ContextAccess>) -> Box<StepDef> {
         Box::new(StepDef {
-            id: BlockId(id.into()),
+            id: BlockId::new(id),
             handler: "noop".into(),
             params: serde_json::Value::Null,
             delay: None,
@@ -172,8 +172,8 @@ mod tests {
     fn seq_with_blocks(blocks: Vec<BlockDefinition>) -> SequenceDefinition {
         SequenceDefinition {
             id: SequenceId::new(),
-            tenant_id: TenantId("t1".into()),
-            namespace: Namespace("ns".into()),
+            tenant_id: TenantId::unchecked("t1"),
+            namespace: Namespace::new("ns"),
             name: "seq".into(),
             version: 1,
             deprecated: false,
@@ -203,7 +203,7 @@ mod tests {
         let rft =
             RequiredFieldTree::from_sequence(&seq_with_blocks(vec![BlockDefinition::Step(step)]));
         assert_eq!(
-            rft.fields_for(&BlockId("step-1".into())),
+            rft.fields_for(&BlockId::new("step-1")),
             Some(&["user_id".into(), "order_id".into()][..])
         );
     }
@@ -213,7 +213,7 @@ mod tests {
         let step = step_def("step-1", Some(access_with(FieldAccess::ALL)));
         let rft =
             RequiredFieldTree::from_sequence(&seq_with_blocks(vec![BlockDefinition::Step(step)]));
-        assert_eq!(rft.fields_for(&BlockId("step-1".into())), None);
+        assert_eq!(rft.fields_for(&BlockId::new("step-1")), None);
     }
 
     #[test]
@@ -224,7 +224,7 @@ mod tests {
         );
         let rft =
             RequiredFieldTree::from_sequence(&seq_with_blocks(vec![BlockDefinition::Step(step)]));
-        assert_eq!(rft.fields_for(&BlockId("step-1".into())), None);
+        assert_eq!(rft.fields_for(&BlockId::new("step-1")), None);
     }
 
     #[test]
@@ -232,7 +232,7 @@ mod tests {
         let step = step_def("step-1", Some(access_with(FieldAccess::NONE)));
         let rft =
             RequiredFieldTree::from_sequence(&seq_with_blocks(vec![BlockDefinition::Step(step)]));
-        assert_eq!(rft.fields_for(&BlockId("step-1".into())), Some(&[][..]));
+        assert_eq!(rft.fields_for(&BlockId::new("step-1")), Some(&[][..]));
     }
 
     #[test]
@@ -242,7 +242,7 @@ mod tests {
             RequiredFieldTree::from_sequence(&seq_with_blocks(vec![BlockDefinition::Step(step)]));
         // Unknown block and "no declaration" are both None — caller falls back
         // to full fetch.
-        assert_eq!(rft.fields_for(&BlockId("step-1".into())), None);
+        assert_eq!(rft.fields_for(&BlockId::new("step-1")), None);
     }
 
     #[test]
@@ -260,7 +260,7 @@ mod tests {
             })),
         );
         let par = ParallelDef {
-            id: BlockId("par".into()),
+            id: BlockId::new("par"),
             branches: vec![
                 vec![BlockDefinition::Step(step_a)],
                 vec![BlockDefinition::Step(step_b)],
@@ -271,11 +271,11 @@ mod tests {
                 Box::new(par),
             )]));
         assert_eq!(
-            rft.fields_for(&BlockId("a".into())),
+            rft.fields_for(&BlockId::new("a")),
             Some(&["x".into()][..])
         );
         assert_eq!(
-            rft.fields_for(&BlockId("b".into())),
+            rft.fields_for(&BlockId::new("b")),
             Some(&["y".into()][..])
         );
     }
@@ -283,7 +283,7 @@ mod tests {
     #[test]
     fn rft_unknown_block_returns_none() {
         let rft = RequiredFieldTree::default();
-        assert_eq!(rft.fields_for(&BlockId("missing".into())), None);
+        assert_eq!(rft.fields_for(&BlockId::new("missing")), None);
     }
 
     #[test]
@@ -303,7 +303,7 @@ mod tests {
             })),
         );
         let lp = LoopDef {
-            id: BlockId("lp".into()),
+            id: BlockId::new("lp"),
             condition: "false".into(),
             body: vec![BlockDefinition::Step(step)],
             max_iterations: 10,
@@ -315,7 +315,7 @@ mod tests {
             Box::new(lp),
         )]));
         assert_eq!(
-            rft.fields_for(&BlockId("body-step".into())),
+            rft.fields_for(&BlockId::new("body-step")),
             Some(&["count".into()][..])
         );
         assert_eq!(rft.len(), 1, "Loop itself not recorded, only inner steps");
@@ -349,14 +349,14 @@ mod tests {
             })),
         );
         let fe = ForEachDef {
-            id: BlockId("fe".into()),
+            id: BlockId::new("fe"),
             collection: "xs".into(),
             item_var: "item".into(),
             body: vec![BlockDefinition::Step(fe_step)],
             max_iterations: 10,
         };
         let tc = TryCatchDef {
-            id: BlockId("tc".into()),
+            id: BlockId::new("tc"),
             try_block: vec![BlockDefinition::Step(try_step)],
             catch_block: vec![BlockDefinition::Step(catch_step)],
             finally_block: Some(vec![BlockDefinition::Step(finally_step)]),
@@ -366,19 +366,19 @@ mod tests {
             BlockDefinition::TryCatch(Box::new(tc)),
         ]));
         assert_eq!(
-            rft.fields_for(&BlockId("fe-s".into())),
+            rft.fields_for(&BlockId::new("fe-s")),
             Some(&["items".into()][..])
         );
         assert_eq!(
-            rft.fields_for(&BlockId("try-s".into())),
+            rft.fields_for(&BlockId::new("try-s")),
             Some(&["a".into()][..])
         );
         assert_eq!(
-            rft.fields_for(&BlockId("catch-s".into())),
+            rft.fields_for(&BlockId::new("catch-s")),
             Some(&["b".into()][..])
         );
         assert_eq!(
-            rft.fields_for(&BlockId("finally-s".into())),
+            rft.fields_for(&BlockId::new("finally-s")),
             Some(&["c".into()][..])
         );
     }
@@ -393,14 +393,14 @@ mod tests {
             })),
         );
         let cs = CancellationScopeDef {
-            id: BlockId("cs".into()),
+            id: BlockId::new("cs"),
             blocks: vec![BlockDefinition::Step(step)],
         };
         let rft = RequiredFieldTree::from_sequence(&seq_with_blocks(vec![
             BlockDefinition::CancellationScope(Box::new(cs)),
         ]));
         assert_eq!(
-            rft.fields_for(&BlockId("in-scope".into())),
+            rft.fields_for(&BlockId::new("in-scope")),
             Some(&["s".into()][..])
         );
     }
@@ -410,7 +410,7 @@ mod tests {
         use orch8_types::sequence::SubSequenceDef;
         // Sub-sequence steps belong to the CHILD's RFT, not the parent.
         let sub = SubSequenceDef {
-            id: BlockId("sub".into()),
+            id: BlockId::new("sub"),
             sequence_name: "child".into(),
             version: None,
             input: serde_json::Value::Null,

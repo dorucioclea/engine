@@ -345,7 +345,7 @@ async fn enforce_concurrency_limits(
     let mut deferred_indices = std::collections::HashSet::new();
     for (key, indices) in &key_instances {
         // All instances in the group share the same max_concurrency.
-        let max = instances[indices[0]].max_concurrency.unwrap_or(i32::MAX);
+        let max = instances[indices[0]].max_concurrency.unwrap_or(u32::MAX);
 
         // Count how many instances with this key are currently Running in the
         // DB. This count includes the instances we just claimed (since
@@ -620,10 +620,10 @@ async fn check_step_deadline_waiting(
         if let Some(handler) = handlers.get(&escalation.handler) {
             let mut params = escalation.params.clone();
             if let serde_json::Value::Object(ref mut map) = params {
-                map.insert("_breach_block_id".into(), serde_json::json!(step_def.id.0));
+                map.insert("_breach_block_id".into(), serde_json::json!(step_def.id.as_str()));
                 map.insert(
                     "_breach_instance_id".into(),
-                    serde_json::json!(instance_id.0),
+                    serde_json::json!(instance_id.into_uuid()),
                 );
                 map.insert(
                     "_breach_elapsed_ms".into(),

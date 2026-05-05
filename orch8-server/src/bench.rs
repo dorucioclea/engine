@@ -35,7 +35,7 @@ fn make_sequence(tenant: &str, num_steps: usize) -> SequenceDefinition {
     let blocks = (0..num_steps)
         .map(|i| {
             BlockDefinition::Step(Box::new(StepDef {
-                id: BlockId(format!("s{}", i + 1)),
+                id: BlockId::new(format!("s{}", i + 1)),
                 handler: "noop".into(),
                 params: serde_json::Value::Null,
                 delay: None,
@@ -55,9 +55,9 @@ fn make_sequence(tenant: &str, num_steps: usize) -> SequenceDefinition {
         })
         .collect();
     SequenceDefinition {
-        id: SequenceId(uuid::Uuid::now_v7()),
-        tenant_id: TenantId(tenant.into()),
-        namespace: Namespace("default".into()),
+        id: SequenceId::new(),
+        tenant_id: TenantId::unchecked(tenant),
+        namespace: Namespace::new("default"),
         name: format!("bench-seq-{}", uuid::Uuid::now_v7()),
         version: 1,
         deprecated: false,
@@ -73,8 +73,8 @@ fn make_instances(count: usize, seq_id: SequenceId, tenant: &str) -> Vec<TaskIns
         .map(|_| TaskInstance {
             id: InstanceId::new(),
             sequence_id: seq_id,
-            tenant_id: TenantId(tenant.into()),
-            namespace: Namespace("default".into()),
+            tenant_id: TenantId::unchecked(tenant),
+            namespace: Namespace::new("default"),
             state: InstanceState::Scheduled,
             next_fire_at: Some(now),
             priority: Priority::Normal,
@@ -107,7 +107,7 @@ async fn setup_storage() -> Arc<PostgresStorage> {
 async fn cleanup(storage: &dyn StorageBackend, tenant: &str) {
     use orch8_types::filter::InstanceFilter;
     let filter = InstanceFilter {
-        tenant_id: Some(TenantId(tenant.into())),
+        tenant_id: Some(TenantId::unchecked(tenant)),
         ..Default::default()
     };
     // Bulk cancel then we just leave them — DB is a test DB

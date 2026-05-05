@@ -36,8 +36,8 @@ mod tests {
     fn audit_log_entry_serde_roundtrip() {
         let entry = AuditLogEntry {
             id: Uuid::now_v7(),
-            instance_id: InstanceId(Uuid::now_v7()),
-            tenant_id: TenantId("tenant_1".into()),
+            instance_id: InstanceId::new(),
+            tenant_id: TenantId::unchecked("tenant_1"),
             event_type: "state_transition".into(),
             from_state: Some("running".into()),
             to_state: Some("completed".into()),
@@ -57,8 +57,8 @@ mod tests {
     fn audit_log_entry_optional_fields_skipped_when_none() {
         let entry = AuditLogEntry {
             id: Uuid::now_v7(),
-            instance_id: InstanceId(Uuid::now_v7()),
-            tenant_id: TenantId("t".into()),
+            instance_id: InstanceId::new(),
+            tenant_id: TenantId::unchecked("t"),
             event_type: "signal_received".into(),
             from_state: None,
             to_state: None,

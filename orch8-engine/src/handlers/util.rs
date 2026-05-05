@@ -32,7 +32,7 @@ pub(crate) fn parse_instance_id(params: &Value, field: &str) -> Result<InstanceI
         .ok_or_else(|| permanent(format!("missing '{field}' string param")))?;
     let uuid =
         Uuid::parse_str(id_str).map_err(|e| permanent(format!("invalid '{field}' uuid: {e}")))?;
-    Ok(InstanceId(uuid))
+    Ok(InstanceId::from_uuid(uuid))
 }
 
 /// Map a `StorageError` to the appropriate `StepError` retryability.
@@ -71,16 +71,16 @@ pub(crate) fn check_same_tenant(
         return Ok(());
     }
     warn!(
-        caller_tenant = %caller.0,
-        target_tenant = %target.0,
+        caller_tenant = %caller,
+        target_tenant = %target,
         operation = %op,
         "{op}: cross-tenant {op} denied"
     );
     Err(StepError::Permanent {
         message: format!("cross-tenant {op} denied"),
         details: Some(json!({
-            "caller_tenant": caller.0,
-            "target_tenant": target.0,
+            "caller_tenant": caller.as_str(),
+            "target_tenant": target.as_str(),
         })),
     })
 }
@@ -116,7 +116,7 @@ mod tests {
         let id = uuid::Uuid::now_v7();
         let params = json!({"instance_id": id.to_string()});
         let result = parse_instance_id(&params, "instance_id").unwrap();
-        assert_eq!(result.0, id);
+        assert_eq!(result.into_uuid(), id);
     }
 
     #[test]
@@ -160,7 +160,7 @@ mod tests {
         let id = uuid::Uuid::now_v7();
         let params = json!({"target_id": id.to_string()});
         let result = parse_instance_id(&params, "target_id").unwrap();
-        assert_eq!(result.0, id);
+        assert_eq!(result.into_uuid(), id);
     }
 
     // --- map_storage_err() ---
@@ -219,14 +219,14 @@ mod tests {
 
     #[test]
     fn check_same_tenant_same_tenant_ok() {
-        let t = TenantId("t1".into());
+        let t = TenantId::unchecked("t1");
         assert!(check_same_tenant(&t, &t, "send_signal").is_ok());
     }
 
     #[test]
     fn check_same_tenant_different_tenants_error() {
-        let caller = TenantId("t1".into());
-        let target = TenantId("t2".into());
+        let caller = TenantId::unchecked("t1");
+        let target = TenantId::unchecked("t2");
         let err = check_same_tenant(&caller, &target, "send_signal").unwrap_err();
         match err {
             StepError::Permanent { message, details } => {
@@ -241,8 +241,8 @@ mod tests {
 
     #[test]
     fn check_same_tenant_includes_op_in_message() {
-        let caller = TenantId("a".into());
-        let target = TenantId("b".into());
+        let caller = TenantId::unchecked("a");
+        let target = TenantId::unchecked("b");
         let err = check_same_tenant(&caller, &target, "query_instance").unwrap_err();
         if let StepError::Permanent { message, .. } = err {
             assert!(message.contains("query_instance"));

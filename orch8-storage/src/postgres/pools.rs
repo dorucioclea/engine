@@ -13,7 +13,7 @@ pub(super) async fn create(
           VALUES ($1, $2, $3, $4, $5, $6, $7)",
     )
     .bind(pool.id)
-    .bind(&pool.tenant_id.0)
+    .bind(&pool.tenant_id.as_str())
     .bind(&pool.name)
     .bind(serde_json::to_string(&pool.strategy)?.trim_matches('"'))
     .bind(pool.round_robin_index as i32)
@@ -44,7 +44,7 @@ pub(super) async fn list(
     let rows = sqlx::query_as::<_, ResourcePoolRow>(
         "SELECT id, tenant_id, name, strategy, round_robin_index, created_at, updated_at FROM resource_pools WHERE tenant_id = $1 ORDER BY name",
     )
-    .bind(&tenant_id.0)
+    .bind(tenant_id.as_str())
     .fetch_all(&store.pool)
     .await?;
     Ok(rows.into_iter().map(ResourcePoolRow::into_pool).collect())
@@ -85,7 +85,7 @@ pub(super) async fn add_resource(
     )
     .bind(resource.id)
     .bind(resource.pool_id)
-    .bind(&resource.resource_key.0)
+    .bind(&resource.resource_key.as_str())
     .bind(&resource.name)
     .bind(resource.weight as i32)
     .bind(resource.enabled)

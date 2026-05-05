@@ -74,13 +74,13 @@ mod tests {
 
         let seq = SequenceDefinition {
             id: SequenceId::new(),
-            tenant_id: TenantId("t".into()),
-            namespace: Namespace("ns".into()),
+            tenant_id: TenantId::unchecked("t"),
+            namespace: Namespace::new("ns"),
             name: "rec".into(),
             version: 1,
             deprecated: false,
             blocks: vec![BlockDefinition::Step(Box::new(StepDef {
-                id: orch8_types::ids::BlockId("s1".into()),
+                id: orch8_types::ids::BlockId::new("s1"),
                 handler: "noop".into(),
                 params: json!({}),
                 delay: None,
@@ -105,8 +105,8 @@ mod tests {
         let inst = TaskInstance {
             id: InstanceId::new(),
             sequence_id: seq.id,
-            tenant_id: TenantId("t".into()),
-            namespace: Namespace("ns".into()),
+            tenant_id: TenantId::unchecked("t"),
+            namespace: Namespace::new("ns"),
             state: InstanceState::Running,
             next_fire_at: Some(Utc::now() - chrono::Duration::seconds(600)),
             priority: Priority::Normal,
@@ -146,13 +146,13 @@ mod tests {
 
         let seq = SequenceDefinition {
             id: SequenceId::new(),
-            tenant_id: TenantId("t".into()),
-            namespace: Namespace("ns".into()),
+            tenant_id: TenantId::unchecked("t"),
+            namespace: Namespace::new("ns"),
             name: "fresh".into(),
             version: 1,
             deprecated: false,
             blocks: vec![BlockDefinition::Step(Box::new(StepDef {
-                id: orch8_types::ids::BlockId("s1".into()),
+                id: orch8_types::ids::BlockId::new("s1"),
                 handler: "noop".into(),
                 params: json!({}),
                 delay: None,
@@ -177,8 +177,8 @@ mod tests {
         let inst = TaskInstance {
             id: InstanceId::new(),
             sequence_id: seq.id,
-            tenant_id: TenantId("t".into()),
-            namespace: Namespace("ns".into()),
+            tenant_id: TenantId::unchecked("t"),
+            namespace: Namespace::new("ns"),
             state: InstanceState::Running,
             next_fire_at: Some(Utc::now()),
             priority: Priority::Normal,

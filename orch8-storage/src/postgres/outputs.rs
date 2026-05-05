@@ -28,12 +28,12 @@ pub(super) async fn save(
         ",
     )
     .bind(output.id)
-    .bind(output.instance_id.0)
-    .bind(&output.block_id.0)
+    .bind(output.instance_id.into_uuid())
+    .bind(&output.block_id.as_str())
     .bind(&output.output)
     .bind(&output.output_ref)
-    .bind(output.output_size)
-    .bind(output.attempt)
+    .bind(output.output_size as i32)
+    .bind(output.attempt as i16)
     .bind(output.created_at)
     .execute(&store.pool)
     .await?;
@@ -59,8 +59,8 @@ pub(super) async fn get(
            ORDER BY created_at DESC
            LIMIT 1",
     )
-    .bind(instance_id.0)
-    .bind(&block_id.0)
+    .bind(instance_id.into_uuid())
+    .bind(&block_id.as_str())
     .fetch_optional(&store.pool)
     .await?;
     Ok(row.map(BlockOutputRow::into_output))
@@ -73,8 +73,8 @@ pub(super) async fn get_batch(
     if keys.is_empty() {
         return Ok(std::collections::HashMap::new());
     }
-    let instance_ids: Vec<uuid::Uuid> = keys.iter().map(|(i, _)| i.0).collect();
-    let block_ids: Vec<&str> = keys.iter().map(|(_, b)| b.0.as_str()).collect();
+    let instance_ids: Vec<uuid::Uuid> = keys.iter().map(|(i, _)| i.into_uuid()).collect();
+    let block_ids: Vec<&str> = keys.iter().map(|(_, b)| b.as_str()).collect();
 
     let rows = sqlx::query_as::<_, BlockOutputRow>(
         r"
@@ -95,7 +95,7 @@ pub(super) async fn get_batch(
 
     let mut map = std::collections::HashMap::with_capacity(rows.len());
     for row in rows {
-        let key = (InstanceId(row.instance_id), BlockId(row.block_id.clone()));
+        let key = (InstanceId::from_uuid(row.instance_id), BlockId::new(row.block_id.clone()));
         map.insert(key, row.into_output());
     }
     Ok(map)
@@ -109,7 +109,7 @@ pub(super) async fn get_all(
         r"SELECT id, instance_id, block_id, output, output_ref, output_size, attempt, created_at
            FROM block_outputs WHERE instance_id = $1 ORDER BY created_at",
     )
-    .bind(instance_id.0)
+    .bind(instance_id.into_uuid())
     .fetch_all(&store.pool)
     .await?;
     Ok(rows.into_iter().map(BlockOutputRow::into_output).collect())
@@ -125,7 +125,7 @@ pub(super) async fn get_after_created_at(
             r"SELECT id, instance_id, block_id, output, output_ref, output_size, attempt, created_at
                FROM block_outputs WHERE instance_id = $1 AND created_at > $2 ORDER BY created_at",
         )
-        .bind(instance_id.0)
+        .bind(instance_id.into_uuid())
         .bind(after)
         .fetch_all(&store.pool)
         .await?
@@ -134,7 +134,7 @@ pub(super) async fn get_after_created_at(
             r"SELECT id, instance_id, block_id, output, output_ref, output_size, attempt, created_at
                FROM block_outputs WHERE instance_id = $1 ORDER BY created_at",
         )
-        .bind(instance_id.0)
+        .bind(instance_id.into_uuid())
         .fetch_all(&store.pool)
         .await?
     };
@@ -150,10 +150,10 @@ pub(super) async fn get_completed_ids(
 ) -> Result<Vec<BlockId>, StorageError> {
     let rows: Vec<(String,)> =
         sqlx::query_as("SELECT DISTINCT block_id FROM block_outputs WHERE instance_id = $1")
-            .bind(instance_id.0)
+            .bind(instance_id.into_uuid())
             .fetch_all(&store.pool)
             .await?;
-    Ok(rows.into_iter().map(|(id,)| BlockId(id)).collect())
+    Ok(rows.into_iter().map(|(id,)| BlockId::new(id)).collect())
 }
 
 pub(super) async fn get_completed_ids_batch(
@@ -163,7 +163,7 @@ pub(super) async fn get_completed_ids_batch(
     if instance_ids.is_empty() {
         return Ok(std::collections::HashMap::new());
     }
-    let uuids: Vec<Uuid> = instance_ids.iter().map(|id| id.0).collect();
+    let uuids: Vec<Uuid> = instance_ids.iter().map(|id| id.into_uuid()).collect();
     let rows: Vec<(Uuid, String)> = sqlx::query_as(
         "SELECT DISTINCT instance_id, block_id FROM block_outputs WHERE instance_id = ANY($1)",
     )
@@ -174,7 +174,7 @@ pub(super) async fn get_completed_ids_batch(
     let mut map: std::collections::HashMap<InstanceId, Vec<BlockId>> =
         std::collections::HashMap::new();
     for (iid, bid) in rows {
-        map.entry(InstanceId(iid)).or_default().push(BlockId(bid));
+        map.entry(InstanceId::from_uuid(iid)).or_default().push(BlockId::new(bid));
     }
     Ok(map)
 }
@@ -191,8 +191,8 @@ pub(super) async fn delete_for_block(
     block_id: &BlockId,
 ) -> Result<u64, StorageError> {
     let result = sqlx::query(r"DELETE FROM block_outputs WHERE instance_id = $1 AND block_id = $2")
-        .bind(instance_id.0)
-        .bind(&block_id.0)
+        .bind(instance_id.into_uuid())
+        .bind(&block_id.as_str())
         .execute(&store.pool)
         .await?;
     Ok(result.rows_affected())
@@ -208,10 +208,10 @@ pub(super) async fn delete_for_blocks(
     if block_ids.is_empty() {
         return Ok(0);
     }
-    let ids: Vec<&str> = block_ids.iter().map(|b| b.0.as_str()).collect();
+    let ids: Vec<&str> = block_ids.iter().map(|b| b.as_str()).collect();
     let result =
         sqlx::query(r"DELETE FROM block_outputs WHERE instance_id = $1 AND block_id = ANY($2)")
-            .bind(instance_id.0)
+            .bind(instance_id.into_uuid())
             .bind(&ids)
             .execute(&store.pool)
             .await?;
@@ -224,7 +224,7 @@ pub(super) async fn delete_all_for_instance(
     instance_id: InstanceId,
 ) -> Result<u64, StorageError> {
     let result = sqlx::query(r"DELETE FROM block_outputs WHERE instance_id = $1")
-        .bind(instance_id.0)
+        .bind(instance_id.into_uuid())
         .execute(&store.pool)
         .await?;
     Ok(result.rows_affected())
@@ -249,12 +249,12 @@ pub(super) async fn save_output_and_transition(
         ",
     )
     .bind(output.id)
-    .bind(output.instance_id.0)
-    .bind(&output.block_id.0)
+    .bind(output.instance_id.into_uuid())
+    .bind(&output.block_id.as_str())
     .bind(&output.output)
     .bind(&output.output_ref)
-    .bind(output.output_size)
-    .bind(output.attempt)
+    .bind(output.output_size as i32)
+    .bind(output.attempt as i16)
     .bind(output.created_at)
     .execute(&mut *tx)
     .await?;
@@ -262,7 +262,7 @@ pub(super) async fn save_output_and_transition(
     sqlx::query(
         "UPDATE task_instances SET state = $2, next_fire_at = $3, updated_at = NOW() WHERE id = $1",
     )
-    .bind(instance_id.0)
+    .bind(instance_id.into_uuid())
     .bind(new_state.to_string())
     .bind(next_fire_at)
     .execute(&mut *tx)
@@ -296,12 +296,12 @@ pub(super) async fn save_output_merge_context_and_transition(
         ",
     )
     .bind(output.id)
-    .bind(output.instance_id.0)
-    .bind(&output.block_id.0)
+    .bind(output.instance_id.into_uuid())
+    .bind(&output.block_id.as_str())
     .bind(&output.output)
     .bind(&output.output_ref)
-    .bind(output.output_size)
-    .bind(output.attempt)
+    .bind(output.output_size as i32)
+    .bind(output.attempt as i16)
     .bind(output.created_at)
     .execute(&mut *tx)
     .await?;
@@ -309,7 +309,7 @@ pub(super) async fn save_output_merge_context_and_transition(
     sqlx::query(
         "UPDATE task_instances SET context = $2, state = $3, next_fire_at = $4, updated_at = NOW() WHERE id = $1",
     )
-    .bind(instance_id.0)
+    .bind(instance_id.into_uuid())
     .bind(&ctx_json)
     .bind(new_state.to_string())
     .bind(next_fire_at)
@@ -339,12 +339,12 @@ pub(super) async fn save_output_complete_node_and_transition(
         ",
     )
     .bind(output.id)
-    .bind(output.instance_id.0)
-    .bind(&output.block_id.0)
+    .bind(output.instance_id.into_uuid())
+    .bind(&output.block_id.as_str())
     .bind(&output.output)
     .bind(&output.output_ref)
-    .bind(output.output_size)
-    .bind(output.attempt)
+    .bind(output.output_size as i32)
+    .bind(output.attempt as i16)
     .bind(output.created_at)
     .execute(&mut *tx)
     .await?;
@@ -352,14 +352,14 @@ pub(super) async fn save_output_complete_node_and_transition(
     sqlx::query(
         "UPDATE execution_tree SET state = 'completed', completed_at = NOW() WHERE id = $1",
     )
-    .bind(node_id.0)
+    .bind(node_id.into_uuid())
     .execute(&mut *tx)
     .await?;
 
     let result = sqlx::query(
         "UPDATE task_instances SET state = $2, next_fire_at = $3, updated_at = NOW() WHERE id = $1 AND state NOT IN ('completed', 'failed', 'cancelled', 'paused')",
     )
-    .bind(instance_id.0)
+    .bind(instance_id.into_uuid())
     .bind(new_state.to_string())
     .bind(next_fire_at)
     .execute(&mut *tx)
@@ -371,7 +371,7 @@ pub(super) async fn save_output_complete_node_and_transition(
         }
         return Err(StorageError::TerminalTarget {
             entity: "task_instances".into(),
-            id: instance_id.0.to_string(),
+            id: instance_id.into_uuid().to_string(),
         });
     }
 
@@ -400,12 +400,12 @@ pub(super) async fn save_output_complete_node_merge_context_and_transition(
         ",
     )
     .bind(output.id)
-    .bind(output.instance_id.0)
-    .bind(&output.block_id.0)
+    .bind(output.instance_id.into_uuid())
+    .bind(&output.block_id.as_str())
     .bind(&output.output)
     .bind(&output.output_ref)
-    .bind(output.output_size)
-    .bind(output.attempt)
+    .bind(output.output_size as i32)
+    .bind(output.attempt as i16)
     .bind(output.created_at)
     .execute(&mut *tx)
     .await?;
@@ -413,14 +413,14 @@ pub(super) async fn save_output_complete_node_merge_context_and_transition(
     sqlx::query(
         "UPDATE execution_tree SET state = 'completed', completed_at = NOW() WHERE id = $1",
     )
-    .bind(node_id.0)
+    .bind(node_id.into_uuid())
     .execute(&mut *tx)
     .await?;
 
     let result = sqlx::query(
         "UPDATE task_instances SET context = $2, state = $3, next_fire_at = $4, updated_at = NOW() WHERE id = $1 AND state NOT IN ('completed', 'failed', 'cancelled', 'paused')",
     )
-    .bind(instance_id.0)
+    .bind(instance_id.into_uuid())
     .bind(&ctx_json)
     .bind(new_state.to_string())
     .bind(next_fire_at)
@@ -433,7 +433,7 @@ pub(super) async fn save_output_complete_node_merge_context_and_transition(
         }
         return Err(StorageError::TerminalTarget {
             entity: "task_instances".into(),
-            id: instance_id.0.to_string(),
+            id: instance_id.into_uuid().to_string(),
         });
     }
 
@@ -449,7 +449,7 @@ pub(super) async fn delete_sentinels_for_instance(
     let result = sqlx::query(
         r"DELETE FROM block_outputs WHERE instance_id = $1 AND output_ref = '__in_progress__'",
     )
-    .bind(instance_id.0)
+    .bind(instance_id.into_uuid())
     .execute(&store.pool)
     .await?;
     Ok(result.rows_affected())

@@ -81,14 +81,14 @@ async fn create_plugin(
     }
 
     let tenant_id =
-        crate::auth::enforce_tenant_create(&tenant_ctx, &TenantId(body.tenant_id.clone()))?;
+        crate::auth::enforce_tenant_create(&tenant_ctx, &TenantId::unchecked(body.tenant_id.clone()))?;
 
     let now = chrono::Utc::now();
     let plugin = PluginDef {
         name: body.name,
         plugin_type: body.plugin_type,
         source: body.source,
-        tenant_id: tenant_id.0,
+        tenant_id: tenant_id.into_string(),
         enabled: true,
         config: body.config,
         description: body.description,
@@ -132,7 +132,7 @@ async fn get_plugin(
         .ok_or_else(|| ApiError::NotFound(format!("plugin '{name}'")))?;
     crate::auth::enforce_tenant_access(
         &tenant_ctx,
-        &TenantId(plugin.tenant_id.clone()),
+        &TenantId::unchecked(plugin.tenant_id.clone()),
         &format!("plugin '{name}'"),
     )?;
     Ok(Json(plugin))
@@ -152,7 +152,7 @@ async fn update_plugin(
         .ok_or_else(|| ApiError::NotFound(format!("plugin '{name}'")))?;
     crate::auth::enforce_tenant_access(
         &tenant_ctx,
-        &TenantId(plugin.tenant_id.clone()),
+        &TenantId::unchecked(plugin.tenant_id.clone()),
         &format!("plugin '{name}'"),
     )?;
 
@@ -192,7 +192,7 @@ async fn delete_plugin(
         .ok_or_else(|| ApiError::NotFound(format!("plugin '{name}'")))?;
     crate::auth::enforce_tenant_access(
         &tenant_ctx,
-        &TenantId(plugin.tenant_id.clone()),
+        &TenantId::unchecked(plugin.tenant_id.clone()),
         &format!("plugin '{name}'"),
     )?;
 

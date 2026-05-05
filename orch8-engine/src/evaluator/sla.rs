@@ -62,11 +62,11 @@ pub(super) async fn check_sla_deadlines(
                 if let serde_json::Value::Object(ref mut map) = params {
                     map.insert(
                         "_breach_block_id".into(),
-                        serde_json::json!(node.block_id.0),
+                        serde_json::json!(node.block_id.as_str()),
                     );
                     map.insert(
                         "_breach_instance_id".into(),
-                        serde_json::json!(instance.id.0),
+                        serde_json::json!(instance.id.into_uuid()),
                     );
                     map.insert(
                         "_breach_elapsed_ms".into(),

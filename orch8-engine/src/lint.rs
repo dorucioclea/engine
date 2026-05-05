@@ -37,30 +37,30 @@ fn collect_all_block_ids(blocks: &[BlockDefinition], ids: &mut HashSet<String>) 
     for block in blocks {
         match block {
             BlockDefinition::Step(s) => {
-                ids.insert(s.id.0.clone());
+                ids.insert(s.id.as_str().to_owned());
             }
             BlockDefinition::Parallel(p) => {
-                ids.insert(p.id.0.clone());
+                ids.insert(p.id.as_str().to_owned());
                 for branch in &p.branches {
                     collect_all_block_ids(branch, ids);
                 }
             }
             BlockDefinition::Race(r) => {
-                ids.insert(r.id.0.clone());
+                ids.insert(r.id.as_str().to_owned());
                 for branch in &r.branches {
                     collect_all_block_ids(branch, ids);
                 }
             }
             BlockDefinition::Loop(l) => {
-                ids.insert(l.id.0.clone());
+                ids.insert(l.id.as_str().to_owned());
                 collect_all_block_ids(&l.body, ids);
             }
             BlockDefinition::ForEach(fe) => {
-                ids.insert(fe.id.0.clone());
+                ids.insert(fe.id.as_str().to_owned());
                 collect_all_block_ids(&fe.body, ids);
             }
             BlockDefinition::Router(r) => {
-                ids.insert(r.id.0.clone());
+                ids.insert(r.id.as_str().to_owned());
                 for route in &r.routes {
                     collect_all_block_ids(&route.blocks, ids);
                 }
@@ -69,7 +69,7 @@ fn collect_all_block_ids(blocks: &[BlockDefinition], ids: &mut HashSet<String>) 
                 }
             }
             BlockDefinition::TryCatch(tc) => {
-                ids.insert(tc.id.0.clone());
+                ids.insert(tc.id.as_str().to_owned());
                 collect_all_block_ids(&tc.try_block, ids);
                 collect_all_block_ids(&tc.catch_block, ids);
                 if let Some(f) = &tc.finally_block {
@@ -77,16 +77,16 @@ fn collect_all_block_ids(blocks: &[BlockDefinition], ids: &mut HashSet<String>) 
                 }
             }
             BlockDefinition::SubSequence(s) => {
-                ids.insert(s.id.0.clone());
+                ids.insert(s.id.as_str().to_owned());
             }
             BlockDefinition::ABSplit(ab) => {
-                ids.insert(ab.id.0.clone());
+                ids.insert(ab.id.as_str().to_owned());
                 for v in &ab.variants {
                     collect_all_block_ids(&v.blocks, ids);
                 }
             }
             BlockDefinition::CancellationScope(cs) => {
-                ids.insert(cs.id.0.clone());
+                ids.insert(cs.id.as_str().to_owned());
                 collect_all_block_ids(&cs.blocks, ids);
             }
         }
@@ -126,7 +126,7 @@ fn lint_parallel(
     for branch in &p.branches {
         if branch.is_empty() {
             warnings.push(LintWarning {
-                block_id: p.id.0.clone(),
+                block_id: p.id.as_str().to_owned(),
                 message: "parallel branch is empty (will be a no-op)".into(),
             });
         }
@@ -141,7 +141,7 @@ fn lint_race(
 ) {
     if r.branches.len() < 2 {
         warnings.push(LintWarning {
-            block_id: r.id.0.clone(),
+            block_id: r.id.as_str().to_owned(),
             message: "race with fewer than 2 branches has no racing effect".into(),
         });
     }
@@ -155,9 +155,9 @@ fn lint_loop(
     all_ids: &HashSet<String>,
     warnings: &mut Vec<LintWarning>,
 ) {
-    lint_expression(&l.id.0, "condition", &l.condition, warnings);
+    lint_expression(&l.id.as_str(), "condition", &l.condition, warnings);
     if let Some(ref break_on) = l.break_on {
-        lint_expression(&l.id.0, "break_on", break_on, warnings);
+        lint_expression(&l.id.as_str(), "break_on", break_on, warnings);
     }
     lint_blocks(&l.body, all_ids, warnings);
 }
@@ -168,10 +168,10 @@ fn lint_router(
     warnings: &mut Vec<LintWarning>,
 ) {
     for route in &r.routes {
-        lint_expression(&r.id.0, "route.condition", &route.condition, warnings);
+        lint_expression(&r.id.as_str(), "route.condition", &route.condition, warnings);
         if route.blocks.is_empty() {
             warnings.push(LintWarning {
-                block_id: r.id.0.clone(),
+                block_id: r.id.as_str().to_owned(),
                 message: "router route has empty blocks (will be a no-op)".into(),
             });
         }
@@ -189,7 +189,7 @@ fn lint_try_catch(
 ) {
     if tc.catch_block.is_empty() {
         warnings.push(LintWarning {
-            block_id: tc.id.0.clone(),
+            block_id: tc.id.as_str().to_owned(),
             message: "try_catch has empty catch_block (errors will be silently swallowed)".into(),
         });
     }
@@ -210,7 +210,7 @@ fn lint_ab_split(
         for v in &ab.variants {
             if v.weight == 0 {
                 warnings.push(LintWarning {
-                    block_id: ab.id.0.clone(),
+                    block_id: ab.id.as_str().to_owned(),
                     message: format!(
                         "ab_split variant `{}` has weight 0 (will never be selected)",
                         v.name
@@ -226,14 +226,14 @@ fn lint_ab_split(
 
 fn lint_step(s: &StepDef, warnings: &mut Vec<LintWarning>) {
     if BUILTIN_HANDLER_NAMES.contains(&s.handler.as_str()) {
-        lint_handler_params(&s.id.0, &s.handler, &s.params, warnings);
+        lint_handler_params(&s.id.as_str(), &s.handler, &s.params, warnings);
     }
 
     if s.deadline.is_some() && s.timeout.is_some() {
         if let (Some(deadline), Some(timeout)) = (s.deadline, s.timeout) {
             if timeout > deadline {
                 warnings.push(LintWarning {
-                    block_id: s.id.0.clone(),
+                    block_id: s.id.as_str().to_owned(),
                     message: format!(
                         "step timeout ({:.1}s) exceeds deadline ({:.1}s) — step will be \
                          deadline-breached before timeout fires",
@@ -248,7 +248,7 @@ fn lint_step(s: &StepDef, warnings: &mut Vec<LintWarning>) {
     if let Some(ref fallback) = s.fallback_handler {
         if fallback == &s.handler {
             warnings.push(LintWarning {
-                block_id: s.id.0.clone(),
+                block_id: s.id.as_str().to_owned(),
                 message: "fallback_handler is the same as primary handler".into(),
             });
         }
@@ -262,7 +262,7 @@ fn lint_step(s: &StepDef, warnings: &mut Vec<LintWarning>) {
                 None => String::new(),
             };
             warnings.push(LintWarning {
-                block_id: s.id.0.clone(),
+                block_id: s.id.as_str().to_owned(),
                 message: format!("unknown fallback_handler \"{fallback}\"{hint}"),
             });
         }
@@ -271,13 +271,13 @@ fn lint_step(s: &StepDef, warnings: &mut Vec<LintWarning>) {
     if let Some(ref esc) = s.on_deadline_breach {
         if s.deadline.is_none() {
             warnings.push(LintWarning {
-                block_id: s.id.0.clone(),
+                block_id: s.id.as_str().to_owned(),
                 message: "on_deadline_breach is set but no deadline is configured".into(),
             });
         }
         if esc.handler.is_empty() {
             warnings.push(LintWarning {
-                block_id: s.id.0.clone(),
+                block_id: s.id.as_str().to_owned(),
                 message: "on_deadline_breach handler name is empty".into(),
             });
         }
@@ -437,7 +437,7 @@ fn lint_output_refs_in_block(
 ) {
     match block {
         BlockDefinition::Step(s) => {
-            check_refs_in_json(&s.id.0, "params", &s.params, all_ids, warnings);
+            check_refs_in_json(&s.id.as_str(), "params", &s.params, all_ids, warnings);
         }
         BlockDefinition::Parallel(p) => {
             for branch in &p.branches {
@@ -454,16 +454,16 @@ fn lint_output_refs_in_block(
             }
         }
         BlockDefinition::Loop(l) => {
-            check_refs_in_str(&l.id.0, "condition", &l.condition, all_ids, warnings);
+            check_refs_in_str(&l.id.as_str(), "condition", &l.condition, all_ids, warnings);
             if let Some(ref bo) = l.break_on {
-                check_refs_in_str(&l.id.0, "break_on", bo, all_ids, warnings);
+                check_refs_in_str(&l.id.as_str(), "break_on", bo, all_ids, warnings);
             }
             for b in &l.body {
                 lint_output_refs_in_block(b, all_ids, warnings);
             }
         }
         BlockDefinition::ForEach(fe) => {
-            check_refs_in_str(&fe.id.0, "collection", &fe.collection, all_ids, warnings);
+            check_refs_in_str(&fe.id.as_str(), "collection", &fe.collection, all_ids, warnings);
             for b in &fe.body {
                 lint_output_refs_in_block(b, all_ids, warnings);
             }
@@ -471,7 +471,7 @@ fn lint_output_refs_in_block(
         BlockDefinition::Router(r) => {
             for route in &r.routes {
                 check_refs_in_str(
-                    &r.id.0,
+                    &r.id.as_str(),
                     "route.condition",
                     &route.condition,
                     all_ids,
@@ -501,7 +501,7 @@ fn lint_output_refs_in_block(
             }
         }
         BlockDefinition::SubSequence(s) => {
-            check_refs_in_json(&s.id.0, "input", &s.input, all_ids, warnings);
+            check_refs_in_json(&s.id.as_str(), "input", &s.input, all_ids, warnings);
         }
         BlockDefinition::ABSplit(ab) => {
             for v in &ab.variants {
@@ -589,7 +589,7 @@ fn lint_for_each_in_block(block: &BlockDefinition, warnings: &mut Vec<LintWarnin
         BlockDefinition::ForEach(fe) => {
             if fe.max_iterations == 1000 {
                 warnings.push(LintWarning {
-                    block_id: fe.id.0.clone(),
+                    block_id: fe.id.as_str().to_owned(),
                     message: "for_each uses default max_iterations (1000) — set explicitly to confirm intent".into(),
                 });
             }
@@ -680,7 +680,7 @@ fn lint_unreachable_in_list(blocks: &[BlockDefinition], warnings: &mut Vec<LintW
         if let BlockDefinition::Step(s) = block {
             if s.handler == "fail" {
                 saw_fail = true;
-                fail_id.clone_from(&s.id.0);
+                fail_id = s.id.as_str().to_owned();
             }
         }
     }
@@ -766,16 +766,16 @@ fn lint_unreachable_recursive(block: &BlockDefinition, warnings: &mut Vec<LintWa
 
 fn block_id_of(block: &BlockDefinition) -> String {
     match block {
-        BlockDefinition::Step(s) => s.id.0.clone(),
-        BlockDefinition::Parallel(p) => p.id.0.clone(),
-        BlockDefinition::Race(r) => r.id.0.clone(),
-        BlockDefinition::Loop(l) => l.id.0.clone(),
-        BlockDefinition::ForEach(fe) => fe.id.0.clone(),
-        BlockDefinition::Router(r) => r.id.0.clone(),
-        BlockDefinition::TryCatch(tc) => tc.id.0.clone(),
-        BlockDefinition::SubSequence(s) => s.id.0.clone(),
-        BlockDefinition::ABSplit(ab) => ab.id.0.clone(),
-        BlockDefinition::CancellationScope(cs) => cs.id.0.clone(),
+        BlockDefinition::Step(s) => s.id.as_str().to_owned(),
+        BlockDefinition::Parallel(p) => p.id.as_str().to_owned(),
+        BlockDefinition::Race(r) => r.id.as_str().to_owned(),
+        BlockDefinition::Loop(l) => l.id.as_str().to_owned(),
+        BlockDefinition::ForEach(fe) => fe.id.as_str().to_owned(),
+        BlockDefinition::Router(r) => r.id.as_str().to_owned(),
+        BlockDefinition::TryCatch(tc) => tc.id.as_str().to_owned(),
+        BlockDefinition::SubSequence(s) => s.id.as_str().to_owned(),
+        BlockDefinition::ABSplit(ab) => ab.id.as_str().to_owned(),
+        BlockDefinition::CancellationScope(cs) => cs.id.as_str().to_owned(),
     }
 }
 
@@ -790,8 +790,8 @@ mod tests {
     fn sample_seq(blocks: Vec<BlockDefinition>) -> SequenceDefinition {
         SequenceDefinition {
             id: SequenceId::new(),
-            tenant_id: TenantId("t".into()),
-            namespace: Namespace("default".into()),
+            tenant_id: TenantId::unchecked("t"),
+            namespace: Namespace::new("default"),
             name: "sample".into(),
             version: 1,
             deprecated: false,
@@ -803,7 +803,7 @@ mod tests {
 
     fn make_step(id: &str, handler: &str, params: serde_json::Value) -> BlockDefinition {
         BlockDefinition::Step(Box::new(StepDef {
-            id: BlockId(id.into()),
+            id: BlockId::new(id),
             handler: handler.into(),
             params,
             delay: None,
@@ -961,7 +961,7 @@ mod tests {
     #[test]
     fn loop_bad_expression_warned() {
         let seq = sample_seq(vec![BlockDefinition::Loop(Box::new(LoopDef {
-            id: BlockId("loop1".into()),
+            id: BlockId::new("loop1"),
             condition: "data.x > > 5".into(),
             body: vec![make_step("s1", "noop", json!({}))],
             max_iterations: 10,
@@ -977,7 +977,7 @@ mod tests {
     #[test]
     fn loop_valid_expression_no_warning() {
         let seq = sample_seq(vec![BlockDefinition::Loop(Box::new(LoopDef {
-            id: BlockId("loop1".into()),
+            id: BlockId::new("loop1"),
             condition: "context.data.count < 10".into(),
             body: vec![make_step("s1", "noop", json!({}))],
             max_iterations: 10,
@@ -992,7 +992,7 @@ mod tests {
     #[test]
     fn router_bad_condition_warned() {
         let seq = sample_seq(vec![BlockDefinition::Router(Box::new(RouterDef {
-            id: BlockId("r1".into()),
+            id: BlockId::new("r1"),
             routes: vec![Route {
                 condition: "a + + b".into(),
                 blocks: vec![make_step("s1", "noop", json!({}))],
@@ -1007,7 +1007,7 @@ mod tests {
     #[test]
     fn router_valid_condition_no_warning() {
         let seq = sample_seq(vec![BlockDefinition::Router(Box::new(RouterDef {
-            id: BlockId("r1".into()),
+            id: BlockId::new("r1"),
             routes: vec![Route {
                 condition: "context.data.x == true".into(),
                 blocks: vec![make_step("s1", "noop", json!({}))],
@@ -1023,7 +1023,7 @@ mod tests {
     #[test]
     fn race_single_branch_warned() {
         let seq = sample_seq(vec![BlockDefinition::Race(Box::new(RaceDef {
-            id: BlockId("r1".into()),
+            id: BlockId::new("r1"),
             branches: vec![vec![make_step("s1", "noop", json!({}))]],
             semantics: RaceSemantics::default(),
         }))]);
@@ -1035,7 +1035,7 @@ mod tests {
     #[test]
     fn try_catch_empty_catch_warned() {
         let seq = sample_seq(vec![BlockDefinition::TryCatch(Box::new(TryCatchDef {
-            id: BlockId("tc1".into()),
+            id: BlockId::new("tc1"),
             try_block: vec![make_step("s1", "noop", json!({}))],
             catch_block: vec![],
             finally_block: None,
@@ -1048,7 +1048,7 @@ mod tests {
     #[test]
     fn parallel_empty_branch_warned() {
         let seq = sample_seq(vec![BlockDefinition::Parallel(Box::new(ParallelDef {
-            id: BlockId("p1".into()),
+            id: BlockId::new("p1"),
             branches: vec![vec![make_step("s1", "noop", json!({}))], vec![]],
         }))]);
         let w = lint_sequence(&seq);
@@ -1059,7 +1059,7 @@ mod tests {
     #[test]
     fn ab_split_zero_weight_variant_warned() {
         let seq = sample_seq(vec![BlockDefinition::ABSplit(Box::new(ABSplitDef {
-            id: BlockId("ab1".into()),
+            id: BlockId::new("ab1"),
             variants: vec![
                 ABVariant {
                     name: "control".into(),
@@ -1083,7 +1083,7 @@ mod tests {
     #[test]
     fn fallback_same_as_primary_warned() {
         let mut s = StepDef {
-            id: BlockId("s1".into()),
+            id: BlockId::new("s1"),
             handler: "http_request".into(),
             params: json!({"url": "https://x.com"}),
             delay: None,
@@ -1118,7 +1118,7 @@ mod tests {
     #[test]
     fn timeout_exceeds_deadline_warned() {
         let s = StepDef {
-            id: BlockId("s1".into()),
+            id: BlockId::new("s1"),
             handler: "noop".into(),
             params: json!({}),
             delay: None,
@@ -1144,7 +1144,7 @@ mod tests {
     #[test]
     fn on_deadline_breach_without_deadline_warned() {
         let s = StepDef {
-            id: BlockId("s1".into()),
+            id: BlockId::new("s1"),
             handler: "noop".into(),
             params: json!({}),
             delay: None,
@@ -1180,7 +1180,7 @@ mod tests {
     #[test]
     fn router_empty_route_blocks_warned() {
         let seq = sample_seq(vec![BlockDefinition::Router(Box::new(RouterDef {
-            id: BlockId("r1".into()),
+            id: BlockId::new("r1"),
             routes: vec![Route {
                 condition: "true".into(),
                 blocks: vec![],
@@ -1195,9 +1195,9 @@ mod tests {
     fn deeply_nested_lint_descends() {
         let inner_step = make_step("inner", "set_state", json!({}));
         let seq = sample_seq(vec![BlockDefinition::Parallel(Box::new(ParallelDef {
-            id: BlockId("p1".into()),
+            id: BlockId::new("p1"),
             branches: vec![vec![BlockDefinition::TryCatch(Box::new(TryCatchDef {
-                id: BlockId("tc1".into()),
+                id: BlockId::new("tc1"),
                 try_block: vec![inner_step],
                 catch_block: vec![make_step("catch", "noop", json!({}))],
                 finally_block: None,
@@ -1259,7 +1259,7 @@ mod tests {
     #[test]
     fn output_ref_in_router_condition_warned() {
         let seq = sample_seq(vec![BlockDefinition::Router(Box::new(RouterDef {
-            id: BlockId("r1".into()),
+            id: BlockId::new("r1"),
             routes: vec![Route {
                 condition: "steps.missing_step.value == true".into(),
                 blocks: vec![make_step("s1", "noop", json!({}))],
@@ -1277,7 +1277,7 @@ mod tests {
     #[test]
     fn output_ref_in_for_each_collection_warned() {
         let seq = sample_seq(vec![BlockDefinition::ForEach(Box::new(ForEachDef {
-            id: BlockId("fe1".into()),
+            id: BlockId::new("fe1"),
             collection: "{{ steps.missing.items }}".into(),
             item_var: "item".into(),
             body: vec![make_step("s1", "noop", json!({}))],
@@ -1296,7 +1296,7 @@ mod tests {
     #[test]
     fn for_each_default_max_iterations_warned() {
         let seq = sample_seq(vec![BlockDefinition::ForEach(Box::new(ForEachDef {
-            id: BlockId("fe1".into()),
+            id: BlockId::new("fe1"),
             collection: "{{ context.data.items }}".into(),
             item_var: "item".into(),
             body: vec![make_step("s1", "noop", json!({}))],
@@ -1313,7 +1313,7 @@ mod tests {
     #[test]
     fn for_each_explicit_max_iterations_no_warning() {
         let seq = sample_seq(vec![BlockDefinition::ForEach(Box::new(ForEachDef {
-            id: BlockId("fe1".into()),
+            id: BlockId::new("fe1"),
             collection: "{{ context.data.items }}".into(),
             item_var: "item".into(),
             body: vec![make_step("s1", "noop", json!({}))],
@@ -1346,7 +1346,7 @@ mod tests {
     #[test]
     fn step_after_fail_in_nested_branch_warned() {
         let seq = sample_seq(vec![BlockDefinition::Parallel(Box::new(ParallelDef {
-            id: BlockId("p1".into()),
+            id: BlockId::new("p1"),
             branches: vec![vec![
                 make_step("die", "fail", json!({})),
                 make_step("dead", "noop", json!({})),

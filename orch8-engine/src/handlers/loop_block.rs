@@ -178,7 +178,7 @@ pub async fn execute_loop(
             output: serde_json::json!({ "_iterations": next_iteration }),
             output_ref: None,
             output_size: 0,
-            attempt: i16::try_from(next_iteration).unwrap_or(i16::MAX),
+            attempt: u16::try_from(next_iteration).unwrap_or(u16::MAX),
             created_at: chrono::Utc::now(),
         };
         storage.save_block_output(&marker).await?;
@@ -276,10 +276,10 @@ async fn reset_subtree_to_pending(
     // descendants have no worker_tasks row, so this is a no-op for them.
     let all_block_ids: Vec<String> = descendants
         .iter()
-        .map(|(_, _, bid)| bid.0.clone())
+        .map(|(_, _, bid)| bid.as_str().to_owned())
         .collect();
     storage
-        .cancel_worker_tasks_for_blocks(instance_id.0, &all_block_ids)
+        .cancel_worker_tasks_for_blocks(instance_id.into_uuid(), &all_block_ids)
         .await?;
     Ok(())
 }
@@ -342,7 +342,7 @@ mod tests {
         ExecutionNode {
             id: ExecutionNodeId::new(),
             instance_id,
-            block_id: BlockId(block_id.into()),
+            block_id: BlockId::new(block_id),
             parent_id,
             block_type,
             branch_index: None,
@@ -356,7 +356,7 @@ mod tests {
         BlockOutput {
             id: uuid::Uuid::now_v7(),
             instance_id: inst,
-            block_id: BlockId(block.into()),
+            block_id: BlockId::new(block),
             output: json!({ "_iterations": value }),
             output_ref: None,
             output_size: 0,
@@ -370,13 +370,13 @@ mod tests {
         let now = chrono::Utc::now();
         let seq = SequenceDefinition {
             id: SequenceId::new(),
-            tenant_id: TenantId("t".into()),
-            namespace: Namespace("ns".into()),
+            tenant_id: TenantId::unchecked("t"),
+            namespace: Namespace::new("ns"),
             name: "test".into(),
             version: 1,
             deprecated: false,
             blocks: vec![BlockDefinition::Step(Box::new(StepDef {
-                id: BlockId("noop".into()),
+                id: BlockId::new("noop"),
                 handler: "noop".into(),
                 params: json!({}),
                 delay: None,
@@ -400,8 +400,8 @@ mod tests {
         let inst_row = orch8_types::instance::TaskInstance {
             id: inst,
             sequence_id: seq.id,
-            tenant_id: TenantId("t".into()),
-            namespace: Namespace("ns".into()),
+            tenant_id: TenantId::unchecked("t"),
+            namespace: Namespace::new("ns"),
             state: InstanceState::Running,
             next_fire_at: None,
             priority: Priority::Normal,
@@ -706,8 +706,8 @@ mod tests {
         TaskInstance {
             id: inst_id,
             sequence_id: SequenceId::new(),
-            tenant_id: TenantId("t".into()),
-            namespace: Namespace("ns".into()),
+            tenant_id: TenantId::unchecked("t"),
+            namespace: Namespace::new("ns"),
             state: InstanceState::Running,
             next_fire_at: None,
             priority: Priority::Normal,
@@ -757,7 +757,7 @@ mod tests {
         s.save_block_output(&BlockOutput {
             id: uuid::Uuid::now_v7(),
             instance_id: inst_id,
-            block_id: BlockId("body".into()),
+            block_id: BlockId::new("body"),
             output: json!({"prev": true}),
             output_ref: None,
             output_size: 0,
@@ -774,11 +774,11 @@ mod tests {
             .unwrap();
 
         let loop_def = LoopDef {
-            id: BlockId("inner_loop".into()),
+            id: BlockId::new("inner_loop"),
             condition: "true".into(),
             body: vec![orch8_types::sequence::BlockDefinition::Step(Box::new(
                 orch8_types::sequence::StepDef {
-                    id: BlockId("body".into()),
+                    id: BlockId::new("body"),
                     handler: "noop".into(),
                     params: json!({}),
                     delay: None,
@@ -805,7 +805,7 @@ mod tests {
         let tree = s.get_execution_tree(inst_id).await.unwrap();
         let inner_node = tree
             .iter()
-            .find(|n| n.block_id.0 == "inner_loop")
+            .find(|n| n.block_id.as_str() == "inner_loop")
             .unwrap()
             .clone();
 
@@ -814,13 +814,13 @@ mod tests {
             .unwrap();
 
         let after = s.get_execution_tree(inst_id).await.unwrap();
-        let step_after = after.iter().find(|n| n.block_id.0 == "body").unwrap();
+        let step_after = after.iter().find(|n| n.block_id.as_str() == "body").unwrap();
         assert_eq!(
             step_after.state,
             NodeState::Running,
             "body child must be activated, not skipped via stale-counter cap"
         );
-        let inner_after = after.iter().find(|n| n.block_id.0 == "inner_loop").unwrap();
+        let inner_after = after.iter().find(|n| n.block_id.as_str() == "inner_loop").unwrap();
         assert_ne!(
             inner_after.state,
             NodeState::Completed,
@@ -829,7 +829,7 @@ mod tests {
 
         // Step output preserved.
         assert!(s
-            .get_block_output(inst_id, &BlockId("body".into()))
+            .get_block_output(inst_id, &BlockId::new("body"))
             .await
             .unwrap()
             .is_some());
@@ -857,11 +857,11 @@ mod tests {
             .unwrap();
 
         let loop_def = LoopDef {
-            id: BlockId("lp".into()),
+            id: BlockId::new("lp"),
             condition: "true".into(),
             body: vec![orch8_types::sequence::BlockDefinition::Step(Box::new(
                 orch8_types::sequence::StepDef {
-                    id: BlockId("step_body".into()),
+                    id: BlockId::new("step_body"),
                     handler: "noop".into(),
                     params: json!({}),
                     delay: None,
@@ -886,14 +886,14 @@ mod tests {
         };
         let registry = HandlerRegistry::new();
         let tree = s.get_execution_tree(inst_id).await.unwrap();
-        let lp_node = tree.iter().find(|n| n.block_id.0 == "lp").unwrap().clone();
+        let lp_node = tree.iter().find(|n| n.block_id.as_str() == "lp").unwrap().clone();
 
         execute_loop(&s, &registry, &inst, &lp_node, &loop_def, &tree)
             .await
             .unwrap();
 
         let after = s.get_execution_tree(inst_id).await.unwrap();
-        let lp_after = after.iter().find(|n| n.block_id.0 == "lp").unwrap();
+        let lp_after = after.iter().find(|n| n.block_id.as_str() == "lp").unwrap();
         assert_eq!(lp_after.state, NodeState::Completed);
     }
 
@@ -920,11 +920,11 @@ mod tests {
             .unwrap();
 
         let loop_def = LoopDef {
-            id: BlockId("lp".into()),
+            id: BlockId::new("lp"),
             condition: "true".into(),
             body: vec![orch8_types::sequence::BlockDefinition::Step(Box::new(
                 orch8_types::sequence::StepDef {
-                    id: BlockId("body".into()),
+                    id: BlockId::new("body"),
                     handler: "noop".into(),
                     params: json!({}),
                     delay: None,
@@ -949,17 +949,17 @@ mod tests {
         };
         let registry = HandlerRegistry::new();
         let tree = s.get_execution_tree(inst_id).await.unwrap();
-        let lp_node = tree.iter().find(|n| n.block_id.0 == "lp").unwrap().clone();
+        let lp_node = tree.iter().find(|n| n.block_id.as_str() == "lp").unwrap().clone();
 
         execute_loop(&s, &registry, &inst, &lp_node, &loop_def, &tree)
             .await
             .unwrap();
 
         let after = s.get_execution_tree(inst_id).await.unwrap();
-        let lp_after = after.iter().find(|n| n.block_id.0 == "lp").unwrap();
+        let lp_after = after.iter().find(|n| n.block_id.as_str() == "lp").unwrap();
         assert_eq!(lp_after.state, NodeState::Failed);
         assert!(s
-            .get_block_output(inst_id, &BlockId("lp".into()))
+            .get_block_output(inst_id, &BlockId::new("lp"))
             .await
             .unwrap()
             .is_some());

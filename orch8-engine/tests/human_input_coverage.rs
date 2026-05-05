@@ -31,7 +31,7 @@ use uuid::Uuid;
 
 fn mk_step(id: &str, human: HumanInputDef) -> StepDef {
     StepDef {
-        id: BlockId(id.into()),
+        id: BlockId::new(id),
         handler: "builtin.noop".into(),
         params: serde_json::Value::Null,
         delay: None,
@@ -55,8 +55,8 @@ async fn setup(step: StepDef) -> (SqliteStorage, TaskInstance, StepDef) {
     let block = BlockDefinition::Step(Box::new(step.clone()));
     let seq = SequenceDefinition {
         id: SequenceId::new(),
-        tenant_id: TenantId("t".into()),
-        namespace: Namespace("ns".into()),
+        tenant_id: TenantId::unchecked("t"),
+        namespace: Namespace::new("ns"),
         name: "hitl-cov".into(),
         version: 1,
         deprecated: false,
@@ -70,8 +70,8 @@ async fn setup(step: StepDef) -> (SqliteStorage, TaskInstance, StepDef) {
     let instance = TaskInstance {
         id: InstanceId::new(),
         sequence_id: seq.id,
-        tenant_id: TenantId("t".into()),
-        namespace: Namespace("ns".into()),
+        tenant_id: TenantId::unchecked("t"),
+        namespace: Namespace::new("ns"),
         state: InstanceState::Running,
         next_fire_at: None,
         priority: Priority::Normal,

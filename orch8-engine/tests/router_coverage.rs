@@ -25,7 +25,7 @@ use orch8_types::sequence::{BlockDefinition, Route, RouterDef, SequenceDefinitio
 
 fn mk_step(id: &str) -> BlockDefinition {
     BlockDefinition::Step(Box::new(StepDef {
-        id: BlockId(id.into()),
+        id: BlockId::new(id),
         handler: "builtin.noop".into(),
         params: serde_json::Value::Null,
         delay: None,
@@ -53,8 +53,8 @@ async fn setup(
 
     let seq = SequenceDefinition {
         id: SequenceId::new(),
-        tenant_id: TenantId("t".into()),
-        namespace: Namespace("ns".into()),
+        tenant_id: TenantId::unchecked("t"),
+        namespace: Namespace::new("ns"),
         name: "router-cov".into(),
         version: 1,
         deprecated: false,
@@ -68,8 +68,8 @@ async fn setup(
     let instance = TaskInstance {
         id: InstanceId::new(),
         sequence_id: seq.id,
-        tenant_id: TenantId("t".into()),
-        namespace: Namespace("ns".into()),
+        tenant_id: TenantId::unchecked("t"),
+        namespace: Namespace::new("ns"),
         state: InstanceState::Running,
         next_fire_at: None,
         priority: Priority::Normal,
@@ -105,7 +105,7 @@ fn router_node(tree: &[ExecutionNode]) -> ExecutionNode {
 }
 
 fn find_by_block<'a>(tree: &'a [ExecutionNode], id: &str) -> &'a ExecutionNode {
-    tree.iter().find(|n| n.block_id.0 == id).expect("node")
+    tree.iter().find(|n| n.block_id.as_str() == id).expect("node")
 }
 
 async fn refresh(storage: &SqliteStorage, instance: &TaskInstance) -> Vec<ExecutionNode> {
@@ -116,7 +116,7 @@ async fn refresh(storage: &SqliteStorage, instance: &TaskInstance) -> Vec<Execut
 #[tokio::test]
 async fn first_matching_route_activates_its_branch() {
     let router = RouterDef {
-        id: BlockId("r".into()),
+        id: BlockId::new("r"),
         routes: vec![
             Route {
                 condition: "status == \"active\"".into(),
@@ -155,7 +155,7 @@ async fn first_matching_route_activates_its_branch() {
 #[tokio::test]
 async fn non_matching_siblings_get_skipped() {
     let router = RouterDef {
-        id: BlockId("r".into()),
+        id: BlockId::new("r"),
         routes: vec![
             Route {
                 condition: "false".into(),
@@ -197,7 +197,7 @@ async fn non_matching_siblings_get_skipped() {
 #[tokio::test]
 async fn default_activates_when_nothing_matches() {
     let router = RouterDef {
-        id: BlockId("r".into()),
+        id: BlockId::new("r"),
         routes: vec![
             Route {
                 condition: "status == \"x\"".into(),
@@ -237,7 +237,7 @@ async fn default_activates_when_nothing_matches() {
 #[tokio::test]
 async fn no_match_no_default_completes_router() {
     let router = RouterDef {
-        id: BlockId("r".into()),
+        id: BlockId::new("r"),
         routes: vec![
             Route {
                 condition: "false".into(),
@@ -276,7 +276,7 @@ async fn no_match_no_default_completes_router() {
 #[tokio::test]
 async fn conditions_check_current_context() {
     let router = RouterDef {
-        id: BlockId("r".into()),
+        id: BlockId::new("r"),
         routes: vec![
             Route {
                 condition: "n > 5".into(),
@@ -331,7 +331,7 @@ async fn conditions_check_current_context() {
 #[tokio::test]
 async fn single_route_activates_when_matched() {
     let router = RouterDef {
-        id: BlockId("r".into()),
+        id: BlockId::new("r"),
         routes: vec![Route {
             condition: "ok".into(),
             blocks: vec![mk_step("only")],
@@ -363,7 +363,7 @@ async fn single_route_activates_when_matched() {
 #[tokio::test]
 async fn externalized_marker_inflated_before_check() {
     let router = RouterDef {
-        id: BlockId("r".into()),
+        id: BlockId::new("r"),
         routes: vec![
             Route {
                 condition: "status == \"active\"".into(),
@@ -419,7 +419,7 @@ async fn externalized_marker_inflated_before_check() {
 #[tokio::test]
 async fn invalid_condition_falls_through_to_next_route() {
     let router = RouterDef {
-        id: BlockId("r".into()),
+        id: BlockId::new("r"),
         routes: vec![
             Route {
                 // Intentionally malformed — parser returns false, handler
@@ -461,7 +461,7 @@ async fn invalid_condition_falls_through_to_next_route() {
 #[tokio::test]
 async fn empty_matched_branch_completes_router() {
     let router = RouterDef {
-        id: BlockId("r".into()),
+        id: BlockId::new("r"),
         routes: vec![Route {
             condition: "true".into(),
             blocks: vec![],
@@ -492,7 +492,7 @@ async fn empty_matched_branch_completes_router() {
 #[tokio::test]
 async fn failed_branch_child_fails_router() {
     let router = RouterDef {
-        id: BlockId("r".into()),
+        id: BlockId::new("r"),
         routes: vec![Route {
             condition: "true".into(),
             blocks: vec![mk_step("b0")],

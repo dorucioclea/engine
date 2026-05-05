@@ -195,7 +195,7 @@ pub(crate) async fn complete_task(
         block_id: task.block_id,
         output: req.output,
         output_ref: None,
-        output_size: i32::try_from(output_json.len()).unwrap_or(i32::MAX),
+        output_size: u32::try_from(output_json.len()).unwrap_or(u32::MAX),
         attempt: task.attempt,
         created_at: chrono::Utc::now(),
     };
@@ -463,10 +463,7 @@ pub(crate) async fn fail_task(
             match block {
                 Some(orch8_types::sequence::BlockDefinition::Step(step_def)) => {
                     if let Some(retry) = &step_def.retry {
-                        #[allow(clippy::cast_sign_loss)]
-                        {
-                            ((task.attempt + 1) as u32) < retry.max_attempts
-                        }
+                            u32::from(task.attempt) + 1 < retry.max_attempts
                     } else {
                         false // no retry policy → fail immediately
                     }
@@ -554,10 +551,7 @@ pub(crate) async fn fail_task(
             match block {
                 Some(orch8_types::sequence::BlockDefinition::Step(step_def)) => {
                     if let Some(retry) = &step_def.retry {
-                        #[allow(clippy::cast_sign_loss)]
-                        {
-                            ((task.attempt + 1) as u32) < retry.max_attempts
-                        }
+                            u32::from(task.attempt) + 1 < retry.max_attempts
                     } else {
                         false
                     }

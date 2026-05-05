@@ -12,7 +12,7 @@ use super::SqliteStorage;
 pub(super) async fn create(storage: &SqliteStorage, s: &Session) -> Result<(), StorageError> {
     sqlx::query("INSERT INTO sessions (id,tenant_id,session_key,data,state,created_at,updated_at,expires_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)")
         .bind(s.id.to_string())
-        .bind(&s.tenant_id.0)
+        .bind(&s.tenant_id.as_str())
         .bind(&s.session_key)
         .bind(serde_json::to_string(&s.data)?)
         .bind(s.state.to_string())
@@ -40,7 +40,7 @@ pub(super) async fn get_by_key(
     session_key: &str,
 ) -> Result<Option<Session>, StorageError> {
     let row = sqlx::query("SELECT * FROM sessions WHERE tenant_id=?1 AND session_key=?2")
-        .bind(&tenant_id.0)
+        .bind(tenant_id.as_str())
         .bind(session_key)
         .fetch_optional(&storage.pool)
         .await?;

@@ -33,7 +33,7 @@ use orch8_types::sequence::{BlockDefinition, ForEachDef, LoopDef, SequenceDefini
 ///   }
 fn build_sequence() -> SequenceDefinition {
     let inner = BlockDefinition::Step(Box::new(StepDef {
-        id: BlockId("inner".into()),
+        id: BlockId::new("inner"),
         handler: "noop".into(),
         params: json!({}),
         delay: None,
@@ -51,7 +51,7 @@ fn build_sequence() -> SequenceDefinition {
         cache_key: None,
     }));
     let inner_loop = BlockDefinition::Loop(Box::new(LoopDef {
-        id: BlockId("l1".into()),
+        id: BlockId::new("l1"),
         condition: "true".into(),
         body: vec![inner],
         max_iterations: 2,
@@ -60,7 +60,7 @@ fn build_sequence() -> SequenceDefinition {
         poll_interval: None,
     }));
     let outer = BlockDefinition::ForEach(Box::new(ForEachDef {
-        id: BlockId("fe1".into()),
+        id: BlockId::new("fe1"),
         collection: "items".into(),
         item_var: "item".into(),
         body: vec![inner_loop],
@@ -68,8 +68,8 @@ fn build_sequence() -> SequenceDefinition {
     }));
     SequenceDefinition {
         id: SequenceId::new(),
-        tenant_id: TenantId("t".into()),
-        namespace: Namespace("ns".into()),
+        tenant_id: TenantId::unchecked("t"),
+        namespace: Namespace::new("ns"),
         name: "loop-in-foreach".into(),
         version: 1,
         deprecated: false,
@@ -84,8 +84,8 @@ fn mk_instance(seq_id: SequenceId, items: &serde_json::Value) -> TaskInstance {
     TaskInstance {
         id: InstanceId::new(),
         sequence_id: seq_id,
-        tenant_id: TenantId("t".into()),
-        namespace: Namespace("ns".into()),
+        tenant_id: TenantId::unchecked("t"),
+        namespace: Namespace::new("ns"),
         state: InstanceState::Running,
         next_fire_at: None,
         priority: Priority::Normal,
@@ -153,20 +153,20 @@ async fn r1_for_each_3_over_loop_2_yields_6_inner_outputs() {
 
     // Inner step output rows = 3 outer items * 2 loop iterations = 6.
     let all = storage.get_all_outputs(inst.id).await.unwrap();
-    let inner_count = all.iter().filter(|o| o.block_id.0 == "inner").count();
+    let inner_count = all.iter().filter(|o| o.block_id.as_str() == "inner").count();
     assert_eq!(
         inner_count,
         6,
         "expected 6 inner step outputs (3 outer items * 2 inner loops); got {inner_count} \
          (all rows: {:?})",
         all.iter()
-            .map(|o| (o.block_id.0.clone(), o.attempt))
+            .map(|o| (o.block_id.as_str().to_owned(), o.attempt))
             .collect::<Vec<_>>()
     );
 
     // Final for_each marker shows _index = 3 (it iterated through all items).
     let fe_marker = storage
-        .get_block_output(inst.id, &BlockId("fe1".into()))
+        .get_block_output(inst.id, &BlockId::new("fe1"))
         .await
         .unwrap()
         .expect("for_each marker exists at completion");
@@ -178,7 +178,7 @@ async fn r1_for_each_3_over_loop_2_yields_6_inner_outputs() {
     // because the body is already done and the for_each is about to
     // complete on the next tick.
     if let Some(inner_marker) = storage
-        .get_block_output(inst.id, &BlockId("l1".into()))
+        .get_block_output(inst.id, &BlockId::new("l1"))
         .await
         .unwrap()
     {
@@ -208,18 +208,18 @@ async fn r2_for_each_3_over_loop_0_items_completes_immediately() {
     // No step outputs.
     let all = storage.get_all_outputs(inst.id).await.unwrap();
     assert!(
-        all.iter().all(|o| o.block_id.0 != "inner"),
+        all.iter().all(|o| o.block_id.as_str() != "inner"),
         "no inner step outputs expected for empty collection"
     );
 
     // No markers left.
     assert!(storage
-        .get_block_output(inst.id, &BlockId("fe1".into()))
+        .get_block_output(inst.id, &BlockId::new("fe1"))
         .await
         .unwrap()
         .is_none());
     assert!(storage
-        .get_block_output(inst.id, &BlockId("l1".into()))
+        .get_block_output(inst.id, &BlockId::new("l1"))
         .await
         .unwrap()
         .is_none());

@@ -29,8 +29,8 @@ pub async fn bulk_update_state(
     }
     let filter = InstanceFilter {
         tenant_id: scoped_tenant,
-        namespace: req.filter.namespace.map(Namespace),
-        sequence_id: req.filter.sequence_id.map(SequenceId),
+        namespace: req.filter.namespace.map(Namespace::new),
+        sequence_id: req.filter.sequence_id.map(SequenceId::from_uuid),
         states: req.filter.states,
         metadata_filter: None,
         priority: None,
@@ -62,8 +62,8 @@ pub async fn bulk_reschedule(
     }
     let filter = InstanceFilter {
         tenant_id: scoped_tenant,
-        namespace: req.filter.namespace.map(Namespace),
-        sequence_id: req.filter.sequence_id.map(SequenceId),
+        namespace: req.filter.namespace.map(Namespace::new),
+        sequence_id: req.filter.sequence_id.map(SequenceId::from_uuid),
         states: req.filter.states,
         metadata_filter: None,
         priority: None,
@@ -96,8 +96,8 @@ pub async fn list_dlq(
     let scoped_tenant = crate::auth::scoped_tenant_id(&tenant_ctx, q.tenant_id.as_deref());
     let filter = InstanceFilter {
         tenant_id: scoped_tenant,
-        namespace: q.namespace.map(Namespace),
-        sequence_id: q.sequence_id.map(SequenceId),
+        namespace: q.namespace.map(Namespace::new),
+        sequence_id: q.sequence_id.map(SequenceId::from_uuid),
         states: Some(vec![InstanceState::Failed]),
         metadata_filter: None,
         priority: None,

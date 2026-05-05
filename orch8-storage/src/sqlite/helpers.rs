@@ -56,10 +56,10 @@ fn parse_json<T: serde::de::DeserializeOwned>(s: &str) -> Result<T, StorageError
 
 pub(super) fn row_to_instance(row: &sqlx::sqlite::SqliteRow) -> Result<TaskInstance, StorageError> {
     Ok(TaskInstance {
-        id: InstanceId(parse_uuid(row.get::<&str, _>("id"))?),
-        sequence_id: SequenceId(parse_uuid(row.get::<&str, _>("sequence_id"))?),
-        tenant_id: TenantId(row.get::<String, _>("tenant_id")),
-        namespace: Namespace(row.get::<String, _>("namespace")),
+        id: InstanceId::from_uuid(parse_uuid(row.get::<&str, _>("id"))?),
+        sequence_id: SequenceId::from_uuid(parse_uuid(row.get::<&str, _>("sequence_id"))?),
+        tenant_id: TenantId::unchecked(row.get::<String, _>("tenant_id")),
+        namespace: Namespace::new(row.get::<String, _>("namespace")),
         // Match Postgres semantics: an unrecognised state string is row
         // corruption, not a cue to silently resurrect the row as Scheduled.
         // Masking the corruption here let broken rows leak into claim cycles.
@@ -70,7 +70,7 @@ pub(super) fn row_to_instance(row: &sqlx::sqlite::SqliteRow) -> Result<TaskInsta
         metadata: parse_json(row.get::<&str, _>("metadata"))?,
         context: parse_json(row.get::<&str, _>("context"))?,
         concurrency_key: row.get::<Option<String>, _>("concurrency_key"),
-        max_concurrency: row.get::<Option<i32>, _>("max_concurrency"),
+        max_concurrency: row.get::<Option<i32>, _>("max_concurrency").map(|v| v as u32),
         idempotency_key: row.get::<Option<String>, _>("idempotency_key"),
         session_id: row
             .get::<Option<String>, _>("session_id")
@@ -78,7 +78,7 @@ pub(super) fn row_to_instance(row: &sqlx::sqlite::SqliteRow) -> Result<TaskInsta
         parent_instance_id: row
             .get::<Option<String>, _>("parent_instance_id")
             .and_then(|s| Uuid::parse_str(&s).ok())
-            .map(InstanceId),
+            .map(InstanceId::from_uuid),
         created_at: parse_ts(row.get::<&str, _>("created_at"))?,
         updated_at: parse_ts(row.get::<&str, _>("updated_at"))?,
     })
@@ -86,13 +86,13 @@ pub(super) fn row_to_instance(row: &sqlx::sqlite::SqliteRow) -> Result<TaskInsta
 
 pub(super) fn row_to_node(row: &sqlx::sqlite::SqliteRow) -> Result<ExecutionNode, StorageError> {
     Ok(ExecutionNode {
-        id: ExecutionNodeId(parse_uuid(row.get::<&str, _>("id"))?),
-        instance_id: InstanceId(parse_uuid(row.get::<&str, _>("instance_id"))?),
-        block_id: BlockId(row.get::<String, _>("block_id")),
+        id: ExecutionNodeId::from_uuid(parse_uuid(row.get::<&str, _>("id"))?),
+        instance_id: InstanceId::from_uuid(parse_uuid(row.get::<&str, _>("instance_id"))?),
+        block_id: BlockId::new(row.get::<String, _>("block_id")),
         parent_id: row
             .get::<Option<String>, _>("parent_id")
             .and_then(|s| Uuid::parse_str(&s).ok())
-            .map(ExecutionNodeId),
+            .map(ExecutionNodeId::from_uuid),
         block_type: BlockType::from_str(row.get::<&str, _>("block_type"))
             .unwrap_or(BlockType::Step),
         branch_index: row.get::<Option<i32>, _>("branch_index").map(|v| v as i16),
@@ -106,9 +106,9 @@ pub(super) fn row_to_sequence(
     row: &sqlx::sqlite::SqliteRow,
 ) -> Result<orch8_types::sequence::SequenceDefinition, StorageError> {
     Ok(orch8_types::sequence::SequenceDefinition {
-        id: SequenceId(parse_uuid(row.get::<&str, _>("id"))?),
-        tenant_id: TenantId(row.get::<String, _>("tenant_id")),
-        namespace: Namespace(row.get::<String, _>("namespace")),
+        id: SequenceId::from_uuid(parse_uuid(row.get::<&str, _>("id"))?),
+        tenant_id: TenantId::unchecked(row.get::<String, _>("tenant_id")),
+        namespace: Namespace::new(row.get::<String, _>("namespace")),
         name: row.get::<String, _>("name"),
         version: row.get::<i32, _>("version"),
         deprecated: row.get::<i32, _>("deprecated") != 0,
@@ -123,12 +123,12 @@ pub(super) fn row_to_sequence(
 pub(super) fn row_to_output(row: &sqlx::sqlite::SqliteRow) -> Result<BlockOutput, StorageError> {
     Ok(BlockOutput {
         id: parse_uuid(row.get::<&str, _>("id"))?,
-        instance_id: InstanceId(parse_uuid(row.get::<&str, _>("instance_id"))?),
-        block_id: BlockId(row.get::<String, _>("block_id")),
+        instance_id: InstanceId::from_uuid(parse_uuid(row.get::<&str, _>("instance_id"))?),
+        block_id: BlockId::new(row.get::<String, _>("block_id")),
         output: parse_json(row.get::<&str, _>("output"))?,
         output_ref: row.get::<Option<String>, _>("output_ref"),
-        output_size: row.get::<i64, _>("output_size") as i32,
-        attempt: row.get::<i64, _>("attempt") as i16,
+        output_size: row.get::<i64, _>("output_size") as u32,
+        attempt: row.get::<i64, _>("attempt") as u16,
         created_at: parse_ts(row.get::<&str, _>("created_at"))?,
     })
 }
@@ -136,7 +136,7 @@ pub(super) fn row_to_output(row: &sqlx::sqlite::SqliteRow) -> Result<BlockOutput
 pub(super) fn row_to_signal(row: &sqlx::sqlite::SqliteRow) -> Result<Signal, StorageError> {
     Ok(Signal {
         id: parse_uuid(row.get::<&str, _>("id"))?,
-        instance_id: InstanceId(parse_uuid(row.get::<&str, _>("instance_id"))?),
+        instance_id: InstanceId::from_uuid(parse_uuid(row.get::<&str, _>("instance_id"))?),
         signal_type: parse_json(row.get::<&str, _>("signal_type"))?,
         payload: parse_json(row.get::<&str, _>("payload"))?,
         delivered: row.get::<i32, _>("delivered") != 0,
@@ -148,9 +148,9 @@ pub(super) fn row_to_signal(row: &sqlx::sqlite::SqliteRow) -> Result<Signal, Sto
 pub(super) fn row_to_cron(row: &sqlx::sqlite::SqliteRow) -> Result<CronSchedule, StorageError> {
     Ok(CronSchedule {
         id: parse_uuid(row.get::<&str, _>("id"))?,
-        tenant_id: TenantId(row.get::<String, _>("tenant_id")),
-        namespace: Namespace(row.get::<String, _>("namespace")),
-        sequence_id: SequenceId(parse_uuid(row.get::<&str, _>("sequence_id"))?),
+        tenant_id: TenantId::unchecked(row.get::<String, _>("tenant_id")),
+        namespace: Namespace::new(row.get::<String, _>("namespace")),
+        sequence_id: SequenceId::from_uuid(parse_uuid(row.get::<&str, _>("sequence_id"))?),
         cron_expr: row.get::<String, _>("cron_expr"),
         timezone: row.get::<String, _>("timezone"),
         enabled: row.get::<i32, _>("enabled") != 0,
@@ -170,13 +170,13 @@ pub(super) fn row_to_worker_task(
         WorkerTaskState::from_str(row.get::<&str, _>("state")).unwrap_or(WorkerTaskState::Pending);
     Ok(WorkerTask {
         id: parse_uuid(row.get::<&str, _>("id"))?,
-        instance_id: InstanceId(parse_uuid(row.get::<&str, _>("instance_id"))?),
-        block_id: BlockId(row.get::<String, _>("block_id")),
+        instance_id: InstanceId::from_uuid(parse_uuid(row.get::<&str, _>("instance_id"))?),
+        block_id: BlockId::new(row.get::<String, _>("block_id")),
         handler_name: row.get::<String, _>("handler_name"),
         queue_name: row.get::<Option<String>, _>("queue_name"),
         params: parse_json(row.get::<&str, _>("params"))?,
         context: parse_json(row.get::<&str, _>("context"))?,
-        attempt: row.get::<i64, _>("attempt") as i16,
+        attempt: row.get::<i64, _>("attempt") as u16,
         timeout_ms: row.get::<Option<i64>, _>("timeout_ms"),
         state,
         worker_id: row.get::<Option<String>, _>("worker_id"),
@@ -198,7 +198,7 @@ pub(super) fn row_to_pool(row: &sqlx::sqlite::SqliteRow) -> Result<ResourcePool,
         .unwrap_or(RotationStrategy::RoundRobin);
     Ok(ResourcePool {
         id: parse_uuid(row.get::<&str, _>("id"))?,
-        tenant_id: TenantId(row.get::<String, _>("tenant_id")),
+        tenant_id: TenantId::unchecked(row.get::<String, _>("tenant_id")),
         name: row.get::<String, _>("name"),
         strategy,
         round_robin_index: row.get::<i64, _>("round_robin_index") as u32,
@@ -213,7 +213,7 @@ pub(super) fn row_to_pool_resource(
     Ok(PoolResource {
         id: parse_uuid(row.get::<&str, _>("id"))?,
         pool_id: parse_uuid(row.get::<&str, _>("pool_id"))?,
-        resource_key: ResourceKey(row.get::<String, _>("resource_key")),
+        resource_key: ResourceKey::new(row.get::<String, _>("resource_key")),
         name: row.get::<String, _>("name"),
         weight: row.get::<i64, _>("weight") as u32,
         enabled: row.get::<i32, _>("enabled") != 0,
@@ -234,7 +234,7 @@ pub(super) fn row_to_pool_resource(
 pub(super) fn row_to_checkpoint(row: &sqlx::sqlite::SqliteRow) -> Result<Checkpoint, StorageError> {
     Ok(Checkpoint {
         id: parse_uuid(row.get::<&str, _>("id"))?,
-        instance_id: InstanceId(parse_uuid(row.get::<&str, _>("instance_id"))?),
+        instance_id: InstanceId::from_uuid(parse_uuid(row.get::<&str, _>("instance_id"))?),
         checkpoint_data: parse_json(row.get::<&str, _>("checkpoint_data"))?,
         created_at: parse_ts(row.get::<&str, _>("created_at"))?,
     })
@@ -244,7 +244,7 @@ pub(super) fn row_to_session(row: &sqlx::sqlite::SqliteRow) -> Result<Session, S
     let state = SessionState::from_str(row.get::<&str, _>("state")).unwrap_or(SessionState::Active);
     Ok(Session {
         id: parse_uuid(row.get::<&str, _>("id"))?,
-        tenant_id: TenantId(row.get::<String, _>("tenant_id")),
+        tenant_id: TenantId::unchecked(row.get::<String, _>("tenant_id")),
         session_key: row.get::<String, _>("session_key"),
         data: parse_json(row.get::<&str, _>("data"))?,
         state,
@@ -257,8 +257,8 @@ pub(super) fn row_to_session(row: &sqlx::sqlite::SqliteRow) -> Result<Session, S
 pub(super) fn row_to_audit(row: &sqlx::sqlite::SqliteRow) -> Result<AuditLogEntry, StorageError> {
     Ok(AuditLogEntry {
         id: parse_uuid(row.get::<&str, _>("id"))?,
-        instance_id: InstanceId(parse_uuid(row.get::<&str, _>("instance_id"))?),
-        tenant_id: TenantId(row.get::<String, _>("tenant_id")),
+        instance_id: InstanceId::from_uuid(parse_uuid(row.get::<&str, _>("instance_id"))?),
+        tenant_id: TenantId::unchecked(row.get::<String, _>("tenant_id")),
         event_type: row.get::<String, _>("event_type"),
         from_state: row.get::<Option<String>, _>("from_state"),
         to_state: row.get::<Option<String>, _>("to_state"),
@@ -289,15 +289,15 @@ pub(super) fn apply_filter_sql<'q>(
 ) {
     if let Some(ref tid) = filter.tenant_id {
         qb.push(" AND tenant_id=");
-        qb.push_bind(&tid.0);
+        qb.push_bind(tid.as_str());
     }
     if let Some(ref ns) = filter.namespace {
         qb.push(" AND namespace=");
-        qb.push_bind(&ns.0);
+        qb.push_bind(ns.as_str());
     }
     if let Some(ref sid) = filter.sequence_id {
         qb.push(" AND sequence_id=");
-        qb.push_bind(sid.0.to_string());
+        qb.push_bind(sid.to_string());
     }
     if let Some(ref states) = filter.states {
         if !states.is_empty() {

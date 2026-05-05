@@ -169,7 +169,7 @@ pub(crate) fn build_trigger_instance(
         id: id.unwrap_or_default(),
         sequence_id,
         tenant_id: trigger.tenant_id.clone(),
-        namespace: Namespace(trigger.namespace.clone()),
+        namespace: Namespace::new(trigger.namespace.clone()),
         state: InstanceState::Scheduled,
         next_fire_at: Some(now),
         priority: Priority::Normal,
@@ -203,7 +203,7 @@ pub(crate) async fn resolve_trigger_sequence(
     storage
         .get_sequence_by_name(
             &trigger.tenant_id,
-            &Namespace(trigger.namespace.clone()),
+            &Namespace::new(trigger.namespace.clone()),
             &trigger.sequence_name,
             trigger.version,
         )
@@ -460,7 +460,7 @@ mod tests {
             slug: slug.into(),
             sequence_name: seq_name.into(),
             version: None,
-            tenant_id: TenantId("t1".into()),
+            tenant_id: TenantId::unchecked("t1"),
             namespace: "default".into(),
             enabled: true,
             secret: None,
@@ -475,8 +475,8 @@ mod tests {
         let id = SequenceId::new();
         let seq = SequenceDefinition {
             id,
-            tenant_id: TenantId("t1".into()),
-            namespace: Namespace("default".into()),
+            tenant_id: TenantId::unchecked("t1"),
+            namespace: Namespace::new("default"),
             name: name.into(),
             version: 1,
             deprecated: false,
@@ -495,7 +495,7 @@ mod tests {
             slug: "test".into(),
             sequence_name: "seq".into(),
             version: None,
-            tenant_id: TenantId("t1".into()),
+            tenant_id: TenantId::unchecked("t1"),
             namespace: "default".into(),
             enabled: true,
             secret: None,
@@ -524,8 +524,8 @@ mod tests {
         let stored = storage.get_instance(id).await.unwrap().unwrap();
         assert_eq!(stored.sequence_id, seq_id);
         assert_eq!(stored.state, InstanceState::Scheduled);
-        assert_eq!(stored.tenant_id.0, "t1");
-        assert_eq!(stored.namespace.0, "default");
+        assert_eq!(stored.tenant_id.as_str(), "t1");
+        assert_eq!(stored.namespace.as_str(), "default");
         assert_eq!(stored.context.data, data);
         assert_eq!(stored.metadata["_trigger"], "on-push");
         assert_eq!(stored.metadata["_trigger_event"], meta);
@@ -647,8 +647,8 @@ mod tests {
         let now = chrono::Utc::now();
         let mk_seq = |id: SequenceId, version: i32| SequenceDefinition {
             id,
-            tenant_id: TenantId("t1".into()),
-            namespace: Namespace("default".into()),
+            tenant_id: TenantId::unchecked("t1"),
+            namespace: Namespace::new("default"),
             name: "multi".into(),
             version,
             deprecated: false,
@@ -722,8 +722,8 @@ mod tests {
         storage
             .create_sequence(&SequenceDefinition {
                 id: seq_id,
-                tenant_id: TenantId("t1".into()),
-                namespace: Namespace("prod".into()),
+                tenant_id: TenantId::unchecked("t1"),
+                namespace: Namespace::new("prod"),
                 name: "seq".into(),
                 version: 1,
                 deprecated: false,
@@ -745,7 +745,7 @@ mod tests {
         .await
         .unwrap();
         let stored = storage.get_instance(id).await.unwrap().unwrap();
-        assert_eq!(stored.namespace.0, "prod");
+        assert_eq!(stored.namespace.as_str(), "prod");
         assert_eq!(stored.sequence_id, seq_id);
     }
 }

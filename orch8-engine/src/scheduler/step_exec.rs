@@ -61,10 +61,10 @@ pub(super) async fn check_step_deadline(
         if let Some(handler) = handlers.get(&escalation.handler) {
             let mut params = escalation.params.clone();
             if let serde_json::Value::Object(ref mut map) = params {
-                map.insert("_breach_block_id".into(), serde_json::json!(step_def.id.0));
+                map.insert("_breach_block_id".into(), serde_json::json!(step_def.id.as_str()));
                 map.insert(
                     "_breach_instance_id".into(),
-                    serde_json::json!(instance_id.0),
+                    serde_json::json!(instance_id.into_uuid()),
                 );
                 map.insert(
                     "_breach_elapsed_ms".into(),
@@ -210,7 +210,7 @@ pub(super) async fn check_step_rate_limit(
         return Ok(false);
     };
 
-    let resource_key = orch8_types::ids::ResourceKey(key.clone());
+    let resource_key = orch8_types::ids::ResourceKey::new(key.clone());
     let check = storage
         .check_rate_limit(&instance.tenant_id, &resource_key, Utc::now())
         .await?;
@@ -255,9 +255,9 @@ pub async fn check_human_input(
     step_def: &orch8_types::sequence::StepDef,
     human_def: &orch8_types::sequence::HumanInputDef,
 ) -> Result<bool, EngineError> {
-    let mut signal_name = String::with_capacity(12 + step_def.id.0.len());
+    let mut signal_name = String::with_capacity(12 + step_def.id.as_str().len());
     signal_name.push_str("human_input:");
-    signal_name.push_str(&step_def.id.0);
+    signal_name.push_str(&step_def.id.as_str());
 
     // Check if the response signal has already been delivered.
     let signals = storage.get_pending_signals(instance.id).await?;
@@ -294,7 +294,7 @@ pub async fn check_human_input(
                 let store_key = human_def
                     .store_as
                     .clone()
-                    .unwrap_or_else(|| step_def.id.0.clone());
+                    .unwrap_or_else(|| step_def.id.as_str().to_owned());
                 let output_json = serde_json::json!({"value": value.clone()});
 
                 let output = orch8_types::output::BlockOutput {
@@ -303,7 +303,7 @@ pub async fn check_human_input(
                     block_id: step_def.id.clone(),
                     output: output_json.clone(),
                     output_ref: None,
-                    output_size: i32::try_from(output_json.to_string().len()).unwrap_or(i32::MAX),
+                    output_size: u32::try_from(output_json.to_string().len()).unwrap_or(u32::MAX),
                     attempt: 0,
                     created_at: chrono::Utc::now(),
                 };
@@ -415,7 +415,7 @@ pub(super) async fn execute_step_block(
     // Debug mode: if instance has breakpoints set and this step is in the list, pause.
     if let Some(breakpoints) = instance.metadata.get("_debug_breakpoints") {
         if let Some(arr) = breakpoints.as_array() {
-            if arr.iter().any(|v| v.as_str() == Some(&step_def.id.0)) {
+            if arr.iter().any(|v| v.as_str() == Some(&step_def.id.as_str())) {
                 debug!(
                     instance_id = %instance_id,
                     block_id = %step_def.id,
@@ -532,7 +532,7 @@ pub(super) async fn execute_step_block(
 
     if let Err(step_err) = crate::credentials::resolve_in_value(
         storage.as_ref(),
-        &instance.tenant_id.0,
+        &instance.tenant_id.as_str(),
         &mut resolved_params,
     )
     .await
@@ -685,10 +685,10 @@ pub(super) async fn execute_step_block(
         output: serde_json::json!({"_sentinel": true, "_handler": &step_def.handler}),
         output_ref: Some("__in_progress__".into()),
         output_size: 0,
-        // Use attempt=-1 so the memoization check in `execute_step_dry`
+        // Use attempt=u16::MAX so the memoization check in `execute_step_dry`
         // (which compares existing.attempt == exec.attempt) never matches
-        // the sentinel — a real attempt is always >= 0.
-        attempt: -1,
+        // the sentinel — a real attempt never reaches u16::MAX.
+        attempt: u16::MAX,
         created_at: chrono::Utc::now(),
     };
     storage.save_block_output(&sentinel).await?;
@@ -922,7 +922,7 @@ pub(super) async fn handle_retryable_failure(
                     serde_json::json!({
                         "error": message,
                         "attempts": attempt,
-                        "block_id": step_def.id.0,
+                        "block_id": step_def.id.as_str(),
                     }),
                 ),
                 cancel,
@@ -1065,11 +1065,11 @@ pub(super) async fn dispatch_to_external_worker(
         // process cannot be trusted to filter on its own.
         context: serde_json::to_value(&step_context)
             .map_err(orch8_types::error::StorageError::Serialization)?,
-        attempt: i16::try_from(attempt).map_err(|_| {
+        attempt: u16::try_from(attempt).map_err(|_| {
             tracing::warn!(
                 instance_id = %instance.id,
                 attempt = %attempt,
-                "attempt counter exceeds i16::MAX, saturating"
+                "attempt counter exceeds u16::MAX, saturating"
             );
             orch8_types::error::StorageError::Query("attempt counter overflow".into())
         })?,

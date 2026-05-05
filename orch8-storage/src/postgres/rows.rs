@@ -49,9 +49,9 @@ impl SequenceRow {
             (blocks, interceptors)
         };
         Ok(SequenceDefinition {
-            id: SequenceId(self.id),
-            tenant_id: TenantId(self.tenant_id),
-            namespace: Namespace(self.namespace),
+            id: SequenceId::from_uuid(self.id),
+            tenant_id: TenantId::unchecked(self.tenant_id),
+            namespace: Namespace::new(self.namespace),
             name: self.name,
             version: self.version,
             deprecated: self.deprecated,
@@ -90,10 +90,10 @@ impl InstanceRow {
         let context = serde_json::from_value(self.context)?;
 
         Ok(TaskInstance {
-            id: InstanceId(self.id),
-            sequence_id: SequenceId(self.sequence_id),
-            tenant_id: TenantId(self.tenant_id),
-            namespace: Namespace(self.namespace),
+            id: InstanceId::from_uuid(self.id),
+            sequence_id: SequenceId::from_uuid(self.sequence_id),
+            tenant_id: TenantId::unchecked(self.tenant_id),
+            namespace: Namespace::new(self.namespace),
             state,
             next_fire_at: self.next_fire_at,
             priority,
@@ -101,10 +101,10 @@ impl InstanceRow {
             metadata: self.metadata,
             context,
             concurrency_key: self.concurrency_key,
-            max_concurrency: self.max_concurrency,
+            max_concurrency: self.max_concurrency.map(|v| v as u32),
             idempotency_key: self.idempotency_key,
             session_id: self.session_id,
-            parent_instance_id: self.parent_instance_id.map(InstanceId),
+            parent_instance_id: self.parent_instance_id.map(InstanceId::from_uuid),
             created_at: self.created_at,
             updated_at: self.updated_at,
         })
@@ -129,10 +129,10 @@ impl ExecutionNodeRow {
         let block_type = BlockType::from_str(&self.block_type).unwrap_or(BlockType::Step);
         let state = NodeState::from_str(&self.state).unwrap_or(NodeState::Pending);
         ExecutionNode {
-            id: ExecutionNodeId(self.id),
-            instance_id: InstanceId(self.instance_id),
-            block_id: BlockId(self.block_id),
-            parent_id: self.parent_id.map(ExecutionNodeId),
+            id: ExecutionNodeId::from_uuid(self.id),
+            instance_id: InstanceId::from_uuid(self.instance_id),
+            block_id: BlockId::new(self.block_id),
+            parent_id: self.parent_id.map(ExecutionNodeId::from_uuid),
             block_type,
             branch_index: self.branch_index,
             state,
@@ -158,12 +158,12 @@ impl BlockOutputRow {
     pub fn into_output(self) -> BlockOutput {
         BlockOutput {
             id: self.id,
-            instance_id: InstanceId(self.instance_id),
-            block_id: BlockId(self.block_id),
+            instance_id: InstanceId::from_uuid(self.instance_id),
+            block_id: BlockId::new(self.block_id),
             output: self.output,
             output_ref: self.output_ref,
-            output_size: self.output_size,
-            attempt: self.attempt,
+            output_size: self.output_size as u32,
+            attempt: self.attempt as u16,
             created_at: self.created_at,
         }
     }
@@ -195,7 +195,7 @@ impl SignalRow {
         })?;
         Ok(Signal {
             id: self.id,
-            instance_id: InstanceId(self.instance_id),
+            instance_id: InstanceId::from_uuid(self.instance_id),
             signal_type,
             payload: self.payload,
             delivered: self.delivered,
@@ -225,9 +225,9 @@ impl CronRow {
     pub fn into_schedule(self) -> orch8_types::cron::CronSchedule {
         orch8_types::cron::CronSchedule {
             id: self.id,
-            tenant_id: TenantId(self.tenant_id),
-            namespace: Namespace(self.namespace),
-            sequence_id: SequenceId(self.sequence_id),
+            tenant_id: TenantId::unchecked(self.tenant_id),
+            namespace: Namespace::new(self.namespace),
+            sequence_id: SequenceId::from_uuid(self.sequence_id),
             cron_expr: self.cron_expr,
             timezone: self.timezone,
             enabled: self.enabled,
@@ -267,13 +267,13 @@ impl WorkerTaskRow {
         let state = WorkerTaskState::from_str(&self.state).unwrap_or(WorkerTaskState::Pending);
         WorkerTask {
             id: self.id,
-            instance_id: InstanceId(self.instance_id),
-            block_id: BlockId(self.block_id),
+            instance_id: InstanceId::from_uuid(self.instance_id),
+            block_id: BlockId::new(self.block_id),
             handler_name: self.handler_name,
             queue_name: self.queue_name,
             params: self.params,
             context: self.context,
-            attempt: self.attempt,
+            attempt: self.attempt as u16,
             timeout_ms: self.timeout_ms,
             state,
             worker_id: self.worker_id,
@@ -304,7 +304,7 @@ impl ResourcePoolRow {
         use orch8_types::pool::RotationStrategy;
         orch8_types::pool::ResourcePool {
             id: self.id,
-            tenant_id: TenantId(self.tenant_id),
+            tenant_id: TenantId::unchecked(self.tenant_id),
             name: self.name,
             strategy: RotationStrategy::from_str(&self.strategy)
                 .unwrap_or(RotationStrategy::RoundRobin),
@@ -337,7 +337,7 @@ impl PoolResourceRow {
         orch8_types::pool::PoolResource {
             id: self.id,
             pool_id: self.pool_id,
-            resource_key: ResourceKey(self.resource_key),
+            resource_key: ResourceKey::new(self.resource_key),
             name: self.name,
             weight: self.weight as u32,
             enabled: self.enabled,
@@ -369,8 +369,8 @@ impl AuditLogRow {
     pub fn into_entry(self) -> orch8_types::audit::AuditLogEntry {
         orch8_types::audit::AuditLogEntry {
             id: self.id,
-            instance_id: InstanceId(self.instance_id),
-            tenant_id: TenantId(self.tenant_id),
+            instance_id: InstanceId::from_uuid(self.instance_id),
+            tenant_id: TenantId::unchecked(self.tenant_id),
             event_type: self.event_type,
             from_state: self.from_state,
             to_state: self.to_state,
@@ -398,7 +398,7 @@ impl SessionRow {
         let state = SessionState::from_str(&self.state).unwrap_or(SessionState::Active);
         orch8_types::session::Session {
             id: self.id,
-            tenant_id: TenantId(self.tenant_id),
+            tenant_id: TenantId::unchecked(self.tenant_id),
             session_key: self.session_key,
             data: self.data,
             state,

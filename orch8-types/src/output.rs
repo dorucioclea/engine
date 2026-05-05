@@ -13,8 +13,8 @@ pub struct BlockOutput {
     pub output: serde_json::Value,
     /// Reference key if output was externalized (exceeded size threshold).
     pub output_ref: Option<String>,
-    pub output_size: i32,
-    pub attempt: i16,
+    pub output_size: u32,
+    pub attempt: u16,
     pub created_at: DateTime<Utc>,
 }
 
@@ -26,8 +26,8 @@ mod tests {
     fn block_output_serde_roundtrip() {
         let bo = BlockOutput {
             id: Uuid::now_v7(),
-            instance_id: InstanceId(Uuid::now_v7()),
-            block_id: BlockId("step_1".into()),
+            instance_id: InstanceId::new(),
+            block_id: BlockId::new("step_1"),
             output: serde_json::json!({"result": "ok"}),
             output_ref: None,
             output_size: 42,
@@ -36,7 +36,7 @@ mod tests {
         };
         let json = serde_json::to_string(&bo).unwrap();
         let back: BlockOutput = serde_json::from_str(&json).unwrap();
-        assert_eq!(back.block_id.0, "step_1");
+        assert_eq!(back.block_id.as_str(), "step_1");
         assert_eq!(back.output["result"], "ok");
         assert_eq!(back.output_size, 42);
         assert_eq!(back.attempt, 1);
@@ -46,8 +46,8 @@ mod tests {
     fn block_output_with_output_ref() {
         let bo = BlockOutput {
             id: Uuid::now_v7(),
-            instance_id: InstanceId(Uuid::now_v7()),
-            block_id: BlockId("s".into()),
+            instance_id: InstanceId::new(),
+            block_id: BlockId::new("s"),
             output: serde_json::json!(null),
             output_ref: Some("ext:ref:key".into()),
             output_size: 0,

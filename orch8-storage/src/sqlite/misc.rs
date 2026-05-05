@@ -19,7 +19,7 @@ pub(super) async fn find_by_idempotency_key(
     let row = sqlx::query(
         "SELECT * FROM task_instances WHERE tenant_id=?1 AND idempotency_key=?2 LIMIT 1",
     )
-    .bind(&tenant_id.0)
+    .bind(tenant_id.as_str())
     .bind(idempotency_key)
     .fetch_optional(&storage.pool)
     .await?;
@@ -87,7 +87,7 @@ pub(super) async fn concurrency_position(
                     AND id <= ?2))",
     )
     .bind(concurrency_key)
-    .bind(instance_id.0.to_string())
+    .bind(instance_id.into_uuid().to_string())
     .fetch_one(&storage.pool)
     .await?;
     Ok(row.0)
@@ -121,7 +121,7 @@ pub(super) async fn get_child_instances(
 ) -> Result<Vec<TaskInstance>, StorageError> {
     let rows =
         sqlx::query("SELECT * FROM task_instances WHERE parent_instance_id=?1 ORDER BY created_at")
-            .bind(parent_instance_id.0.to_string())
+            .bind(parent_instance_id.into_uuid().to_string())
             .fetch_all(&storage.pool)
             .await?;
     rows.iter().map(row_to_instance).collect()
@@ -199,7 +199,7 @@ pub(super) async fn claim_worker_tasks_from_queue_for_tenant(
     .bind(queue_name)
     .bind(handler_name)
     .bind(limit as i64)
-    .bind(&tenant_id.0)
+    .bind(tenant_id.as_str())
     .fetch_all(&mut *tx)
     .await?;
     let mut tasks: Vec<WorkerTask> = rows
@@ -240,7 +240,7 @@ pub(super) async fn inject_blocks(
     blocks_json: &serde_json::Value,
 ) -> Result<(), StorageError> {
     sqlx::query("INSERT OR REPLACE INTO injected_blocks (instance_id, blocks) VALUES (?1, ?2)")
-        .bind(instance_id.0.to_string())
+        .bind(instance_id.into_uuid().to_string())
         .bind(serde_json::to_string(blocks_json)?)
         .execute(&storage.pool)
         .await?;
@@ -252,7 +252,7 @@ pub(super) async fn get_injected_blocks(
     instance_id: InstanceId,
 ) -> Result<Option<serde_json::Value>, StorageError> {
     let row = sqlx::query("SELECT blocks FROM injected_blocks WHERE instance_id=?1")
-        .bind(instance_id.0.to_string())
+        .bind(instance_id.into_uuid().to_string())
         .fetch_optional(&storage.pool)
         .await?;
     Ok(row
@@ -272,7 +272,7 @@ pub(super) async fn inject_blocks_at_position(
         // Read current injected blocks within the transaction so a concurrent
         // writer's snapshot can't slip in between our read and our write.
         let row = sqlx::query("SELECT blocks FROM injected_blocks WHERE instance_id=?1")
-            .bind(instance_id.0.to_string())
+            .bind(instance_id.into_uuid().to_string())
             .fetch_optional(&mut *tx)
             .await?;
         let existing: Option<serde_json::Value> = row
@@ -294,7 +294,7 @@ pub(super) async fn inject_blocks_at_position(
     };
 
     sqlx::query("INSERT OR REPLACE INTO injected_blocks (instance_id, blocks) VALUES (?1, ?2)")
-        .bind(instance_id.0.to_string())
+        .bind(instance_id.into_uuid().to_string())
         .bind(serde_json::to_string(&final_value)?)
         .execute(&mut *tx)
         .await?;
@@ -313,7 +313,7 @@ pub(super) async fn record_or_get_emit_dedupe(
 ) -> Result<crate::EmitDedupeOutcome, StorageError> {
     let scope_kind = scope.kind();
     let scope_value = scope.value();
-    let cand_str = candidate_child.0.to_string();
+    let cand_str = candidate_child.to_string();
 
     let inserted = sqlx::query(
         "INSERT INTO emit_event_dedupe (scope_kind, scope_value, dedupe_key, child_instance_id)
@@ -344,7 +344,7 @@ pub(super) async fn record_or_get_emit_dedupe(
 
     let existing = uuid::Uuid::parse_str(&row.0)
         .map_err(|e| StorageError::Query(format!("invalid uuid in dedupe row: {e}")))?;
-    Ok(crate::EmitDedupeOutcome::AlreadyExists(InstanceId(
+    Ok(crate::EmitDedupeOutcome::AlreadyExists(InstanceId::from_uuid(
         existing,
     )))
 }
@@ -363,7 +363,7 @@ pub(super) async fn create_instance_with_dedupe(
 ) -> Result<crate::EmitDedupeOutcome, StorageError> {
     let scope_kind = scope.kind();
     let scope_value = scope.value();
-    let cand_str = instance.id.0.to_string();
+    let cand_str = instance.id.into_uuid().to_string();
 
     // `?` leans on the `From<sqlx::Error> for StorageError` impl so each
     // failure surfaces with its real variant (PoolTimedOut → PoolExhausted,
@@ -413,7 +413,7 @@ pub(super) async fn create_instance_with_dedupe(
 
     let existing = uuid::Uuid::parse_str(&row.0)
         .map_err(|e| StorageError::Query(format!("invalid uuid in dedupe row: {e}")))?;
-    Ok(crate::EmitDedupeOutcome::AlreadyExists(InstanceId(
+    Ok(crate::EmitDedupeOutcome::AlreadyExists(InstanceId::from_uuid(
         existing,
     )))
 }

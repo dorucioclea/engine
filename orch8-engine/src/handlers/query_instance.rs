@@ -50,13 +50,13 @@ fn derive_current_node(tree: &[ExecutionNode]) -> Option<String> {
         .filter(|n| !node_is_terminal(n.state))
         .max_by_key(|n| n.started_at.unwrap_or(DateTime::<Utc>::MIN_UTC));
     if let Some(node) = non_terminal_latest {
-        return Some(node.block_id.0.clone());
+        return Some(node.block_id.as_str().to_owned());
     }
 
     // All terminal: pick the most recently completed.
     tree.iter()
         .max_by_key(|n| n.completed_at.unwrap_or(DateTime::<Utc>::MIN_UTC))
-        .map(|n| n.block_id.0.clone())
+        .map(|n| n.block_id.as_str().to_owned())
 }
 
 pub(crate) async fn handle_query_instance(ctx: StepContext) -> Result<Value, StepError> {
@@ -117,8 +117,8 @@ mod tests {
         TaskInstance {
             id: InstanceId::new(),
             sequence_id: SequenceId::new(),
-            tenant_id: TenantId(tenant.into()),
-            namespace: Namespace("default".into()),
+            tenant_id: TenantId::unchecked(tenant),
+            namespace: Namespace::new("default"),
             state: InstanceState::Scheduled,
             next_fire_at: Some(now),
             priority: Priority::Normal,
@@ -150,7 +150,7 @@ mod tests {
         ExecutionNode {
             id: ExecutionNodeId::new(),
             instance_id,
-            block_id: BlockId(block_id.into()),
+            block_id: BlockId::new(block_id),
             parent_id: None,
             block_type: BlockType::Step,
             branch_index: None,
@@ -168,7 +168,7 @@ mod tests {
         StepContext {
             instance_id: caller.id,
             tenant_id: caller.tenant_id.clone(),
-            block_id: BlockId("q".into()),
+            block_id: BlockId::new("q"),
             params,
             context: ExecutionContext::default(),
             attempt: 1,
@@ -189,7 +189,7 @@ mod tests {
         let ctx = mk_ctx(
             &caller,
             storage_dyn,
-            json!({ "instance_id": target.id.0.to_string() }),
+            json!({ "instance_id": target.id.to_string() }),
         );
         let result = handle_query_instance(ctx).await.unwrap();
 
@@ -222,7 +222,7 @@ mod tests {
         let ctx = mk_ctx(
             &caller,
             storage_dyn,
-            json!({ "instance_id": target.id.0.to_string() }),
+            json!({ "instance_id": target.id.to_string() }),
         );
         let result = handle_query_instance(ctx).await.unwrap();
 
@@ -252,7 +252,7 @@ mod tests {
         let ctx = mk_ctx(
             &caller,
             storage_dyn,
-            json!({ "instance_id": target.id.0.to_string() }),
+            json!({ "instance_id": target.id.to_string() }),
         );
         let result = handle_query_instance(ctx).await.unwrap();
 
@@ -291,7 +291,7 @@ mod tests {
         let ctx = mk_ctx(
             &caller,
             storage_dyn,
-            json!({ "instance_id": target.id.0.to_string() }),
+            json!({ "instance_id": target.id.to_string() }),
         );
         let result = handle_query_instance(ctx).await.unwrap();
 
@@ -309,7 +309,7 @@ mod tests {
         let ctx = mk_ctx(
             &caller,
             storage_dyn,
-            json!({ "instance_id": missing_id.0.to_string() }),
+            json!({ "instance_id": missing_id.to_string() }),
         );
         let result = handle_query_instance(ctx).await.unwrap();
 
@@ -328,7 +328,7 @@ mod tests {
         let ctx = mk_ctx(
             &caller,
             storage_dyn,
-            json!({ "instance_id": target.id.0.to_string() }),
+            json!({ "instance_id": target.id.to_string() }),
         );
         // SECURITY: cross-tenant returns the SAME response as not-found so
         // existence cannot be probed.

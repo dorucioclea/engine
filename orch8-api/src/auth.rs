@@ -24,7 +24,7 @@ pub fn enforce_tenant_create(
     body_tenant_id: &TenantId,
 ) -> Result<TenantId, ApiError> {
     if let Some(axum::Extension(ctx)) = tenant_ctx {
-        if !body_tenant_id.0.is_empty() && *body_tenant_id != ctx.tenant_id {
+        if !body_tenant_id.as_str().is_empty() && *body_tenant_id != ctx.tenant_id {
             return Err(ApiError::Forbidden(
                 "tenant_id in body does not match X-Tenant-Id header".into(),
             ));
@@ -62,7 +62,7 @@ pub fn scoped_tenant_id(
     } else {
         query_tenant_id
             .filter(|s| !s.is_empty())
-            .map(|s| TenantId(s.to_string()))
+            .map(|s| TenantId::unchecked(s.to_string()))
     }
 }
 
@@ -111,7 +111,7 @@ pub async fn tenant_middleware(
         }
         if !tenant_id.is_empty() {
             request.extensions_mut().insert(TenantContext {
-                tenant_id: TenantId(tenant_id),
+                tenant_id: TenantId::unchecked(tenant_id),
             });
         }
     } else if require_tenant {
@@ -135,7 +135,7 @@ mod tests {
     #[allow(clippy::unnecessary_wraps)] // matches `OptionalTenant` alias
     fn ctx(t: &str) -> OptionalTenant {
         Some(Extension(TenantContext {
-            tenant_id: TenantId(t.to_string()),
+            tenant_id: TenantId::unchecked(t.to_string()),
         }))
     }
 
@@ -144,7 +144,7 @@ mod tests {
         // #276: rejects cross-tenant read — note the API returns NotFound
         // (not Forbidden) to avoid leaking existence of foreign resources.
         let caller = ctx("tenant-a");
-        let resource_tenant = TenantId("tenant-b".to_string());
+        let resource_tenant = TenantId::unchecked("tenant-b");
         let err = enforce_tenant_access(&caller, &resource_tenant, "instance")
             .expect_err("cross-tenant access must be rejected");
         assert!(matches!(err, ApiError::NotFound(_)));
@@ -153,7 +153,7 @@ mod tests {
     #[test]
     fn enforce_tenant_access_allows_same_tenant() {
         let caller = ctx("tenant-a");
-        let resource_tenant = TenantId("tenant-a".to_string());
+        let resource_tenant = TenantId::unchecked("tenant-a");
         assert!(enforce_tenant_access(&caller, &resource_tenant, "instance").is_ok());
     }
 
@@ -161,7 +161,7 @@ mod tests {
     fn enforce_tenant_access_with_no_ctx_is_permissive() {
         // When no tenant header is set, cross-tenant reads are not
         // blocked — only the middleware+create path enforces isolation.
-        let resource_tenant = TenantId("tenant-b".to_string());
+        let resource_tenant = TenantId::unchecked("tenant-b");
         assert!(enforce_tenant_access(&None, &resource_tenant, "instance").is_ok());
     }
 
@@ -169,7 +169,7 @@ mod tests {
     fn enforce_tenant_create_validates_header_matches_body() {
         // #277: tenant header present + body tenant_id present → must match.
         let caller = ctx("tenant-a");
-        let body = TenantId("tenant-b".to_string());
+        let body = TenantId::unchecked("tenant-b");
         let err = enforce_tenant_create(&caller, &body)
             .expect_err("header/body mismatch must be rejected");
         assert!(matches!(err, ApiError::Forbidden(_)));
@@ -178,27 +178,27 @@ mod tests {
     #[test]
     fn enforce_tenant_create_allows_matching() {
         let caller = ctx("tenant-a");
-        let body = TenantId("tenant-a".to_string());
+        let body = TenantId::unchecked("tenant-a");
         let id = enforce_tenant_create(&caller, &body).expect("match must pass");
-        assert_eq!(id.0, "tenant-a");
+        assert_eq!(id.as_str(), "tenant-a");
     }
 
     #[test]
     fn enforce_tenant_create_with_empty_body_trusts_header() {
         // Empty body tenant_id is allowed — the header becomes authoritative.
         let caller = ctx("tenant-a");
-        let body = TenantId(String::new());
+        let body = TenantId::unchecked("");
         let id = enforce_tenant_create(&caller, &body).expect("must succeed");
-        assert_eq!(id.0, "tenant-a");
+        assert_eq!(id.as_str(), "tenant-a");
     }
 
     #[test]
     fn enforce_tenant_create_with_no_header_uses_body() {
         // No header → body value passes through unchanged (legacy path
         // for clients that haven't adopted the header yet).
-        let body = TenantId("tenant-x".to_string());
+        let body = TenantId::unchecked("tenant-x");
         let id = enforce_tenant_create(&None, &body).expect("must succeed");
-        assert_eq!(id.0, "tenant-x");
+        assert_eq!(id.as_str(), "tenant-x");
     }
 
     #[test]
@@ -207,13 +207,13 @@ mod tests {
         // a different tenant must be overridden by the header.
         let caller = ctx("tenant-header");
         let id = scoped_tenant_id(&caller, Some("tenant-query"));
-        assert_eq!(id, Some(TenantId("tenant-header".to_string())));
+        assert_eq!(id, Some(TenantId::unchecked("tenant-header")));
     }
 
     #[test]
     fn scoped_tenant_id_falls_back_to_query_when_no_header() {
         let id = scoped_tenant_id(&None, Some("tenant-query"));
-        assert_eq!(id, Some(TenantId("tenant-query".to_string())));
+        assert_eq!(id, Some(TenantId::unchecked("tenant-query")));
     }
 
     #[test]

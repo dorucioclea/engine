@@ -48,13 +48,13 @@ async fn seed_instance(s: &SqliteStorage, inst_id: InstanceId) {
 fn make_sequence(tenant: &str) -> SequenceDefinition {
     SequenceDefinition {
         id: SequenceId::new(),
-        tenant_id: TenantId(tenant.into()),
-        namespace: Namespace("default".into()),
+        tenant_id: TenantId::unchecked(tenant),
+        namespace: Namespace::new("default"),
         name: "seq".into(),
         version: 1,
         deprecated: false,
         blocks: vec![BlockDefinition::Step(Box::new(StepDef {
-            id: BlockId("s1".into()),
+            id: BlockId::new("s1"),
             handler: "noop".into(),
             params: json!({}),
             delay: None,
@@ -81,8 +81,8 @@ fn make_instance(tenant: &str, seq_id: SequenceId) -> TaskInstance {
     TaskInstance {
         id: InstanceId::new(),
         sequence_id: seq_id,
-        tenant_id: TenantId(tenant.into()),
-        namespace: Namespace("default".into()),
+        tenant_id: TenantId::unchecked(tenant),
+        namespace: Namespace::new("default"),
         state: InstanceState::Scheduled,
         next_fire_at: Some(now - Duration::seconds(10)),
         priority: Priority::Normal,
@@ -120,7 +120,7 @@ async fn execution_tree_crud() {
     let root = ExecutionNode {
         id: root_id,
         instance_id: inst_id,
-        block_id: BlockId("root".into()),
+        block_id: BlockId::new("root"),
         parent_id: None,
         block_type: BlockType::Parallel,
         branch_index: None,
@@ -131,7 +131,7 @@ async fn execution_tree_crud() {
     let child = ExecutionNode {
         id: child_id,
         instance_id: inst_id,
-        block_id: BlockId("child_step".into()),
+        block_id: BlockId::new("child_step"),
         parent_id: Some(root_id),
         block_type: BlockType::Step,
         branch_index: Some(0),
@@ -150,7 +150,7 @@ async fn execution_tree_crud() {
     // Get children of root.
     let children = s.get_children(root_id).await.unwrap();
     assert_eq!(children.len(), 1);
-    assert_eq!(children[0].block_id.0, "child_step");
+    assert_eq!(children[0].block_id.as_str(), "child_step");
 
     // Update node state.
     s.update_node_state(child_id, NodeState::Running)
@@ -171,7 +171,7 @@ async fn execution_tree_batch_create() {
         .map(|i| ExecutionNode {
             id: ExecutionNodeId::new(),
             instance_id: inst_id,
-            block_id: BlockId(format!("step_{i}")),
+            block_id: BlockId::new(format!("step_{i}")),
             parent_id: None,
             block_type: BlockType::Step,
             branch_index: Some(i),
@@ -354,7 +354,7 @@ async fn worker_task_full_lifecycle() {
     let task = WorkerTask {
         id: Uuid::now_v7(),
         instance_id: inst_id,
-        block_id: BlockId("step_1".into()),
+        block_id: BlockId::new("step_1"),
         handler_name: "http_request".into(),
         queue_name: None,
         params: json!({"url": "https://example.com"}),
@@ -418,7 +418,7 @@ async fn worker_task_fail_and_cancel() {
     let task = WorkerTask {
         id: Uuid::now_v7(),
         instance_id: inst_id,
-        block_id: BlockId("step_fail".into()),
+        block_id: BlockId::new("step_fail"),
         handler_name: "flaky_handler".into(),
         queue_name: None,
         params: json!({}),
@@ -455,7 +455,7 @@ async fn worker_task_fail_and_cancel() {
     let task2 = WorkerTask {
         id: Uuid::now_v7(),
         instance_id: inst_id,
-        block_id: BlockId("step_cancel".into()),
+        block_id: BlockId::new("step_cancel"),
         handler_name: "slow".into(),
         queue_name: None,
         params: json!({}),
@@ -474,7 +474,7 @@ async fn worker_task_fail_and_cancel() {
     };
     s.create_worker_task(&task2).await.unwrap();
     let cancelled = s
-        .cancel_worker_tasks_for_block(inst_id.0, "step_cancel")
+        .cancel_worker_tasks_for_block(inst_id.into_uuid(), "step_cancel")
         .await
         .unwrap();
     assert_eq!(cancelled, 1);
@@ -499,7 +499,7 @@ async fn cancel_worker_tasks_for_block_deletes_completed_rows() {
     let iter0 = WorkerTask {
         id: Uuid::now_v7(),
         instance_id: inst_id,
-        block_id: BlockId("loop_body".into()),
+        block_id: BlockId::new("loop_body"),
         handler_name: "external_handler".into(),
         queue_name: None,
         params: json!({}),
@@ -528,7 +528,7 @@ async fn cancel_worker_tasks_for_block_deletes_completed_rows() {
 
     // Reset for next iteration: must delete the completed row.
     let deleted = s
-        .cancel_worker_tasks_for_block(inst_id.0, "loop_body")
+        .cancel_worker_tasks_for_block(inst_id.into_uuid(), "loop_body")
         .await
         .unwrap();
     assert_eq!(
@@ -540,7 +540,7 @@ async fn cancel_worker_tasks_for_block_deletes_completed_rows() {
     let iter1 = WorkerTask {
         id: Uuid::now_v7(),
         instance_id: inst_id,
-        block_id: BlockId("loop_body".into()),
+        block_id: BlockId::new("loop_body"),
         handler_name: "external_handler".into(),
         queue_name: None,
         params: json!({}),
@@ -580,7 +580,7 @@ async fn cancel_worker_tasks_for_block_deletes_failed_rows() {
     let task = WorkerTask {
         id: Uuid::now_v7(),
         instance_id: inst_id,
-        block_id: BlockId("race_branch".into()),
+        block_id: BlockId::new("race_branch"),
         handler_name: "external_handler".into(),
         queue_name: None,
         params: json!({}),
@@ -608,7 +608,7 @@ async fn cancel_worker_tasks_for_block_deletes_failed_rows() {
     assert!(failed);
 
     let deleted = s
-        .cancel_worker_tasks_for_block(inst_id.0, "race_branch")
+        .cancel_worker_tasks_for_block(inst_id.into_uuid(), "race_branch")
         .await
         .unwrap();
     assert_eq!(
@@ -620,7 +620,7 @@ async fn cancel_worker_tasks_for_block_deletes_failed_rows() {
     let task2 = WorkerTask {
         id: Uuid::now_v7(),
         instance_id: inst_id,
-        block_id: BlockId("race_branch".into()),
+        block_id: BlockId::new("race_branch"),
         handler_name: "external_handler".into(),
         queue_name: None,
         params: json!({}),
@@ -655,7 +655,7 @@ async fn cancel_worker_tasks_for_block_noop_on_missing() {
     let inst_id = InstanceId::new();
 
     let deleted = s
-        .cancel_worker_tasks_for_block(inst_id.0, "never_existed")
+        .cancel_worker_tasks_for_block(inst_id.into_uuid(), "never_existed")
         .await
         .unwrap();
     assert_eq!(deleted, 0);
@@ -670,7 +670,7 @@ async fn worker_task_queue_routing() {
     let task = WorkerTask {
         id: Uuid::now_v7(),
         instance_id: inst_id,
-        block_id: BlockId("q_step".into()),
+        block_id: BlockId::new("q_step"),
         handler_name: "email_send".into(),
         queue_name: Some("priority_queue".into()),
         params: json!({}),
@@ -715,8 +715,8 @@ async fn cron_schedule_lifecycle() {
 
     let schedule = CronSchedule {
         id: Uuid::now_v7(),
-        tenant_id: TenantId("t1".into()),
-        namespace: Namespace("default".into()),
+        tenant_id: TenantId::unchecked("t1"),
+        namespace: Namespace::new("default"),
         sequence_id: SequenceId::new(),
         cron_expr: "0 9 * * MON-FRI".into(),
         timezone: "UTC".into(),
@@ -736,7 +736,7 @@ async fn cron_schedule_lifecycle() {
 
     // List.
     let all = s
-        .list_cron_schedules(Some(&TenantId("t1".into())), 1000)
+        .list_cron_schedules(Some(&TenantId::unchecked("t1")), 1000)
         .await
         .unwrap();
     assert_eq!(all.len(), 1);
@@ -770,7 +770,7 @@ async fn session_lifecycle() {
 
     let session = Session {
         id: Uuid::now_v7(),
-        tenant_id: TenantId("t1".into()),
+        tenant_id: TenantId::unchecked("t1"),
         session_key: "user:42:onboarding".into(),
         data: json!({"step": 1}),
         state: SessionState::Active,
@@ -786,7 +786,7 @@ async fn session_lifecycle() {
 
     // Get by key.
     let by_key = s
-        .get_session_by_key(&TenantId("t1".into()), "user:42:onboarding")
+        .get_session_by_key(&TenantId::unchecked("t1"), "user:42:onboarding")
         .await
         .unwrap()
         .unwrap();
@@ -815,7 +815,7 @@ async fn session_instances_link() {
 
     let session = Session {
         id: session_id,
-        tenant_id: TenantId("t1".into()),
+        tenant_id: TenantId::unchecked("t1"),
         session_key: "flow:99".into(),
         data: json!({}),
         state: SessionState::Active,
@@ -884,7 +884,7 @@ async fn checkpoint_save_and_prune() {
 async fn audit_log_append_and_query() {
     let s = store().await;
     let inst_id = InstanceId::new();
-    let tenant = TenantId("t_audit".into());
+    let tenant = TenantId::unchecked("t_audit");
 
     for i in 0..3 {
         let entry = AuditLogEntry {
@@ -916,7 +916,7 @@ async fn audit_log_append_and_query() {
 async fn resource_pool_lifecycle() {
     let s = store().await;
     let now = Utc::now();
-    let tenant = TenantId("t_pool".into());
+    let tenant = TenantId::unchecked("t_pool");
 
     let pool = ResourcePool {
         id: Uuid::now_v7(),
@@ -933,7 +933,7 @@ async fn resource_pool_lifecycle() {
     let res1 = PoolResource {
         id: Uuid::now_v7(),
         pool_id: pool.id,
-        resource_key: ResourceKey("sender_a@acme.com".into()),
+        resource_key: ResourceKey::new("sender_a@acme.com"),
         name: "Sender A".into(),
         weight: 1,
         enabled: true,
@@ -948,7 +948,7 @@ async fn resource_pool_lifecycle() {
     let res2 = PoolResource {
         id: Uuid::now_v7(),
         pool_id: pool.id,
-        resource_key: ResourceKey("sender_b@acme.com".into()),
+        resource_key: ResourceKey::new("sender_b@acme.com"),
         name: "Sender B".into(),
         weight: 2,
         enabled: true,
@@ -1178,8 +1178,8 @@ async fn cluster_node_lifecycle() {
 async fn rate_limit_check_and_exceed() {
     let s = store().await;
     let now = Utc::now();
-    let tenant = TenantId("t_rl".into());
-    let key = ResourceKey("api:endpoint".into());
+    let tenant = TenantId::unchecked("t_rl");
+    let key = ResourceKey::new("api:endpoint");
 
     // Set up rate limit: 3 per 60 seconds.
     let rl = RateLimit {
@@ -1217,7 +1217,7 @@ async fn block_output_crud() {
     let out = BlockOutput {
         id: Uuid::now_v7(),
         instance_id: inst_id,
-        block_id: BlockId("step_1".into()),
+        block_id: BlockId::new("step_1"),
         output: json!({"result": "ok"}),
         output_ref: None,
         output_size: 15,
@@ -1227,7 +1227,7 @@ async fn block_output_crud() {
     s.save_block_output(&out).await.unwrap();
 
     let fetched = s
-        .get_block_output(inst_id, &BlockId("step_1".into()))
+        .get_block_output(inst_id, &BlockId::new("step_1"))
         .await
         .unwrap()
         .unwrap();
@@ -1238,7 +1238,7 @@ async fn block_output_crud() {
 
     let ids = s.get_completed_block_ids(inst_id).await.unwrap();
     assert_eq!(ids.len(), 1);
-    assert_eq!(ids[0].0, "step_1");
+    assert_eq!(ids[0].as_str(), "step_1");
 }
 
 #[tokio::test]
@@ -1254,7 +1254,7 @@ async fn save_output_and_transition_atomic() {
     let out = BlockOutput {
         id: Uuid::now_v7(),
         instance_id: inst.id,
-        block_id: BlockId("s1".into()),
+        block_id: BlockId::new("s1"),
         output: json!({"done": true}),
         output_ref: None,
         output_size: 13,
@@ -1295,7 +1295,7 @@ async fn save_output_merge_context_and_transition_atomic() {
     let out = BlockOutput {
         id: Uuid::now_v7(),
         instance_id: inst.id,
-        block_id: BlockId("s1".into()),
+        block_id: BlockId::new("s1"),
         output: json!({"answer": 42}),
         output_ref: None,
         output_size: 13,
@@ -1328,7 +1328,7 @@ async fn save_output_merge_context_and_transition_atomic() {
 
     let outputs = s.get_all_outputs(inst.id).await.unwrap();
     assert_eq!(outputs.len(), 1);
-    assert_eq!(outputs[0].block_id.0, "s1");
+    assert_eq!(outputs[0].block_id.as_str(), "s1");
 }
 
 #[tokio::test]
@@ -1343,7 +1343,7 @@ async fn completed_block_ids_batch() {
         let out = BlockOutput {
             id: Uuid::now_v7(),
             instance_id: *inst_id,
-            block_id: BlockId((*block_name).into()),
+            block_id: BlockId::new(*block_name),
             output: json!({}),
             output_ref: None,
             output_size: 2,
@@ -1367,11 +1367,11 @@ async fn completed_block_ids_batch() {
 // documentation for semantics.
 // ---------------------------------------------------------------------------
 
-fn mk_output(inst_id: InstanceId, block: &str, attempt: i16) -> BlockOutput {
+fn mk_output(inst_id: InstanceId, block: &str, attempt: u16) -> BlockOutput {
     BlockOutput {
         id: Uuid::now_v7(),
         instance_id: inst_id,
-        block_id: BlockId(block.into()),
+        block_id: BlockId::new(block),
         output: json!({"_iterations": attempt}),
         output_ref: None,
         output_size: 0,
@@ -1385,7 +1385,7 @@ async fn delete_block_outputs_removes_all_rows_for_block() {
     let s = store().await;
     let inst = InstanceId::new();
     seed_instance(&s, inst).await;
-    let block = BlockId("loop_marker".into());
+    let block = BlockId::new("loop_marker");
 
     for attempt in 0..3 {
         s.save_block_output(&mk_output(inst, "loop_marker", attempt))
@@ -1402,8 +1402,8 @@ async fn delete_block_outputs_leaves_other_blocks_untouched() {
     let s = store().await;
     let inst = InstanceId::new();
     seed_instance(&s, inst).await;
-    let block_a = BlockId("block_a".into());
-    let block_b = BlockId("block_b".into());
+    let block_a = BlockId::new("block_a");
+    let block_b = BlockId::new("block_b");
 
     for _ in 0..2 {
         s.save_block_output(&mk_output(inst, "block_a", 0))
@@ -1429,7 +1429,7 @@ async fn delete_block_outputs_leaves_other_instances_untouched() {
     let inst2 = InstanceId::new();
     seed_instance(&s, inst1).await;
     seed_instance(&s, inst2).await;
-    let block = BlockId("shared".into());
+    let block = BlockId::new("shared");
 
     s.save_block_output(&mk_output(inst1, "shared", 0))
         .await
@@ -1449,7 +1449,7 @@ async fn delete_block_outputs_on_empty_is_noop() {
     let s = store().await;
     let inst = InstanceId::new();
     let removed = s
-        .delete_block_outputs(inst, &BlockId("nope".into()))
+        .delete_block_outputs(inst, &BlockId::new("nope"))
         .await
         .unwrap();
     assert_eq!(removed, 0);
@@ -1460,8 +1460,8 @@ async fn delete_block_outputs_no_effect_on_different_block_ids_at_same_instance(
     let s = store().await;
     let inst = InstanceId::new();
     seed_instance(&s, inst).await;
-    let loop_id = BlockId("loop_1".into());
-    let step_id = BlockId("inner_step".into());
+    let loop_id = BlockId::new("loop_1");
+    let step_id = BlockId::new("inner_step");
 
     s.save_block_output(&mk_output(inst, "loop_1", 1))
         .await
@@ -1513,7 +1513,7 @@ async fn multi_tenant_isolation() {
 
     // Filter by tenant.
     let filter_t1 = InstanceFilter {
-        tenant_id: Some(TenantId("tenant_1".into())),
+        tenant_id: Some(TenantId::unchecked("tenant_1")),
         ..Default::default()
     };
     let t1_instances = s
@@ -1534,7 +1534,7 @@ async fn multi_tenant_isolation() {
 
     // Tenant 2 should be unaffected.
     let filter_t2 = InstanceFilter {
-        tenant_id: Some(TenantId("tenant_2".into())),
+        tenant_id: Some(TenantId::unchecked("tenant_2")),
         ..Default::default()
     };
     let t2_instances = s
@@ -1594,7 +1594,7 @@ async fn idempotency_dedup() {
 
     // Find by idempotency key.
     let found = s
-        .find_by_idempotency_key(&TenantId("t1".into()), "order-12345")
+        .find_by_idempotency_key(&TenantId::unchecked("t1"), "order-12345")
         .await
         .unwrap();
     assert!(found.is_some());
@@ -1602,7 +1602,7 @@ async fn idempotency_dedup() {
 
     // Missing key returns None.
     let missing = s
-        .find_by_idempotency_key(&TenantId("t1".into()), "nonexistent")
+        .find_by_idempotency_key(&TenantId::unchecked("t1"), "nonexistent")
         .await
         .unwrap();
     assert!(missing.is_none());
@@ -1713,7 +1713,7 @@ async fn bulk_reschedule() {
     }
 
     let filter = InstanceFilter {
-        tenant_id: Some(TenantId("t1".into())),
+        tenant_id: Some(TenantId::unchecked("t1")),
         ..Default::default()
     };
     // Shift forward by 3600 seconds (1 hour).
@@ -1732,7 +1732,7 @@ async fn instance_batch_create() {
     assert_eq!(created, 50);
 
     let filter = InstanceFilter {
-        tenant_id: Some(TenantId("t1".into())),
+        tenant_id: Some(TenantId::unchecked("t1")),
         ..Default::default()
     };
     let count = s.count_instances(&filter).await.unwrap();
@@ -1845,8 +1845,8 @@ async fn inject_blocks_at_position_preserves_sequential_writes() {
 #[tokio::test]
 async fn sequence_versioning_and_deprecation() {
     let s = store().await;
-    let tenant = TenantId("t1".into());
-    let ns = Namespace("default".into());
+    let tenant = TenantId::unchecked("t1");
+    let ns = Namespace::new("default");
 
     let mut seq_v1 = make_sequence("t1");
     seq_v1.name = "my_workflow".into();
@@ -1980,7 +1980,7 @@ async fn worker_task_list_and_stats() {
         let task = WorkerTask {
             id: Uuid::now_v7(),
             instance_id: inst_id,
-            block_id: BlockId(format!("step_{i}")),
+            block_id: BlockId::new(format!("step_{i}")),
             handler_name: (*handler).into(),
             queue_name: None,
             params: json!({}),
@@ -2117,7 +2117,7 @@ async fn perf_execution_tree_deep() {
     let root = ExecutionNode {
         id: ExecutionNodeId::new(),
         instance_id: inst_id,
-        block_id: BlockId("root".into()),
+        block_id: BlockId::new("root"),
         parent_id: None,
         block_type: BlockType::Parallel,
         branch_index: None,
@@ -2132,7 +2132,7 @@ async fn perf_execution_tree_deep() {
             all_nodes.push(ExecutionNode {
                 id: ExecutionNodeId::new(),
                 instance_id: inst_id,
-                block_id: BlockId(format!("b{branch}_s{step}")),
+                block_id: BlockId::new(format!("b{branch}_s{step}")),
                 parent_id: Some(root.id),
                 block_type: BlockType::Step,
                 branch_index: Some(branch),
@@ -2170,7 +2170,7 @@ async fn perf_concurrent_worker_claims() {
         let task = WorkerTask {
             id: Uuid::now_v7(),
             instance_id: inst_id,
-            block_id: BlockId(format!("step_{i}")),
+            block_id: BlockId::new(format!("step_{i}")),
             handler_name: "batch_handler".into(),
             queue_name: None,
             params: json!({"index": i}),
@@ -2241,7 +2241,7 @@ async fn context_round_trip_all_sections() {
             details: json!({"by": "api"}),
         }],
         runtime: RuntimeContext {
-            current_step: Some(BlockId("s1".into())),
+            current_step: Some(BlockId::new("s1")),
             attempt: 3,
             started_at: Some(Utc::now()),
             current_step_started_at: None,
@@ -2259,7 +2259,7 @@ async fn context_round_trip_all_sections() {
     assert_eq!(back.context.runtime.attempt, 3);
     assert_eq!(
         back.context.runtime.current_step,
-        Some(BlockId("s1".into()))
+        Some(BlockId::new("s1"))
     );
 }
 
@@ -2443,9 +2443,9 @@ async fn create_instances_batch_externalized_externalizes_each_instance_independ
             .unwrap()
             .to_string();
         assert!(
-            ref_key.starts_with(&inst.id.0.to_string()),
+            ref_key.starts_with(&inst.id.into_uuid().to_string()),
             "ref_key {ref_key:?} must be scoped to instance {}",
-            inst.id.0
+            inst.id.into_uuid()
         );
         let fetched = s.get_externalized_state(&ref_key).await.unwrap();
         assert_eq!(fetched.as_ref(), Some(expected_blob));
@@ -2480,7 +2480,7 @@ async fn merge_context_data_preserves_other_sections() {
             details: json!({}),
         }],
         runtime: RuntimeContext {
-            current_step: Some(BlockId("step-1".into())),
+            current_step: Some(BlockId::new("step-1")),
             attempt: 2,
             started_at: None,
             current_step_started_at: None,
@@ -2706,8 +2706,8 @@ async fn context_access_filter_enforced_on_tree_path() {
 async fn rate_limit_under_threshold_returns_allowed() {
     let s = store().await;
     let now = Utc::now();
-    let tenant = TenantId("rl_under".into());
-    let key = ResourceKey("endpoint:a".into());
+    let tenant = TenantId::unchecked("rl_under");
+    let key = ResourceKey::new("endpoint:a");
 
     s.upsert_rate_limit(&RateLimit {
         id: Uuid::now_v7(),
@@ -2730,8 +2730,8 @@ async fn rate_limit_under_threshold_returns_allowed() {
 async fn rate_limit_at_threshold_returns_exceeded_with_retry_after() {
     let s = store().await;
     let now = Utc::now();
-    let tenant = TenantId("rl_at".into());
-    let key = ResourceKey("endpoint:b".into());
+    let tenant = TenantId::unchecked("rl_at");
+    let key = ResourceKey::new("endpoint:b");
 
     s.upsert_rate_limit(&RateLimit {
         id: Uuid::now_v7(),
@@ -2767,8 +2767,8 @@ async fn rate_limit_at_threshold_returns_exceeded_with_retry_after() {
 async fn upsert_rate_limit_updates_window_on_conflict() {
     let s = store().await;
     let now = Utc::now();
-    let tenant = TenantId("rl_up".into());
-    let key = ResourceKey("endpoint:c".into());
+    let tenant = TenantId::unchecked("rl_up");
+    let key = ResourceKey::new("endpoint:c");
 
     s.upsert_rate_limit(&RateLimit {
         id: Uuid::now_v7(),
@@ -2973,8 +2973,8 @@ async fn cron_claim_due_and_update_fire_times() {
 
     let schedule = CronSchedule {
         id: Uuid::now_v7(),
-        tenant_id: TenantId("t_cron".into()),
-        namespace: Namespace("default".into()),
+        tenant_id: TenantId::unchecked("t_cron"),
+        namespace: Namespace::new("default"),
         sequence_id: seq.id,
         cron_expr: "0 * * * * * *".into(),
         timezone: "UTC".into(),
@@ -3019,8 +3019,8 @@ async fn cron_disabled_is_not_claimed() {
     let past = now - Duration::minutes(1);
     let schedule = CronSchedule {
         id: Uuid::now_v7(),
-        tenant_id: TenantId("t_dis".into()),
-        namespace: Namespace("default".into()),
+        tenant_id: TenantId::unchecked("t_dis"),
+        namespace: Namespace::new("default"),
         sequence_id: seq.id,
         cron_expr: "0 * * * * * *".into(),
         timezone: "UTC".into(),
@@ -3053,7 +3053,7 @@ async fn list_waiting_with_trees_returns_only_waiting_instances() {
         s.create_execution_node(&ExecutionNode {
             id: ExecutionNodeId::new(),
             instance_id: inst.id,
-            block_id: BlockId("blk1".into()),
+            block_id: BlockId::new("blk1"),
             parent_id: None,
             block_type: BlockType::Step,
             branch_index: None,
@@ -3161,8 +3161,8 @@ async fn list_cron_schedules_respects_limit() {
     for i in 0..5 {
         let schedule = CronSchedule {
             id: Uuid::now_v7(),
-            tenant_id: TenantId("t_lim".into()),
-            namespace: Namespace("default".into()),
+            tenant_id: TenantId::unchecked("t_lim"),
+            namespace: Namespace::new("default"),
             sequence_id: seq.id,
             cron_expr: format!("{i} * * * *"),
             timezone: "UTC".into(),
@@ -3177,13 +3177,13 @@ async fn list_cron_schedules_respects_limit() {
     }
 
     let all = s
-        .list_cron_schedules(Some(&TenantId("t_lim".into())), 100)
+        .list_cron_schedules(Some(&TenantId::unchecked("t_lim")), 100)
         .await
         .unwrap();
     assert_eq!(all.len(), 5);
 
     let limited = s
-        .list_cron_schedules(Some(&TenantId("t_lim".into())), 3)
+        .list_cron_schedules(Some(&TenantId::unchecked("t_lim")), 3)
         .await
         .unwrap();
     assert_eq!(limited.len(), 3, "limit must cap result count");
@@ -3222,7 +3222,7 @@ async fn list_triggers_respects_limit() {
             slug: format!("trig-{i}"),
             sequence_name: "seq".into(),
             version: None,
-            tenant_id: TenantId("t_trig".into()),
+            tenant_id: TenantId::unchecked("t_trig"),
             namespace: "default".into(),
             enabled: true,
             secret: None,
@@ -3235,13 +3235,13 @@ async fn list_triggers_respects_limit() {
     }
 
     let all = s
-        .list_triggers(Some(&TenantId("t_trig".into())), 100)
+        .list_triggers(Some(&TenantId::unchecked("t_trig")), 100)
         .await
         .unwrap();
     assert_eq!(all.len(), 5);
 
     let limited = s
-        .list_triggers(Some(&TenantId("t_trig".into())), 2)
+        .list_triggers(Some(&TenantId::unchecked("t_trig")), 2)
         .await
         .unwrap();
     assert_eq!(limited.len(), 2, "limit must cap trigger count");
@@ -3271,13 +3271,13 @@ async fn list_credentials_respects_limit() {
     }
 
     let all = s
-        .list_credentials(Some(&TenantId("t_cred".into())), 100)
+        .list_credentials(Some(&TenantId::unchecked("t_cred")), 100)
         .await
         .unwrap();
     assert_eq!(all.len(), 5);
 
     let limited = s
-        .list_credentials(Some(&TenantId("t_cred".into())), 2)
+        .list_credentials(Some(&TenantId::unchecked("t_cred")), 2)
         .await
         .unwrap();
     assert_eq!(limited.len(), 2, "limit must cap credential count");
@@ -3297,7 +3297,7 @@ async fn retry_worker_task_atomically_replaces_task() {
     let node = ExecutionNode {
         id: node_id,
         instance_id: inst_id,
-        block_id: BlockId("step1".into()),
+        block_id: BlockId::new("step1"),
         parent_id: None,
         block_type: BlockType::Step,
         branch_index: None,
@@ -3310,7 +3310,7 @@ async fn retry_worker_task_atomically_replaces_task() {
     let old_task = WorkerTask {
         id: Uuid::now_v7(),
         instance_id: inst_id,
-        block_id: BlockId("step1".into()),
+        block_id: BlockId::new("step1"),
         handler_name: "h".into(),
         queue_name: None,
         params: json!({}),
@@ -3332,7 +3332,7 @@ async fn retry_worker_task_atomically_replaces_task() {
     let new_task = WorkerTask {
         id: Uuid::now_v7(),
         instance_id: inst_id,
-        block_id: BlockId("step1".into()),
+        block_id: BlockId::new("step1"),
         handler_name: "h".into(),
         queue_name: None,
         params: json!({}),
@@ -3392,7 +3392,7 @@ async fn save_output_and_transition_sets_completed_at() {
     let node = ExecutionNode {
         id: node_id,
         instance_id: inst.id,
-        block_id: BlockId("s1".into()),
+        block_id: BlockId::new("s1"),
         parent_id: None,
         block_type: BlockType::Step,
         branch_index: None,
@@ -3405,7 +3405,7 @@ async fn save_output_and_transition_sets_completed_at() {
     let output = BlockOutput {
         id: Uuid::now_v7(),
         instance_id: inst.id,
-        block_id: BlockId("s1".into()),
+        block_id: BlockId::new("s1"),
         output: json!({"result": "ok"}),
         output_ref: None,
         output_size: 10,
@@ -3449,8 +3449,8 @@ async fn cron_claim_due_is_idempotent() {
 
     let schedule = CronSchedule {
         id: Uuid::now_v7(),
-        tenant_id: TenantId("t_idemp".into()),
-        namespace: Namespace("default".into()),
+        tenant_id: TenantId::unchecked("t_idemp"),
+        namespace: Namespace::new("default"),
         sequence_id: seq.id,
         cron_expr: "0 * * * *".into(),
         timezone: "UTC".into(),

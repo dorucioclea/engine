@@ -51,7 +51,7 @@ pub(super) async fn list(
                 r"SELECT name, plugin_type, source, tenant_id, enabled, config, description, created_at, updated_at
                   FROM plugins WHERE tenant_id = ?1 OR tenant_id = '' ORDER BY name",
             )
-            .bind(&tid.0)
+            .bind(tid.as_str())
             .fetch_all(&store.pool)
             .await?
         }

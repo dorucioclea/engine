@@ -80,7 +80,7 @@ pub(crate) async fn create_pool(
     tenant_ctx: crate::auth::OptionalTenant,
     Json(req): Json<CreatePoolRequest>,
 ) -> Result<(axum::http::StatusCode, Json<ResourcePool>), ApiError> {
-    let tenant_id = crate::auth::enforce_tenant_create(&tenant_ctx, &TenantId(req.tenant_id))?;
+    let tenant_id = crate::auth::enforce_tenant_create(&tenant_ctx, &TenantId::unchecked(req.tenant_id))?;
     let now = Utc::now();
     let pool = ResourcePool {
         id: Uuid::now_v7(),
@@ -112,7 +112,7 @@ pub(crate) async fn list_pools(
     axum::extract::Query(query): axum::extract::Query<ListPoolsQuery>,
 ) -> Result<Json<Vec<ResourcePool>>, ApiError> {
     let tenant_id = crate::auth::scoped_tenant_id(&tenant_ctx, query.tenant_id.as_deref())
-        .unwrap_or_else(|| TenantId(String::new()));
+        .unwrap_or_else(|| TenantId::unchecked(""));
     let pools = state.storage.list_resource_pools(&tenant_id).await?;
     Ok(Json(pools))
 }
@@ -221,7 +221,7 @@ pub(crate) async fn add_resource(
     let resource = PoolResource {
         id: Uuid::now_v7(),
         pool_id,
-        resource_key: ResourceKey(req.resource_key),
+        resource_key: ResourceKey::new(req.resource_key),
         name: req.name,
         weight: req.weight,
         enabled: true,

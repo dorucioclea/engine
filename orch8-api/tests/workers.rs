@@ -67,8 +67,8 @@ async fn seed_worker_task(srv: &orch8_api::test_harness::TestServer, instance_id
     use orch8_types::worker::{WorkerTask, WorkerTaskState};
     let task = WorkerTask {
         id: Uuid::now_v7(),
-        instance_id: orch8_types::ids::InstanceId(instance_id),
-        block_id: orch8_types::ids::BlockId("s1".into()),
+        instance_id: orch8_types::ids::InstanceId::from_uuid(instance_id),
+        block_id: orch8_types::ids::BlockId::new("s1"),
         handler_name: "external_handler".into(),
         queue_name: Some("q1".into()),
         params: json!({}),

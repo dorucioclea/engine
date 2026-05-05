@@ -48,8 +48,8 @@ pub(super) async fn check_rate_limit(
         RETURNING window_start, window_seconds
         ",
     )
-    .bind(&tenant_id.0)
-    .bind(&resource_key.0)
+    .bind(tenant_id.as_str())
+    .bind(resource_key.as_str())
     .bind(now)
     .fetch_optional(&store.pool)
     .await?;
@@ -64,8 +64,8 @@ pub(super) async fn check_rate_limit(
     let info = sqlx::query_as::<_, WindowInfo>(
         "SELECT window_start, window_seconds FROM rate_limits WHERE tenant_id = $1 AND resource_key = $2",
     )
-    .bind(&tenant_id.0)
-    .bind(&resource_key.0)
+    .bind(tenant_id.as_str())
+    .bind(resource_key.as_str())
     .fetch_optional(&store.pool)
     .await?;
 
@@ -110,8 +110,8 @@ pub(super) async fn upsert_rate_limit(
         ",
     )
     .bind(limit.id)
-    .bind(&limit.tenant_id.0)
-    .bind(&limit.resource_key.0)
+    .bind(&limit.tenant_id.as_str())
+    .bind(&limit.resource_key.as_str())
     .bind(limit.max_count)
     .bind(limit.window_seconds)
     .bind(limit.current_count)

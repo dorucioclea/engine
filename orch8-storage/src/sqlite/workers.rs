@@ -16,8 +16,8 @@ pub(super) async fn create(storage: &SqliteStorage, t: &WorkerTask) -> Result<()
         "INSERT INTO worker_tasks (id,instance_id,block_id,handler_name,params,context,state,worker_id,queue_name,output,error_message,error_retryable,attempt,timeout_ms,claimed_at,heartbeat_at,completed_at,created_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18) ON CONFLICT(instance_id,block_id) DO NOTHING"
     )
     .bind(t.id.to_string())
-    .bind(t.instance_id.0.to_string())
-    .bind(&t.block_id.0)
+    .bind(t.instance_id.into_uuid().to_string())
+    .bind(&t.block_id.as_str())
     .bind(&t.handler_name)
     .bind(serde_json::to_string(&t.params)?)
     .bind(serde_json::to_string(&t.context)?)
@@ -137,7 +137,7 @@ pub(super) async fn claim(
 /// inside the same BEGIN IMMEDIATE window as the UPDATE so a claim can
 /// never mark a foreign tenant's row claimed (then be invisible to that
 /// tenant until reap). Matches `postgres::workers::claim_for_tenant`.
-#[instrument(skip(storage), fields(handler_name, worker_id, tenant_id = %tenant_id.0, limit))]
+#[instrument(skip(storage), fields(handler_name, worker_id, tenant_id = %tenant_id, limit))]
 pub(super) async fn claim_for_tenant(
     storage: &SqliteStorage,
     handler_name: &str,
@@ -158,7 +158,7 @@ pub(super) async fn claim_for_tenant(
     )
     .bind(handler_name)
     .bind(limit as i64)
-    .bind(&tenant_id.0)
+    .bind(tenant_id.as_str())
     .fetch_all(&mut *conn)
     .await;
 
@@ -367,7 +367,7 @@ pub(super) async fn list(
     let mut qb = sqlx::QueryBuilder::new("SELECT * FROM worker_tasks WHERE 1=1");
     if let Some(ref tid) = filter.tenant_id {
         qb.push(" AND instance_id IN (SELECT id FROM task_instances WHERE tenant_id=");
-        qb.push_bind(&tid.0);
+        qb.push_bind(tid.as_str());
         qb.push(")");
     }
     if let Some(ref states) = filter.states {
@@ -418,7 +418,7 @@ pub(super) async fn stats(
         sqlx::QueryBuilder::new("SELECT state, handler_name, COUNT(*) as cnt FROM worker_tasks");
     if let Some(tid) = tenant_id {
         cqb.push(" WHERE instance_id IN (SELECT id FROM task_instances WHERE tenant_id=");
-        cqb.push_bind(&tid.0);
+        cqb.push_bind(tid.as_str());
         cqb.push(")");
     }
     cqb.push(" GROUP BY state, handler_name");
@@ -446,7 +446,7 @@ pub(super) async fn stats(
     );
     if let Some(tid) = tenant_id {
         wqb.push(" AND instance_id IN (SELECT id FROM task_instances WHERE tenant_id=");
-        wqb.push_bind(&tid.0);
+        wqb.push_bind(tid.as_str());
         wqb.push(")");
     }
 

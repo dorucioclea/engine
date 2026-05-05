@@ -156,7 +156,7 @@ pub(super) async fn dispatch_block(
             // Check if child already exists for this block.
             let children = storage.get_child_instances(instance.id).await?;
             let existing_child = children.iter().find(|c| {
-                c.metadata.get("_parent_block_id").and_then(|v| v.as_str()) == Some(&ss_def.id.0)
+                c.metadata.get("_parent_block_id").and_then(|v| v.as_str()) == Some(&ss_def.id.as_str())
             });
 
             if let Some(child) = existing_child {
@@ -226,7 +226,7 @@ pub(super) async fn dispatch_block(
                     next_fire_at: Some(now),
                     priority: instance.priority,
                     timezone: instance.timezone.clone(),
-                    metadata: serde_json::json!({ "_parent_block_id": ss_def.id.0 }),
+                    metadata: serde_json::json!({ "_parent_block_id": ss_def.id.as_str() }),
                     context: child_context,
                     concurrency_key: None,
                     max_concurrency: None,

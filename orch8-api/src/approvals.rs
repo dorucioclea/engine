@@ -71,8 +71,8 @@ pub(crate) async fn list_approvals(
         .map(|axum::Extension(ctx)| ctx.tenant_id.clone());
     let filter = InstanceFilter {
         tenant_id: tenant_from_ctx
-            .or_else(|| params.tenant_id.clone().map(orch8_types::ids::TenantId)),
-        namespace: params.namespace.clone().map(orch8_types::ids::Namespace),
+            .or_else(|| params.tenant_id.clone().map(orch8_types::ids::TenantId::unchecked)),
+        namespace: params.namespace.clone().map(orch8_types::ids::Namespace::new),
         ..InstanceFilter::default()
     };
     let pagination = Pagination {
@@ -108,7 +108,7 @@ pub(crate) async fn list_approvals(
                     }
                     Ok(None) => {}
                     Err(e) => {
-                        tracing::warn!(sequence_id = %sid.0, error = %e, "approvals: failed to fetch sequence");
+                        tracing::warn!(sequence_id = %sid, error = %e, "approvals: failed to fetch sequence");
                     }
                 }
             }
@@ -198,8 +198,8 @@ fn build_item_from_step(
 
     ApprovalItem {
         instance_id: instance.id,
-        tenant_id: instance.tenant_id.0.clone(),
-        namespace: instance.namespace.0.clone(),
+        tenant_id: instance.tenant_id.as_str().to_owned(),
+        namespace: instance.namespace.as_str().to_owned(),
         sequence_id: instance.sequence_id,
         sequence_name: sequence.name.clone(),
         block_id: step_def.id.clone(),
@@ -244,8 +244,8 @@ fn try_build_item(
 
     Some(ApprovalItem {
         instance_id: instance.id,
-        tenant_id: instance.tenant_id.0.clone(),
-        namespace: instance.namespace.0.clone(),
+        tenant_id: instance.tenant_id.as_str().to_owned(),
+        namespace: instance.namespace.as_str().to_owned(),
         sequence_id: instance.sequence_id,
         sequence_name: sequence.name.clone(),
         block_id: node.block_id.clone(),
@@ -363,7 +363,7 @@ mod tests {
 
     fn make_step(id: &str, wait_for_input: Option<HumanInputDef>) -> StepDef {
         StepDef {
-            id: BlockId(id.into()),
+            id: BlockId::new(id),
             handler: "human_review".into(),
             params: serde_json::Value::Null,
             delay: None,
@@ -385,8 +385,8 @@ mod tests {
     fn make_sequence(step: StepDef) -> SequenceDefinition {
         SequenceDefinition {
             id: SequenceId::new(),
-            tenant_id: TenantId("t1".into()),
-            namespace: Namespace("default".into()),
+            tenant_id: TenantId::unchecked("t1"),
+            namespace: Namespace::new("default"),
             name: "test-seq".into(),
             version: 1,
             deprecated: false,
@@ -401,8 +401,8 @@ mod tests {
         TaskInstance {
             id: InstanceId::new(),
             sequence_id,
-            tenant_id: TenantId("t1".into()),
-            namespace: Namespace("default".into()),
+            tenant_id: TenantId::unchecked("t1"),
+            namespace: Namespace::new("default"),
             state: InstanceState::Waiting,
             next_fire_at: None,
             priority: Priority::Normal,
@@ -423,7 +423,7 @@ mod tests {
         ExecutionNode {
             id: ExecutionNodeId::new(),
             instance_id,
-            block_id: BlockId(block_id.into()),
+            block_id: BlockId::new(block_id),
             parent_id: None,
             block_type: BlockType::Step,
             branch_index: None,

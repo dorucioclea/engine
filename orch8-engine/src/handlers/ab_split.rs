@@ -60,7 +60,7 @@ pub async fn execute_ab_split(
 
         debug!(
             instance_id = %instance.id,
-            block_id = %ab_def.id.0,
+            block_id = %ab_def.id.as_str(),
             variant = variant_name,
             variant_index = chosen_index,
             "A/B split: chose variant"
@@ -124,9 +124,9 @@ fn select_variant(
     // the sequence-tick cost. We hash the instance + block bytes separated
     // by a NUL so "ab" + "c" cannot collide with "a" + "bc".
     let mut hasher = Sha256::new();
-    hasher.update(instance.id.0.as_bytes());
+    hasher.update(instance.id.into_uuid().as_bytes());
     hasher.update(b"\0");
-    hasher.update(block_id.0.as_bytes());
+    hasher.update(block_id.as_str().as_bytes());
     let digest = hasher.finalize();
     let hash_val = u64::from_be_bytes(digest[..8].try_into().unwrap_or([0u8; 8]));
     let target = hash_val % total_weight;
@@ -154,8 +154,8 @@ mod tests {
         TaskInstance {
             id: InstanceId::new(),
             sequence_id: SequenceId::new(),
-            tenant_id: TenantId("test".into()),
-            namespace: Namespace("default".into()),
+            tenant_id: TenantId::unchecked("test"),
+            namespace: Namespace::new("default"),
             state: orch8_types::instance::InstanceState::Running,
             next_fire_at: None,
             priority: Priority::Normal,
@@ -175,7 +175,7 @@ mod tests {
     #[test]
     fn select_variant_deterministic() {
         let instance = make_instance();
-        let block_id = BlockId("split_1".into());
+        let block_id = BlockId::new("split_1");
         let variants = vec![
             ABVariant {
                 name: "control".into(),
@@ -199,7 +199,7 @@ mod tests {
 
     #[test]
     fn select_variant_distribution() {
-        let block_id = BlockId("split_dist".into());
+        let block_id = BlockId::new("split_dist");
         let variants = vec![
             ABVariant {
                 name: "a".into(),
@@ -237,14 +237,14 @@ mod tests {
     #[test]
     fn select_variant_empty() {
         let instance = make_instance();
-        let block_id = BlockId("empty".into());
+        let block_id = BlockId::new("empty");
         assert_eq!(select_variant(&instance, &block_id, &[]), 0);
     }
 
     #[test]
     fn select_variant_single() {
         let instance = make_instance();
-        let block_id = BlockId("single".into());
+        let block_id = BlockId::new("single");
         let variants = vec![ABVariant {
             name: "only".into(),
             weight: 100,
@@ -258,7 +258,7 @@ mod tests {
         // #177 — a variant with weight=0 must never be returned. We verify
         // by running many instance IDs against a fixed (1, 0, 1) weighting:
         // only index 0 and 2 should ever be chosen.
-        let block_id = BlockId("zw".into());
+        let block_id = BlockId::new("zw");
         let variants = vec![
             ABVariant {
                 name: "a".into(),
@@ -289,7 +289,7 @@ mod tests {
         // #176 — only one variant defined → index 0 every time, regardless
         // of the instance ID hash. Covers the trivial single-arm rollout
         // case (e.g. launching a feature to 100% of users).
-        let block_id = BlockId("only-one".into());
+        let block_id = BlockId::new("only-one");
         let variants = vec![ABVariant {
             name: "solo".into(),
             weight: 1,
@@ -305,7 +305,7 @@ mod tests {
     fn select_variant_total_weight_zero_defaults_to_zero() {
         // All weights zero is degenerate but must not divide-by-zero —
         // the helper short-circuits to index 0.
-        let block_id = BlockId("dz".into());
+        let block_id = BlockId::new("dz");
         let variants = vec![
             ABVariant {
                 name: "a".into(),

@@ -70,7 +70,7 @@ pub async fn execute_step_dry(
             // the block_outputs.attempt column. Refuse to memoize rather than
             // clamping — a clamp would make every retry past 32 767 collide
             // against the same row and silently replay a stale output.
-            let matches_memoized = i16::try_from(exec.attempt)
+            let matches_memoized = u16::try_from(exec.attempt)
                 .ok()
                 .is_some_and(|a| existing.attempt == a);
             if matches_memoized {
@@ -99,7 +99,7 @@ pub async fn execute_step_dry(
                 "step output served from cache"
             );
             let output_size =
-                i32::try_from(json_byte_size(&cached).unwrap_or(0)).unwrap_or(i32::MAX);
+                u32::try_from(json_byte_size(&cached).unwrap_or(0)).unwrap_or(u32::MAX);
             return Ok(BlockOutput {
                 id: Uuid::now_v7(),
                 instance_id: exec.instance_id,
@@ -107,7 +107,7 @@ pub async fn execute_step_dry(
                 output: cached,
                 output_ref: None,
                 output_size,
-                attempt: i16::try_from(exec.attempt).unwrap_or(i16::MAX),
+                attempt: u16::try_from(exec.attempt).unwrap_or(u16::MAX),
                 created_at: Utc::now(),
             });
         }
@@ -175,7 +175,7 @@ pub async fn execute_step_dry(
             }
 
             let output_size =
-                i32::try_from(json_byte_size(&output).unwrap_or(0)).unwrap_or(i32::MAX);
+                u32::try_from(json_byte_size(&output).unwrap_or(0)).unwrap_or(u32::MAX);
 
             let block_output = maybe_externalize(
                 storage.as_ref(),
@@ -183,7 +183,7 @@ pub async fn execute_step_dry(
                 block_id,
                 output,
                 output_size,
-                i16::try_from(attempt).unwrap_or(i16::MAX),
+                u16::try_from(attempt).unwrap_or(u16::MAX),
                 exec.externalize_threshold,
             )
             .await?;
@@ -228,7 +228,7 @@ pub async fn execute_step(
             // the block_outputs.attempt column. Refuse to memoize rather than
             // clamping — a clamp would make every retry past 32 767 collide
             // against the same row and silently replay a stale output.
-            let matches_memoized = i16::try_from(exec.attempt)
+            let matches_memoized = u16::try_from(exec.attempt)
                 .ok()
                 .is_some_and(|a| existing.attempt == a);
             if matches_memoized {
@@ -256,7 +256,7 @@ pub async fn execute_step(
                 "step output served from cache"
             );
             let output_size =
-                i32::try_from(json_byte_size(&cached).unwrap_or(0)).unwrap_or(i32::MAX);
+                u32::try_from(json_byte_size(&cached).unwrap_or(0)).unwrap_or(u32::MAX);
             let block_output = BlockOutput {
                 id: Uuid::now_v7(),
                 instance_id: exec.instance_id,
@@ -264,7 +264,7 @@ pub async fn execute_step(
                 output: cached.clone(),
                 output_ref: None,
                 output_size,
-                attempt: i16::try_from(exec.attempt).unwrap_or(i16::MAX),
+                attempt: u16::try_from(exec.attempt).unwrap_or(u16::MAX),
                 created_at: Utc::now(),
             };
             storage.save_block_output(&block_output).await?;
@@ -335,7 +335,7 @@ pub async fn execute_step(
             }
 
             let output_size =
-                i32::try_from(json_byte_size(&output).unwrap_or(0)).unwrap_or(i32::MAX);
+                u32::try_from(json_byte_size(&output).unwrap_or(0)).unwrap_or(u32::MAX);
 
             let block_output = maybe_externalize(
                 storage.as_ref(),
@@ -343,7 +343,7 @@ pub async fn execute_step(
                 block_id,
                 output,
                 output_size,
-                i16::try_from(attempt).unwrap_or(i16::MAX),
+                u16::try_from(attempt).unwrap_or(u16::MAX),
                 exec.externalize_threshold,
             )
             .await?;
@@ -378,15 +378,14 @@ async fn maybe_externalize(
     instance_id: InstanceId,
     block_id: BlockId,
     output: serde_json::Value,
-    output_size: i32,
-    attempt: i16,
+    output_size: u32,
+    attempt: u16,
     threshold: u32,
 ) -> Result<BlockOutput, EngineError> {
-    #[allow(clippy::cast_sign_loss)]
-    let should_externalize = threshold > 0 && output_size > 0 && (output_size as u32) > threshold;
+    let should_externalize = threshold > 0 && output_size > threshold;
 
     if should_externalize {
-        let ref_key = format!("{}:{}", instance_id, block_id.0);
+        let ref_key = format!("{}:{}", instance_id, block_id.as_str());
         storage
             .save_externalized_state(instance_id, &ref_key, &output)
             .await?;

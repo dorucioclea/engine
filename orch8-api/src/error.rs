@@ -232,7 +232,7 @@ mod tests {
     fn engine_error_step_failed_maps_to_internal() {
         let err: ApiError = EngineError::StepFailed {
             instance_id: orch8_types::ids::InstanceId::new(),
-            block_id: orch8_types::ids::BlockId("b".into()),
+            block_id: orch8_types::ids::BlockId::new("b"),
             message: "boom".into(),
             retryable: false,
         }

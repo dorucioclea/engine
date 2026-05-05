@@ -90,7 +90,7 @@ pub fn auth_interceptor(
 
         match tenant_raw {
             Some(tid) => {
-                req.extensions_mut().insert(CallerTenant(TenantId(tid)));
+                req.extensions_mut().insert(CallerTenant(TenantId::unchecked(tid)));
             }
             None if require_tenant => {
                 return Err(Status::invalid_argument("missing x-tenant-id metadata"));
@@ -144,7 +144,7 @@ pub fn enforce_tenant_create<T>(
     body_tenant_id: &TenantId,
 ) -> Result<TenantId, Status> {
     if let Some(caller) = caller_tenant(req) {
-        if !body_tenant_id.0.is_empty() && body_tenant_id != caller {
+        if !body_tenant_id.as_str().is_empty() && body_tenant_id != caller {
             return Err(Status::permission_denied(
                 "tenant_id in body does not match x-tenant-id metadata",
             ));
@@ -225,14 +225,14 @@ mod tests {
     fn interceptor_stamps_tenant_into_extensions() {
         let ic = auth_interceptor(None, true);
         let req = ic(make_req(&[("x-tenant-id", "tenant-a")])).unwrap();
-        assert_eq!(caller_tenant(&req).map(|t| t.0.as_str()), Some("tenant-a"));
+        assert_eq!(caller_tenant(&req).map(|t| t.as_str()), Some("tenant-a"));
     }
 
     #[test]
     fn enforce_returns_not_found_on_mismatch() {
         let ic = auth_interceptor(None, true);
         let req = ic(make_req(&[("x-tenant-id", "tenant-a")])).unwrap();
-        let err = enforce_tenant_match(&req, &TenantId("tenant-b".into()), "instance").unwrap_err();
+        let err = enforce_tenant_match(&req, &TenantId::unchecked("tenant-b"), "instance").unwrap_err();
         assert_eq!(err.code(), tonic::Code::NotFound);
     }
 
@@ -240,7 +240,7 @@ mod tests {
     fn enforce_allows_same_tenant() {
         let ic = auth_interceptor(None, true);
         let req = ic(make_req(&[("x-tenant-id", "tenant-a")])).unwrap();
-        assert!(enforce_tenant_match(&req, &TenantId("tenant-a".into()), "instance").is_ok());
+        assert!(enforce_tenant_match(&req, &TenantId::unchecked("tenant-a"), "instance").is_ok());
     }
 
     #[test]
@@ -248,15 +248,15 @@ mod tests {
         // Insecure mode: no caller tenant, no enforcement.
         let ic = auth_interceptor(None, false);
         let req = ic(make_req(&[])).unwrap();
-        assert!(enforce_tenant_match(&req, &TenantId("tenant-b".into()), "instance").is_ok());
+        assert!(enforce_tenant_match(&req, &TenantId::unchecked("tenant-b"), "instance").is_ok());
     }
 
     #[test]
     fn enforce_create_returns_caller_when_body_matches() {
         let ic = auth_interceptor(None, true);
         let req = ic(make_req(&[("x-tenant-id", "tenant-a")])).unwrap();
-        let t = enforce_tenant_create(&req, &TenantId("tenant-a".into())).unwrap();
-        assert_eq!(t.0, "tenant-a");
+        let t = enforce_tenant_create(&req, &TenantId::unchecked("tenant-a")).unwrap();
+        assert_eq!(t.as_str(), "tenant-a");
     }
 
     #[test]
@@ -264,15 +264,15 @@ mod tests {
         // Client omits tenant_id in body — caller header wins.
         let ic = auth_interceptor(None, true);
         let req = ic(make_req(&[("x-tenant-id", "tenant-a")])).unwrap();
-        let t = enforce_tenant_create(&req, &TenantId(String::new())).unwrap();
-        assert_eq!(t.0, "tenant-a");
+        let t = enforce_tenant_create(&req, &TenantId::unchecked("")).unwrap();
+        assert_eq!(t.as_str(), "tenant-a");
     }
 
     #[test]
     fn enforce_create_rejects_cross_tenant_body() {
         let ic = auth_interceptor(None, true);
         let req = ic(make_req(&[("x-tenant-id", "tenant-a")])).unwrap();
-        let err = enforce_tenant_create(&req, &TenantId("tenant-b".into())).unwrap_err();
+        let err = enforce_tenant_create(&req, &TenantId::unchecked("tenant-b")).unwrap_err();
         assert_eq!(err.code(), tonic::Code::PermissionDenied);
     }
 
@@ -280,23 +280,23 @@ mod tests {
     fn enforce_create_passthrough_in_permissive_mode() {
         let ic = auth_interceptor(None, false);
         let req = ic(make_req(&[])).unwrap();
-        let t = enforce_tenant_create(&req, &TenantId("whatever".into())).unwrap();
-        assert_eq!(t.0, "whatever");
+        let t = enforce_tenant_create(&req, &TenantId::unchecked("whatever")).unwrap();
+        assert_eq!(t.as_str(), "whatever");
     }
 
     #[test]
     fn scoped_tenant_prefers_caller() {
         let ic = auth_interceptor(None, true);
         let req = ic(make_req(&[("x-tenant-id", "tenant-a")])).unwrap();
-        let t = scoped_tenant_id(&req, Some(&TenantId("tenant-b".into())));
-        assert_eq!(t.map(|t| t.0), Some("tenant-a".into()));
+        let t = scoped_tenant_id(&req, Some(&TenantId::unchecked("tenant-b")));
+        assert_eq!(t.as_ref().map(|t| t.as_str()), Some("tenant-a"));
     }
 
     #[test]
     fn scoped_tenant_falls_back_to_body_in_permissive_mode() {
         let ic = auth_interceptor(None, false);
         let req = ic(make_req(&[])).unwrap();
-        let t = scoped_tenant_id(&req, Some(&TenantId("tenant-b".into())));
-        assert_eq!(t.map(|t| t.0), Some("tenant-b".into()));
+        let t = scoped_tenant_id(&req, Some(&TenantId::unchecked("tenant-b")));
+        assert_eq!(t.as_ref().map(|t| t.as_str()), Some("tenant-b"));
     }
 }

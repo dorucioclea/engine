@@ -767,10 +767,21 @@ All blocks are defined in the `blocks` array of a sequence. Blocks can nest arbi
 | `noop` | _(none)_ | `{}` |
 | `log` | `message` (string), `level` ("debug"/"info"/"warn") | `{ "message": "..." }` |
 | `sleep` | `duration_ms` (integer, default 100) | `{ "slept_ms": N }` |
+| `fail` | `message` (string) | _(step fails with the given message)_ |
 | `http_request` | `url`, `method` ("GET"/"POST"/"PUT"/"DELETE"), `body`, `timeout_ms` (default 10000) | `{ "status": 200, "body": "..." }` |
+| `llm_call` | `provider`, `model`, `messages`, `temperature`, `max_tokens` | `{ "content": "...", "usage": {...} }` |
+| `tool_call` | `tool_name`, `arguments` | _(tool-specific output)_ |
+| `human_review` | `prompt`, `timeout_ms`, `escalation_handler` | `{ "approved": bool, "reviewer": "...", "comments": "..." }` |
+| `self_modify` | `blocks` (array of block definitions to inject) | `{ "injected": N }` |
 | `emit_event` | See [Workflow coordination handlers](#workflow-coordination-handlers) | `{ instance_id, sequence_name, deduped }` |
 | `send_signal` | See [Workflow coordination handlers](#workflow-coordination-handlers) | `{ signal_id }` |
 | `query_instance` | See [Workflow coordination handlers](#workflow-coordination-handlers) | `{ found, state?, context?, created_at?, updated_at? }` |
+| `set_state` | `key` (string), `value` (any) | `{}` |
+| `get_state` | `key` (string) | `{ "value": ... }` |
+| `delete_state` | `key` (string) | `{}` |
+| `merge_state` | `data` (object) | `{}` |
+| `transform` | `expression` (string), `target` (string) | `{ "result": ... }` |
+| `assert` | `condition` (string), `message` (string) | `{}` |
 
 Any handler name not registered as built-in is automatically dispatched to the external worker queue.
 
@@ -1052,6 +1063,52 @@ Repeats body while `condition` evaluates to truthy in `context.data`. Safety cap
 ```
 
 Iterates over `context.data[collection]` (must be an array). Each iteration has `item_var` available in context. Empty or missing collection completes immediately.
+
+---
+
+### ABSplit
+
+```json
+{
+  "type": "ab_split",
+  "id": "experiment_onboarding",
+  "variants": [
+    {
+      "name": "control",
+      "weight": 70,
+      "blocks": [
+        { "type": "step", "id": "standard_flow", "handler": "standard_onboard", "params": {} }
+      ]
+    },
+    {
+      "name": "variant_a",
+      "weight": 30,
+      "blocks": [
+        { "type": "step", "id": "new_flow", "handler": "new_onboard", "params": {} }
+      ]
+    }
+  ]
+}
+```
+
+Routes traffic to one of several variants by weight. Useful for A/B testing different workflow branches. The selected variant is recorded in the instance context for analytics.
+
+---
+
+### CancellationScope
+
+```json
+{
+  "type": "cancellation_scope",
+  "id": "critical_section",
+  "blocks": [
+    { "type": "step", "id": "charge", "handler": "payment_charge", "params": {} },
+    { "type": "step", "id": "confirm", "handler": "send_receipt", "params": {} }
+  ]
+}
+```
+
+Child blocks inside a cancellation scope cannot be cancelled by external cancel signals. Provides subtree-level non-cancellability (Temporal-style structured concurrency). Use for critical sections like payment processing that must complete atomically.
 
 ---
 

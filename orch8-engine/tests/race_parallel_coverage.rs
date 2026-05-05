@@ -21,7 +21,7 @@ use orch8_types::sequence::{
 
 fn mk_step(id: &str) -> BlockDefinition {
     BlockDefinition::Step(Box::new(StepDef {
-        id: BlockId(id.into()),
+        id: BlockId::new(id),
         handler: "builtin.noop".into(),
         params: serde_json::Value::Null,
         delay: None,
@@ -44,8 +44,8 @@ async fn setup(blocks: Vec<BlockDefinition>) -> (SqliteStorage, TaskInstance, Ve
     let storage = SqliteStorage::in_memory().await.unwrap();
     let seq = SequenceDefinition {
         id: SequenceId::new(),
-        tenant_id: TenantId("t".into()),
-        namespace: Namespace("ns".into()),
+        tenant_id: TenantId::unchecked("t"),
+        namespace: Namespace::new("ns"),
         name: "rp-cov".into(),
         version: 1,
         deprecated: false,
@@ -59,8 +59,8 @@ async fn setup(blocks: Vec<BlockDefinition>) -> (SqliteStorage, TaskInstance, Ve
     let instance = TaskInstance {
         id: InstanceId::new(),
         sequence_id: seq.id,
-        tenant_id: TenantId("t".into()),
-        namespace: Namespace("ns".into()),
+        tenant_id: TenantId::unchecked("t"),
+        namespace: Namespace::new("ns"),
         state: InstanceState::Running,
         next_fire_at: None,
         priority: Priority::Normal,
@@ -97,7 +97,7 @@ fn find_node(tree: &[ExecutionNode], bt: BlockType) -> ExecutionNode {
 
 fn node_by_block<'a>(tree: &'a [ExecutionNode], block_id: &str) -> &'a ExecutionNode {
     tree.iter()
-        .find(|n| n.block_id.0 == block_id)
+        .find(|n| n.block_id.as_str() == block_id)
         .expect("block")
 }
 
@@ -111,7 +111,7 @@ async fn refresh(storage: &SqliteStorage, instance: &TaskInstance) -> Vec<Execut
 #[tokio::test]
 async fn race_winner_cancels_other_branches() {
     let race_def = RaceDef {
-        id: BlockId("r".into()),
+        id: BlockId::new("r"),
         branches: vec![vec![mk_step("a")], vec![mk_step("b")]],
         semantics: RaceSemantics::FirstToSucceed,
     };
@@ -151,7 +151,7 @@ async fn race_winner_cancels_other_branches() {
 #[tokio::test]
 async fn race_all_branches_fail_node_fails() {
     let race_def = RaceDef {
-        id: BlockId("r".into()),
+        id: BlockId::new("r"),
         branches: vec![vec![mk_step("a")], vec![mk_step("b")]],
         semantics: RaceSemantics::FirstToSucceed,
     };
@@ -185,7 +185,7 @@ async fn race_all_branches_fail_node_fails() {
 #[tokio::test]
 async fn race_empty_branches_completes_immediately() {
     let race_def = RaceDef {
-        id: BlockId("r".into()),
+        id: BlockId::new("r"),
         branches: vec![],
         semantics: RaceSemantics::FirstToSucceed,
     };
@@ -208,7 +208,7 @@ async fn race_empty_branches_completes_immediately() {
 #[tokio::test]
 async fn race_yields_while_all_branches_running() {
     let race_def = RaceDef {
-        id: BlockId("r".into()),
+        id: BlockId::new("r"),
         branches: vec![vec![mk_step("a")], vec![mk_step("b")]],
         semantics: RaceSemantics::FirstToSucceed,
     };
@@ -239,7 +239,7 @@ async fn race_yields_while_all_branches_running() {
 #[tokio::test]
 async fn race_cancels_worker_task_for_waiting_loser() {
     let race_def = RaceDef {
-        id: BlockId("r".into()),
+        id: BlockId::new("r"),
         branches: vec![vec![mk_step("a")], vec![mk_step("b")]],
         semantics: RaceSemantics::FirstToSucceed,
     };
@@ -278,7 +278,7 @@ async fn race_cancels_worker_task_for_waiting_loser() {
 #[tokio::test]
 async fn parallel_all_branches_succeed_node_completes() {
     let par = ParallelDef {
-        id: BlockId("p".into()),
+        id: BlockId::new("p"),
         branches: vec![vec![mk_step("a")], vec![mk_step("b")]],
     };
     let (storage, instance, tree) =
@@ -314,7 +314,7 @@ async fn parallel_all_branches_succeed_node_completes() {
 #[tokio::test]
 async fn parallel_any_branch_fails_node_fails() {
     let par = ParallelDef {
-        id: BlockId("p".into()),
+        id: BlockId::new("p"),
         branches: vec![vec![mk_step("a")], vec![mk_step("b")]],
     };
     let (storage, instance, tree) =
@@ -350,7 +350,7 @@ async fn parallel_any_branch_fails_node_fails() {
 #[tokio::test]
 async fn parallel_activates_only_first_step_per_branch() {
     let par = ParallelDef {
-        id: BlockId("p".into()),
+        id: BlockId::new("p"),
         branches: vec![
             vec![mk_step("b0s0"), mk_step("b0s1")],
             vec![mk_step("b1s0"), mk_step("b1s1")],
@@ -375,7 +375,7 @@ async fn parallel_activates_only_first_step_per_branch() {
 #[tokio::test]
 async fn parallel_advances_branch_cursor_after_completion() {
     let par = ParallelDef {
-        id: BlockId("p".into()),
+        id: BlockId::new("p"),
         branches: vec![vec![mk_step("b0s0"), mk_step("b0s1")]],
     };
     let (storage, instance, tree) =
@@ -403,7 +403,7 @@ async fn parallel_advances_branch_cursor_after_completion() {
 #[tokio::test]
 async fn parallel_empty_branches_completes_immediately() {
     let par = ParallelDef {
-        id: BlockId("p".into()),
+        id: BlockId::new("p"),
         branches: vec![],
     };
     let (storage, instance, tree) =
@@ -425,7 +425,7 @@ async fn parallel_empty_branches_completes_immediately() {
 #[tokio::test]
 async fn parallel_uneven_branches_short_finishes_first() {
     let par = ParallelDef {
-        id: BlockId("p".into()),
+        id: BlockId::new("p"),
         branches: vec![
             vec![mk_step("short")],
             vec![mk_step("long0"), mk_step("long1")],

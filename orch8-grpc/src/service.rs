@@ -62,7 +62,7 @@ impl Orch8GrpcService {
             Err(orch8_types::error::StorageError::TerminalTarget { .. }) => {
                 tracing::info!(
                     instance_id = %task.instance_id,
-                    block_id = %task.block_id.0,
+                    block_id = %task.block_id.as_str(),
                     "gRPC worker completion CAS failed — instance became terminal/paused after read"
                 );
                 Ok(())
@@ -161,8 +161,8 @@ async fn worker_task_can_retry(
     let Some(retry) = &step_def.retry else {
         return Ok(false);
     };
-    let next_attempt_i32 = i32::from(task.attempt).saturating_add(1);
-    let next_attempt = u32::try_from(next_attempt_i32).unwrap_or(u32::MAX);
+    let next_attempt = u32::from(task.attempt).saturating_add(1);
+    
     Ok(next_attempt < retry.max_attempts)
 }
 
@@ -302,7 +302,7 @@ impl Orch8Service for Orch8GrpcService {
         &self,
         req: Request<proto::GetSequenceRequest>,
     ) -> Result<Response<proto::SequenceResponse>, Status> {
-        let id = SequenceId(parse_uuid(&req.get_ref().id)?);
+        let id = SequenceId::from_uuid(parse_uuid(&req.get_ref().id)?);
         let seq = self
             .storage
             .get_sequence(id)
@@ -322,11 +322,11 @@ impl Orch8Service for Orch8GrpcService {
         // Resolve the tenant from the caller's metadata when present —
         // otherwise fall back to the body. Prevents cross-tenant sequence
         // lookup by name when tenant-scoped.
-        let body_tenant = TenantId(req.get_ref().tenant_id.clone());
+        let body_tenant = TenantId::unchecked(req.get_ref().tenant_id.clone());
         let tenant_id =
-            scoped_tenant_id(&req, Some(&body_tenant)).unwrap_or_else(|| TenantId(String::new()));
+            scoped_tenant_id(&req, Some(&body_tenant)).unwrap_or_else(|| TenantId::unchecked(""));
         let inner = req.into_inner();
-        let namespace = orch8_types::ids::Namespace(inner.namespace);
+        let namespace = orch8_types::ids::Namespace::new(inner.namespace);
         let seq = self
             .storage
             .get_sequence_by_name(&tenant_id, &namespace, &inner.name, inner.version)
@@ -394,7 +394,7 @@ impl Orch8Service for Orch8GrpcService {
         &self,
         req: Request<proto::GetInstanceRequest>,
     ) -> Result<Response<proto::InstanceResponse>, Status> {
-        let id = InstanceId(parse_uuid(&req.get_ref().id)?);
+        let id = InstanceId::from_uuid(parse_uuid(&req.get_ref().id)?);
         let inst = self
             .storage
             .get_instance(id)
@@ -443,7 +443,7 @@ impl Orch8Service for Orch8GrpcService {
         &self,
         req: Request<proto::UpdateStateRequest>,
     ) -> Result<Response<proto::Empty>, Status> {
-        let id = InstanceId(parse_uuid(&req.get_ref().id)?);
+        let id = InstanceId::from_uuid(parse_uuid(&req.get_ref().id)?);
         let inst = self
             .storage
             .get_instance(id)
@@ -473,7 +473,7 @@ impl Orch8Service for Orch8GrpcService {
         &self,
         req: Request<proto::UpdateContextRequest>,
     ) -> Result<Response<proto::Empty>, Status> {
-        let id = InstanceId(parse_uuid(&req.get_ref().id)?);
+        let id = InstanceId::from_uuid(parse_uuid(&req.get_ref().id)?);
         let inst = self
             .storage
             .get_instance(id)
@@ -514,7 +514,7 @@ impl Orch8Service for Orch8GrpcService {
         &self,
         req: Request<proto::GetOutputsRequest>,
     ) -> Result<Response<proto::GetOutputsResponse>, Status> {
-        let id = InstanceId(parse_uuid(&req.get_ref().instance_id)?);
+        let id = InstanceId::from_uuid(parse_uuid(&req.get_ref().instance_id)?);
         let inst = self
             .storage
             .get_instance(id)
@@ -537,7 +537,7 @@ impl Orch8Service for Orch8GrpcService {
         &self,
         req: Request<proto::GetExecutionTreeRequest>,
     ) -> Result<Response<proto::GetExecutionTreeResponse>, Status> {
-        let id = InstanceId(parse_uuid(&req.get_ref().instance_id)?);
+        let id = InstanceId::from_uuid(parse_uuid(&req.get_ref().instance_id)?);
         let inst = self
             .storage
             .get_instance(id)
@@ -572,7 +572,7 @@ impl Orch8Service for Orch8GrpcService {
         // Previously the gRPC path only did step 4 — retrying an instance
         // over gRPC silently left stale tree state, producing divergent
         // behaviour from the HTTP client for the same operation.
-        let id = InstanceId(parse_uuid(&req.get_ref().id)?);
+        let id = InstanceId::from_uuid(parse_uuid(&req.get_ref().id)?);
 
         let inst = self
             .storage
@@ -695,7 +695,7 @@ impl Orch8Service for Orch8GrpcService {
         &self,
         req: Request<proto::ListCronRequest>,
     ) -> Result<Response<proto::ListCronResponse>, Status> {
-        let body_tenant = req.get_ref().tenant_id.clone().map(TenantId);
+        let body_tenant = req.get_ref().tenant_id.clone().map(TenantId::unchecked);
         // Caller-tenant override so a tenant-scoped client can't list
         // schedules outside their tenant by omitting the tenant filter.
         let tenant_id = scoped_tenant_id(&req, body_tenant.as_ref());
@@ -848,7 +848,7 @@ impl Orch8Service for Orch8GrpcService {
             block_id: task.block_id.clone(),
             output,
             output_ref: None,
-            output_size: i32::try_from(output_json.len()).unwrap_or(i32::MAX),
+            output_size: u32::try_from(output_json.len()).unwrap_or(u32::MAX),
             attempt: task.attempt,
             created_at: chrono::Utc::now(),
         };
@@ -1045,7 +1045,7 @@ impl Orch8Service for Orch8GrpcService {
         &self,
         req: Request<proto::CreatePoolRequest>,
     ) -> Result<Response<proto::PoolResponse>, Status> {
-        let body_tenant = TenantId(req.get_ref().tenant_id.clone());
+        let body_tenant = TenantId::unchecked(req.get_ref().tenant_id.clone());
         let tenant_id = enforce_tenant_create(&req, &body_tenant)?;
         let inner = req.into_inner();
         let strategy: orch8_types::pool::RotationStrategy =
@@ -1090,7 +1090,7 @@ impl Orch8Service for Orch8GrpcService {
         &self,
         req: Request<proto::ListPoolsRequest>,
     ) -> Result<Response<proto::ListPoolsResponse>, Status> {
-        let body_tenant = TenantId(req.get_ref().tenant_id.clone());
+        let body_tenant = TenantId::unchecked(req.get_ref().tenant_id.clone());
         // Caller-tenant override: tenant-scoped clients see only their pools.
         let tenant_id = scoped_tenant_id(&req, Some(&body_tenant)).unwrap_or(body_tenant);
         let pools = self
@@ -1166,7 +1166,7 @@ impl Orch8Service for Orch8GrpcService {
         let resource = orch8_types::pool::PoolResource {
             id: Uuid::now_v7(),
             pool_id,
-            resource_key: orch8_types::ids::ResourceKey(r.resource_key),
+            resource_key: orch8_types::ids::ResourceKey::new(r.resource_key),
             name: r.name,
             weight: r.weight,
             enabled: true,

@@ -4,6 +4,8 @@ A self-hosted, durable workflow orchestration engine built in Rust. Define workf
 
 Single binary. One dependency: PostgreSQL (or SQLite for dev/embedded).
 
+[Docs](https://orch8.io/docs) · [Discord](https://discord.gg/BAbx7Dshu) · [Cloud](https://cloud.orch8.io) · [Playbook](https://orch8.io/playbook)
+
 ## Features
 
 **Workflow Primitives** — Step, Parallel, Race, TryCatch, Loop, ForEach, Router, SubSequence, CancellationScope, AB Split
@@ -22,7 +24,7 @@ Single binary. One dependency: PostgreSQL (or SQLite for dev/embedded).
 
 **Observability** — Prometheus metrics, structured JSON logging, audit log, execution tree visualization, Grafana dashboard template
 
-**AI Agent Support** — Dynamic step injection (self_modify), LLM call handler (OpenAI/Anthropic/Bedrock), human-in-the-loop with timeout/escalation, SSE streaming, query-instance handler for cross-workflow coordination
+**AI Agent Support** — Dynamic step injection (self_modify), LLM call handler (OpenAI, Anthropic, Gemini, DeepSeek, Groq, Together, Mistral, Qwen, Perplexity, OpenRouter), human-in-the-loop with timeout/escalation, SSE streaming, query-instance handler for cross-workflow coordination
 
 **Security** — AES-256-GCM encryption at rest for context and credentials, OAuth2 credential refresh, API key authentication, CORS configuration
 
@@ -137,10 +139,10 @@ Configuration via `orch8.toml`, environment variables (`ORCH8_*`), or both (env 
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `ORCH8_STORAGE_BACKEND` | `sqlite` | `sqlite` or `postgres` |
-| `ORCH8_DATABASE_URL` | `sqlite://orch8.db` | Connection string |
-| `ORCH8_HTTP_ADDR` | `0.0.0.0:8080` | HTTP API listen address |
-| `ORCH8_GRPC_ADDR` | `0.0.0.0:50051` | gRPC API listen address |
+| `ORCH8_STORAGE_BACKEND` | `postgres` | `sqlite` or `postgres` |
+| `ORCH8_DATABASE_URL` | — | Connection string (required) |
+| `ORCH8_HTTP_ADDR` | `127.0.0.1:8080` | HTTP API listen address |
+| `ORCH8_GRPC_ADDR` | `127.0.0.1:50051` | gRPC API listen address |
 | `ORCH8_TICK_INTERVAL_MS` | `100` | Scheduler tick interval (ms) |
 | `ORCH8_CRON_TICK_SECS` | `10` | Cron loop check interval (seconds) |
 | `ORCH8_BATCH_SIZE` | `256` | Max instances claimed per tick |
@@ -149,7 +151,7 @@ Configuration via `orch8.toml`, environment variables (`ORCH8_*`), or both (env 
 | `ORCH8_ENCRYPTION_KEY` | — | 64 hex chars for AES-256-GCM encryption at rest |
 | `ORCH8_LOG_LEVEL` | `info` | trace, debug, info, warn, error |
 | `ORCH8_LOG_JSON` | `false` | JSON-formatted log output |
-| `ORCH8_CORS_ORIGINS` | `*` | CORS allowed origins |
+| `ORCH8_CORS_ORIGINS` | — | CORS allowed origins (empty = no CORS headers) |
 | `ORCH8_API_KEY` | — | Set to require API key auth |
 
 See [Configuration Reference](docs/CONFIGURATION.md) for the full list.
@@ -277,6 +279,12 @@ helm install orch8 orch8/orch8-engine
 ```
 
 Chart repo: [orch8-io/helm-charts](https://github.com/orch8-io/helm-charts)
+
+## Community
+
+- [Discord](https://discord.gg/BAbx7Dshu) — questions, patterns, show & tell
+- [GitHub Issues](https://github.com/orch8-io/engine/issues) — bug reports and feature requests
+- [Playbook](https://orch8.io/playbook) — 22 workflow patterns with full JSON definitions
 
 ## License
 

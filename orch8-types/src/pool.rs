@@ -153,7 +153,7 @@ mod tests {
         PoolResource {
             id: Uuid::now_v7(),
             pool_id: Uuid::now_v7(),
-            resource_key: ResourceKey("test".into()),
+            resource_key: ResourceKey::new("test"),
             name: "test".into(),
             weight: 1,
             enabled: true,

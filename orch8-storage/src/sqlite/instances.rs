@@ -28,10 +28,10 @@ pub(super) fn bind_instance_insert<'q>(
     q: sqlx::query::Query<'q, sqlx::Sqlite, sqlx::sqlite::SqliteArguments<'q>>,
     i: &'q TaskInstance,
 ) -> Result<sqlx::query::Query<'q, sqlx::Sqlite, sqlx::sqlite::SqliteArguments<'q>>, StorageError> {
-    Ok(q.bind(i.id.0.to_string())
-        .bind(i.sequence_id.0.to_string())
-        .bind(&i.tenant_id.0)
-        .bind(&i.namespace.0)
+    Ok(q.bind(i.id.into_uuid().to_string())
+        .bind(i.sequence_id.into_uuid().to_string())
+        .bind(i.tenant_id.as_str())
+        .bind(i.namespace.as_str())
         .bind(i.state.to_string())
         .bind(i.next_fire_at.map(ts))
         .bind(i.priority as i16)
@@ -39,10 +39,10 @@ pub(super) fn bind_instance_insert<'q>(
         .bind(serde_json::to_string(&i.metadata)?)
         .bind(serde_json::to_string(&i.context)?)
         .bind(&i.concurrency_key)
-        .bind(i.max_concurrency)
+        .bind(i.max_concurrency.map(|v| v as i32))
         .bind(&i.idempotency_key)
         .bind(i.session_id.map(|u| u.to_string()))
-        .bind(i.parent_instance_id.map(|u| u.0.to_string()))
+        .bind(i.parent_instance_id.map(|u| u.into_uuid().to_string()))
         .bind(ts(i.created_at))
         .bind(ts(i.updated_at)))
 }
@@ -72,10 +72,10 @@ pub(super) async fn create_batch(
         qb.push_values(chunk, |mut b, i| {
             let metadata = serde_json::to_string(&i.metadata).unwrap_or_else(|_| "{}".to_string());
             let context = serde_json::to_string(&i.context).unwrap_or_else(|_| "{}".to_string());
-            b.push_bind(i.id.0.to_string())
-                .push_bind(i.sequence_id.0.to_string())
-                .push_bind(&i.tenant_id.0)
-                .push_bind(&i.namespace.0)
+            b.push_bind(i.id.into_uuid().to_string())
+                .push_bind(i.sequence_id.into_uuid().to_string())
+                .push_bind(i.tenant_id.as_str())
+                .push_bind(i.namespace.as_str())
                 .push_bind(i.state.to_string())
                 .push_bind(i.next_fire_at.map(ts))
                 .push_bind(i.priority as i16)
@@ -83,10 +83,10 @@ pub(super) async fn create_batch(
                 .push_bind(metadata)
                 .push_bind(context)
                 .push_bind(&i.concurrency_key)
-                .push_bind(i.max_concurrency)
+                .push_bind(i.max_concurrency.map(|v| v as i32))
                 .push_bind(&i.idempotency_key)
                 .push_bind(i.session_id.map(|u| u.to_string()))
-                .push_bind(i.parent_instance_id.map(|u| u.0.to_string()))
+                .push_bind(i.parent_instance_id.map(|u| u.into_uuid().to_string()))
                 .push_bind(ts(i.created_at))
                 .push_bind(ts(i.updated_at));
         });
@@ -102,7 +102,7 @@ pub(super) async fn get(
     id: InstanceId,
 ) -> Result<Option<TaskInstance>, StorageError> {
     let row = sqlx::query("SELECT * FROM task_instances WHERE id=?1")
-        .bind(id.0.to_string())
+        .bind(id.to_string())
         .fetch_optional(&storage.pool)
         .await?;
     row.as_ref().map(row_to_instance).transpose()
@@ -197,7 +197,7 @@ async fn claim_due_inner(
         qb.push(" WHERE id IN (");
         let mut separated = qb.separated(",");
         for i in &instances {
-            separated.push_bind(i.id.0.to_string());
+            separated.push_bind(i.id.into_uuid().to_string());
         }
         separated.push_unseparated(")");
 
@@ -246,7 +246,7 @@ async fn filter_by_concurrency(
 
     let mut excluded = std::collections::HashSet::new();
     for (key, indices) in &keyed {
-        let max = candidates[indices[0]].max_concurrency.unwrap_or(i32::MAX);
+        let max = candidates[indices[0]].max_concurrency.unwrap_or(u32::MAX);
         let already_running = running_counts.get(*key).copied().unwrap_or(0);
 
         let slots = (i64::from(max) - already_running).max(0) as usize;
@@ -272,7 +272,7 @@ pub(super) async fn update_state(
     next_fire_at: Option<DateTime<Utc>>,
 ) -> Result<(), StorageError> {
     sqlx::query("UPDATE task_instances SET state=?2, next_fire_at=?3, updated_at=?4 WHERE id=?1")
-        .bind(id.0.to_string())
+        .bind(id.to_string())
         .bind(new_state.to_string())
         .bind(next_fire_at.map(ts))
         .bind(ts(Utc::now()))
@@ -299,7 +299,7 @@ pub(super) async fn batch_reschedule(
     qb.push(" WHERE id IN (");
     let mut separated = qb.separated(",");
     for id in ids {
-        separated.push_bind(id.0.to_string());
+        separated.push_bind(id.to_string());
     }
     separated.push_unseparated(")");
     qb.build().execute(&storage.pool).await?;
@@ -316,7 +316,7 @@ pub(super) async fn conditional_update_state(
     let result = sqlx::query(
         "UPDATE task_instances SET state=?2, next_fire_at=?3, updated_at=?4 WHERE id=?1 AND state=?5",
     )
-    .bind(id.0.to_string())
+    .bind(id.to_string())
     .bind(new_state.to_string())
     .bind(next_fire_at.map(ts))
     .bind(ts(Utc::now()))
@@ -332,7 +332,7 @@ pub(super) async fn update_context(
     context: &ExecutionContext,
 ) -> Result<(), StorageError> {
     sqlx::query("UPDATE task_instances SET context=?2, updated_at=?3 WHERE id=?1")
-        .bind(id.0.to_string())
+        .bind(id.to_string())
         .bind(serde_json::to_string(context)?)
         .bind(ts(Utc::now()))
         .execute(&storage.pool)
@@ -349,7 +349,7 @@ pub(super) async fn update_context_cas(
     let result = sqlx::query(
         "UPDATE task_instances SET context=?2, updated_at=?3 WHERE id=?1 AND updated_at=?4",
     )
-    .bind(id.0.to_string())
+    .bind(id.to_string())
     .bind(serde_json::to_string(context)?)
     .bind(ts(Utc::now()))
     .bind(ts(expected_updated_at))
@@ -374,7 +374,7 @@ pub(super) async fn update_started_at(
              updated_at = ?3 \
          WHERE id = ?1",
     )
-    .bind(id.0.to_string())
+    .bind(id.to_string())
     .bind(started_at.to_rfc3339())
     .bind(ts(Utc::now()))
     .execute(&storage.pool)
@@ -395,7 +395,7 @@ pub(super) async fn update_current_step_started_at(
              updated_at = ?3 \
          WHERE id = ?1",
     )
-    .bind(id.0.to_string())
+    .bind(id.to_string())
     .bind(started_at.to_rfc3339())
     .bind(ts(Utc::now()))
     .execute(&storage.pool)
@@ -416,7 +416,7 @@ pub(super) async fn update_context_externalized(
     let mut ctx_clone = context.clone();
     let refs = crate::externalizing::externalize_fields(
         &mut ctx_clone.data,
-        &id.0.to_string(),
+        &id.to_string(),
         threshold_bytes,
     );
     let ctx_str = serde_json::to_string(&ctx_clone)?;
@@ -428,7 +428,7 @@ pub(super) async fn update_context_externalized(
     }
 
     sqlx::query("UPDATE task_instances SET context=?2, updated_at=?3 WHERE id=?1")
-        .bind(id.0.to_string())
+        .bind(id.to_string())
         .bind(ctx_str)
         .bind(ts(Utc::now()))
         .execute(&mut *tx)
@@ -448,7 +448,7 @@ pub(super) async fn create_externalized(
     let mut inst_clone = instance.clone();
     let refs = crate::externalizing::externalize_fields(
         &mut inst_clone.context.data,
-        &instance.id.0.to_string(),
+        &instance.id.into_uuid().to_string(),
         threshold_bytes,
     );
 
@@ -486,7 +486,7 @@ pub(super) async fn create_batch_externalized(
         let mut c = inst.clone();
         let refs = crate::externalizing::externalize_fields(
             &mut c.context.data,
-            &inst.id.0.to_string(),
+            &inst.id.into_uuid().to_string(),
             threshold_bytes,
         );
         prepared.push((c, refs));
@@ -534,7 +534,7 @@ async fn insert_externalized_row(
              VALUES (?1, ?2, NULL, ?3, 'zstd', ?4, ?5)",
         )
         .bind(ref_key)
-        .bind(instance_id.0.to_string())
+        .bind(instance_id.into_uuid().to_string())
         .bind(compressed)
         .bind(raw_size)
         .bind(ts(Utc::now()))
@@ -547,7 +547,7 @@ async fn insert_externalized_row(
              VALUES (?1, ?2, ?3, NULL, NULL, ?4, ?5)",
         )
         .bind(ref_key)
-        .bind(instance_id.0.to_string())
+        .bind(instance_id.into_uuid().to_string())
         .bind(serde_json::to_string(payload).map_err(StorageError::Serialization)?)
         .bind(raw_size)
         .bind(ts(Utc::now()))
@@ -563,8 +563,8 @@ pub(super) async fn update_sequence(
     new_sequence_id: SequenceId,
 ) -> Result<(), StorageError> {
     sqlx::query("UPDATE task_instances SET sequence_id=?2, updated_at=?3 WHERE id=?1")
-        .bind(id.0.to_string())
-        .bind(new_sequence_id.0.to_string())
+        .bind(id.to_string())
+        .bind(new_sequence_id.into_uuid().to_string())
         .bind(ts(Utc::now()))
         .execute(&storage.pool)
         .await?;
@@ -580,7 +580,7 @@ pub(super) async fn merge_context_data(
     // Read-modify-write in a transaction for SQLite (no JSONB).
     let mut tx = storage.pool.begin().await?;
     let row = sqlx::query("SELECT context FROM task_instances WHERE id=?1")
-        .bind(id.0.to_string())
+        .bind(id.to_string())
         .fetch_optional(&mut *tx)
         .await?;
     if let Some(row) = row {
@@ -598,7 +598,7 @@ pub(super) async fn merge_context_data(
         }
         let ctx_json = serde_json::to_string(&ctx).map_err(StorageError::Serialization)?;
         sqlx::query("UPDATE task_instances SET context=?2, updated_at=?3 WHERE id=?1")
-            .bind(id.0.to_string())
+            .bind(id.to_string())
             .bind(ctx_json)
             .bind(ts(Utc::now()))
             .execute(&mut *tx)
@@ -655,7 +655,7 @@ pub(super) async fn list_waiting_with_trees(
     let mut qb = sqlx::QueryBuilder::new("SELECT * FROM execution_tree WHERE instance_id IN (");
     let mut sep = qb.separated(", ");
     for inst in &instances {
-        sep.push_bind(inst.id.0.to_string());
+        sep.push_bind(inst.id.into_uuid().to_string());
     }
     sep.push_unseparated(") ORDER BY id");
 

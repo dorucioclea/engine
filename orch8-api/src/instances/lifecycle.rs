@@ -40,12 +40,12 @@ pub async fn create_instance(
     // Reject empty tenant / namespace up-front. Without this the DB happily
     // accepts the blank strings and the resulting row leaks into the default
     // tenant's view — tenant isolation requires non-empty scoping values.
-    if tenant_id.0.trim().is_empty() {
+    if tenant_id.as_str().trim().is_empty() {
         return Err(ApiError::InvalidArgument(
             "tenant_id must not be empty".into(),
         ));
     }
-    if req.namespace.0.trim().is_empty() {
+    if req.namespace.as_str().trim().is_empty() {
         return Err(ApiError::InvalidArgument(
             "namespace must not be empty".into(),
         ));
@@ -59,7 +59,7 @@ pub async fn create_instance(
         .get_sequence(req.sequence_id)
         .await
         .map_err(|e| ApiError::from_storage(e, "sequence"))?
-        .ok_or_else(|| ApiError::NotFound(format!("sequence {}", req.sequence_id.0)))?;
+        .ok_or_else(|| ApiError::NotFound(format!("sequence {}", req.sequence_id.into_uuid())))?;
 
     // Reject oversized contexts before they hit the DB.
     req.context.check_size(state.max_context_bytes)?;
@@ -146,12 +146,12 @@ pub async fn create_instances_batch(
     let mut sequence_ids = std::collections::HashSet::new();
     for (i, r) in req.instances.iter().enumerate() {
         crate::auth::enforce_tenant_create(&tenant_ctx, &r.tenant_id)?;
-        if r.tenant_id.0.trim().is_empty() {
+        if r.tenant_id.as_str().trim().is_empty() {
             return Err(ApiError::InvalidArgument(format!(
                 "instances[{i}]: tenant_id must not be empty"
             )));
         }
-        if r.namespace.0.trim().is_empty() {
+        if r.namespace.as_str().trim().is_empty() {
             return Err(ApiError::InvalidArgument(format!(
                 "instances[{i}]: namespace must not be empty"
             )));
@@ -169,7 +169,7 @@ pub async fn create_instances_batch(
             .get_sequence(*seq_id)
             .await
             .map_err(|e| ApiError::from_storage(e, "sequence"))?
-            .ok_or_else(|| ApiError::NotFound(format!("sequence {}", seq_id.0)))?;
+            .ok_or_else(|| ApiError::NotFound(format!("sequence {}", seq_id.into_uuid())))?;
     }
 
     let now = Utc::now();
@@ -220,7 +220,7 @@ pub async fn get_instance(
 ) -> Result<impl IntoResponse, ApiError> {
     let instance = state
         .storage
-        .get_instance(InstanceId(id))
+        .get_instance(InstanceId::from_uuid(id))
         .await
         .map_err(|e| ApiError::from_storage(e, "instance"))?
         .ok_or_else(|| ApiError::NotFound(format!("instance {id}")))?;
@@ -255,12 +255,12 @@ pub async fn list_instances(
     let tenant_id = if let Some(axum::Extension(ctx)) = &tenant_ctx {
         Some(ctx.tenant_id.clone())
     } else {
-        q.tenant_id.map(TenantId)
+        q.tenant_id.map(TenantId::unchecked)
     };
     let filter = InstanceFilter {
         tenant_id,
-        namespace: q.namespace.map(Namespace),
-        sequence_id: q.sequence_id.map(SequenceId),
+        namespace: q.namespace.map(Namespace::new),
+        sequence_id: q.sequence_id.map(SequenceId::from_uuid),
         states: q.state.as_deref().map(parse_states).transpose()?,
         metadata_filter: None,
         priority: None,
@@ -298,7 +298,7 @@ pub async fn update_state(
     Path(id): Path<Uuid>,
     Json(req): Json<UpdateStateRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let instance_id = InstanceId(id);
+    let instance_id = InstanceId::from_uuid(id);
 
     let instance = state
         .storage
@@ -349,7 +349,7 @@ pub async fn update_state(
                         .await
                     {
                         tracing::warn!(
-                            parent_id = %parent_id.0,
+                            parent_id = %parent_id.into_uuid(),
                             error = %e,
                             "failed to wake parent instance after child terminal transition"
                         );
@@ -376,7 +376,7 @@ pub async fn update_context(
     Path(id): Path<Uuid>,
     Json(req): Json<UpdateContextRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let instance_id = InstanceId(id);
+    let instance_id = InstanceId::from_uuid(id);
 
     let instance = state
         .storage
@@ -416,7 +416,7 @@ pub async fn retry_instance(
     tenant_ctx: crate::auth::OptionalTenant,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let instance_id = InstanceId(id);
+    let instance_id = InstanceId::from_uuid(id);
 
     let instance = state
         .storage

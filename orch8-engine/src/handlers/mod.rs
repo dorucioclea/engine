@@ -226,8 +226,8 @@ mod tests {
     fn mk_ctx(storage: Arc<dyn StorageBackend>) -> StepContext {
         StepContext {
             instance_id: InstanceId::new(),
-            tenant_id: TenantId("t".into()),
-            block_id: BlockId("step_1".into()),
+            tenant_id: TenantId::unchecked("t"),
+            block_id: BlockId::new("step_1"),
             params: serde_json::Value::Null,
             context: ExecutionContext::default(),
             attempt: 0,

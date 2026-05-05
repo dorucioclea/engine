@@ -1,8 +1,8 @@
 # Agent Patterns
 
-Reference sequence definitions for common AI agent architectures. Each JSON file is a complete sequence you can POST to `/sequences` (after filling in handler names registered for your workers).
+Reference sequence definitions for common AI agent architectures. Each JSON file is a complete sequence you can POST to `/sequences` (after setting up your tool dispatch endpoint and any external workers).
 
-These are **starting points**, not finished products — the `llm_call`, tool, and guardrail handlers referenced here are not built-in. Register them via `@orch8/worker-sdk` or a native Rust handler, then adapt params (model, provider, tool schemas) to your setup.
+These are **starting points**, not finished products — adapt params (model, provider, tool schemas, endpoints) to your setup.
 
 ---
 
@@ -17,25 +17,67 @@ These are **starting points**, not finished products — the `llm_call`, tool, a
 
 ---
 
-## Handlers referenced
+## Built-in handlers used
 
-The patterns assume handlers like:
+These patterns use the following **built-in** handlers (no external workers needed):
 
-| Handler | Purpose | Typical implementation |
+| Handler | Purpose | Used in |
 |---|---|---|
-| `llm_call` | Invoke an LLM provider with messages | External worker wrapping OpenAI / Anthropic / Bedrock |
-| `tool_lookup` | Fetch tool schemas for the current agent | External worker or static JSON lookup |
-| `tool_execute` | Dispatch to a named tool (search, fetch, compute) | External worker router |
-| `input_guardrail` / `output_guardrail` | Validate content against safety / schema rules | External worker or rule engine |
+| `llm_call` | Invoke an LLM provider (OpenAI, Anthropic, Gemini, Deepseek, Groq, Mistral, etc.) | All patterns |
+| `tool_call` | HTTP POST to a tool endpoint with name + arguments | react-loop, tool-calling-pipeline |
+| `human_review` | Human-in-the-loop approval gate with timeout/escalation | guardrail-validation |
+| `noop` | Pass-through (captures output params without side effects) | react-loop, guardrail-validation |
+| `set_state` | Write a value to session-scoped state | react-loop |
+| `transform` | Transform context data using expressions | react-loop |
 
-None of these ship with the engine. Register them before deploying a pattern.
+### `llm_call` params
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `provider` | string | `"openai"` | Provider: `openai`, `anthropic`, `gemini`, `deepseek`, `qwen`, `perplexity`, `groq`, `together`, `mistral`, `openrouter` |
+| `providers` | array | — | Failover list of `{provider, api_key, model}` objects |
+| `model` | string | per-provider | Model identifier |
+| `messages` | array | `[]` | Chat messages (`{role, content}`) |
+| `system` | string | — | System prompt |
+| `temperature` | number | — | Sampling temperature |
+| `max_tokens` | number | `4096` | Max output tokens |
+| `tools` | array | — | Tool/function definitions |
+| `tool_choice` | string/object | — | Tool selection strategy |
+| `api_key` | string | — | API key (direct) |
+| `api_key_env` | string | — | Env var name containing API key |
+| `base_url` | string | per-provider | Override API base URL |
+
+### `tool_call` params
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `url` | string | **required** | Tool endpoint URL |
+| `tool_name` | string | `"unknown"` | Name of the tool being invoked |
+| `arguments` | object | `{}` | Arguments passed to the tool |
+| `method` | string | `"POST"` | HTTP method |
+| `headers` | object | `{}` | Extra HTTP headers |
+| `timeout_ms` | u64 | `30000` | Request timeout in ms |
+
+---
+
+## Block types used
+
+| Block | Where | Purpose |
+|---|---|---|
+| `loop` | react-loop | Iterates the observe→decide→act cycle until `agent_done` or max iterations |
+| `router` | react-loop, guardrail-validation | Branches on LLM output (finish vs continue, safe vs unsafe, severity levels) |
+| `for_each` | tool-calling-pipeline | Iterates over LLM-generated plan steps |
+| `parallel` | multi-agent-delegation | Runs specialist sub-sequences concurrently |
+| `sub_sequence` | multi-agent-delegation | Invokes specialist agent sequences |
 
 ---
 
 ## Running a pattern
 
 ```bash
-# 1. Register handlers via your worker
+# 1. Set your API key
+export OPENAI_API_KEY=sk-...
+
 # 2. POST the sequence
 curl -X POST http://localhost:8080/sequences \
   -H 'Content-Type: application/json' \
@@ -48,7 +90,14 @@ curl -X POST http://localhost:8080/instances \
     "sequence_id": "<id from previous step>",
     "tenant_id": "demo",
     "namespace": "default",
-    "context": { "data": { "task": "Find the CEO of Anthropic" } }
+    "context": {
+      "data": {
+        "task": "Find the CEO of Anthropic",
+        "tool_dispatch_url": "http://localhost:3001/tools",
+        "available_tools": ["web_search", "calculator"],
+        "tool_schemas": []
+      }
+    }
   }'
 ```
 
@@ -60,7 +109,20 @@ Patterns nest — the `multi-agent-delegation` pattern is built on top of `tool-
 
 ---
 
+## Key conventions
+
+- **Template expressions**: `{{context.data.*}}` for instance context, `{{outputs.<block_id>.*}}` for prior step outputs
+- **Router conditions**: plain string expressions evaluated against context and outputs (e.g. `"outputs.observe.content.action == finish"`)
+- **Retry policy**: durations in milliseconds (`initial_backoff`, `max_backoff`)
+- **Parallel branches**: array of arrays — each inner array is a branch of blocks
+- **ForEach**: `collection` is a template path, `body` contains the blocks to iterate
+
+---
+
 ## See also
 
 - [API reference — Block Definition Reference](../API.md#block-definition-reference)
-- [External Workers](../WORKERS.md) — how to implement `llm_call`, `tool_execute`, etc.
+- [API reference — Built-in Handlers](../API.md#built-in-handlers)
+- [Architecture — Built-in Step Handlers](../ARCHITECTURE.md#built-in-step-handlers)
+- [External Workers](../WORKERS.md) — how to implement custom handlers
+- [Configuration](../CONFIGURATION.md) — `ORCH8_ENCRYPTION_KEY` for API key encryption at rest

@@ -83,8 +83,8 @@ mod tests {
     ) -> StepContext {
         StepContext {
             instance_id: InstanceId::new(),
-            tenant_id: TenantId("t".into()),
-            block_id: BlockId("self_mod".into()),
+            tenant_id: TenantId::unchecked("t"),
+            block_id: BlockId::new("self_mod"),
             params,
             context: ExecutionContext::default(),
             attempt: 1,
@@ -138,7 +138,7 @@ mod tests {
         // Serialize an actual BlockDefinition to get the correct JSON shape.
         serde_json::to_value(orch8_types::sequence::BlockDefinition::Step(Box::new(
             orch8_types::sequence::StepDef {
-                id: BlockId("injected".into()),
+                id: BlockId::new("injected"),
                 handler: "noop".into(),
                 params: json!({}),
                 delay: None,

@@ -221,9 +221,9 @@ mod tests {
     fn next_fire_calculation() {
         let schedule = CronSchedule {
             id: uuid::Uuid::now_v7(),
-            tenant_id: TenantId("test".into()),
-            namespace: Namespace("default".into()),
-            sequence_id: SequenceId(uuid::Uuid::now_v7()),
+            tenant_id: TenantId::unchecked("test"),
+            namespace: Namespace::new("default"),
+            sequence_id: SequenceId::new(),
             cron_expr: "0 * * * * * *".into(), // every minute
             timezone: "UTC".into(),
             enabled: true,
@@ -241,9 +241,9 @@ mod tests {
     fn mk_schedule(expr: &str) -> CronSchedule {
         CronSchedule {
             id: uuid::Uuid::now_v7(),
-            tenant_id: TenantId("t".into()),
-            namespace: Namespace("ns".into()),
-            sequence_id: SequenceId(uuid::Uuid::now_v7()),
+            tenant_id: TenantId::unchecked("t"),
+            namespace: Namespace::new("ns"),
+            sequence_id: SequenceId::new(),
             cron_expr: expr.into(),
             timezone: "UTC".into(),
             enabled: true,

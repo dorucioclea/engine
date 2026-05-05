@@ -31,11 +31,15 @@ orch8-server          Binary entry point, wires config/storage/api/engine
     |
 orch8-api             REST routes (axum), request/response types
     |
+orch8-grpc            gRPC service (tonic) for high-throughput clients
+    |
 orch8-engine          Scheduler tick loop, evaluator, handlers, signals, recovery
     |
 orch8-storage         StorageBackend trait + PostgresStorage + SqliteStorage
     |
 orch8-types           Domain types, IDs, config, errors (zero-dependency)
+    |
+orch8-cli             CLI tool (init, sequence, instance, signal, health)
 ```
 
 ---
@@ -104,6 +108,8 @@ A **sequence** is a named, versioned definition of work containing an ordered li
 | **Router** | N-way branch — evaluates conditions, routes to match |
 | **TryCatch** | Try block, on failure catch block, always run finally |
 | **SubSequence** | Invokes another sequence as a sub-workflow |
+| **ABSplit** | A/B split — routes traffic to one of several variants by weight |
+| **CancellationScope** | Child blocks cannot be cancelled by external cancel signals |
 
 Blocks are recursive — a Parallel can contain TryCatch, which can contain Steps.
 
@@ -114,10 +120,21 @@ Blocks are recursive — a Parallel can contain TryCatch, which can contain Step
 | `noop` | Does nothing, returns `{}` |
 | `log` | Logs `params.message` at info level |
 | `sleep` | Sleeps for `params.duration_ms` milliseconds |
+| `fail` | Immediately fails the step with a given error message |
 | `http_request` | Makes an HTTP request (method, URL, headers, body) |
+| `llm_call` | Invoke an LLM provider (OpenAI/Anthropic/Bedrock) with messages |
+| `tool_call` | Dispatch to a named tool (for agent tool-use loops) |
+| `human_review` | Human-in-the-loop approval gate with timeout/escalation |
+| `self_modify` | Dynamic step injection — modifies the running sequence at runtime |
 | `emit_event` | Fire an event trigger → spawn a new workflow instance (same tenant only; supports dedupe via `dedupe_key` + `dedupe_scope` = `parent` (default) or `tenant`) |
 | `send_signal` | Enqueue a signal (`pause`/`resume`/`cancel`/`update_context`/custom) to another instance (same tenant only; target terminal-state check and enqueue happen atomically in one storage transaction) |
 | `query_instance` | Read another instance's context + state (same tenant only; returns `{ found: false }` for missing target) |
+| `set_state` | Write a value to session-scoped state |
+| `get_state` | Read a value from session-scoped state |
+| `delete_state` | Delete a value from session-scoped state |
+| `merge_state` | Merge an object into session-scoped state |
+| `transform` | Transform context data using expressions |
+| `assert` | Assert a condition, fail the step if false |
 
 See [`API.md` — Workflow coordination handlers](API.md#workflow-coordination-handlers) for full param/return schemas and error semantics.
 
@@ -284,11 +301,21 @@ CREATE INDEX idx_rate_limits_key ON rate_limits (tenant_id, resource_key);
 | `orch8_instances_completed_total` | Counter |
 | `orch8_instances_failed_total` | Counter |
 | `orch8_steps_executed_total` | Counter |
+| `orch8_steps_failed_total` | Counter |
 | `orch8_steps_retried_total` | Counter |
+| `orch8_signals_delivered_total` | Counter |
 | `orch8_rate_limits_exceeded_total` | Counter |
+| `orch8_recovery_stale_instances_total` | Counter |
+| `orch8_webhooks_sent_total` | Counter |
+| `orch8_webhooks_failed_total` | Counter |
+| `orch8_cron_triggered_total` | Counter |
+| `orch8_cache_hits_total` | Counter |
+| `orch8_cache_misses_total` | Counter |
 | `orch8_tick_duration_seconds` | Histogram |
 | `orch8_step_duration_seconds` | Histogram |
+| `orch8_instance_processing_seconds` | Histogram |
 | `orch8_queue_depth` | Gauge |
+| `orch8_active_tasks` | Gauge |
 
 ### Health Checks
 
@@ -320,21 +347,24 @@ Benchmarked on Apple Silicon, single Postgres, single engine process:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `ORCH8_DATABASE_URL` | `postgres://...` | PostgreSQL connection string |
-| `ORCH8_HTTP_ADDR` | `0.0.0.0:8080` | HTTP listen address |
-| `ORCH8_GRPC_ADDR` | `0.0.0.0:50051` | gRPC listen address |
+| `ORCH8_STORAGE_BACKEND` | `postgres` | Storage backend (`postgres` or `sqlite`) |
+| `ORCH8_DATABASE_URL` | — | Connection string (required) |
+| `ORCH8_DATABASE_MAX_CONNECTIONS` | `64` | DB connection pool size |
+| `ORCH8_HTTP_ADDR` | `127.0.0.1:8080` | HTTP listen address |
+| `ORCH8_GRPC_ADDR` | `127.0.0.1:50051` | gRPC listen address |
 | `ORCH8_LOG_LEVEL` | `info` | Log level |
 | `ORCH8_LOG_JSON` | `false` | JSON log format |
 | `ORCH8_TICK_INTERVAL_MS` | `100` | Scheduler tick interval |
 | `ORCH8_BATCH_SIZE` | `256` | Instances claimed per tick |
 | `ORCH8_MAX_CONCURRENT_STEPS` | `128` | Max concurrent step executions |
-| `ORCH8_DB_MAX_CONNECTIONS` | `64` | DB connection pool size |
-| `ORCH8_SHUTDOWN_GRACE_SECS` | `30` | Shutdown grace period |
-| `ORCH8_STALE_THRESHOLD_SECS` | `300` | Stale instance recovery threshold |
-| `ORCH8_WEBHOOK_URLS` | (empty) | Comma-separated webhook URLs |
-| `ORCH8_CORS_ORIGINS` | (empty) | CORS allowed origins |
-| `ORCH8_API_KEY` | (empty) | Optional API key for auth |
-| `ORCH8_STORAGE_BACKEND` | `postgres` | Storage backend (`postgres` or `sqlite`) |
+| `ORCH8_MAX_INSTANCES_PER_TENANT` | `0` | Per-tenant claim limit (0 = unlimited) |
+| `ORCH8_CRON_TICK_SECS` | `10` | Cron loop check interval (seconds) |
+| `ORCH8_WEBHOOK_URLS` | — | Comma-separated webhook URLs |
+| `ORCH8_CORS_ORIGINS` | — | CORS allowed origins (empty = no CORS headers) |
+| `ORCH8_API_KEY` | — | Optional API key for auth |
+| `ORCH8_ENCRYPTION_KEY` | — | 64 hex chars for AES-256-GCM encryption at rest |
+
+See [Configuration Reference](CONFIGURATION.md) for all options including TOML fields.
 
 ---
 
@@ -354,3 +384,16 @@ Benchmarked on Apple Silicon, single Postgres, single engine process:
 | **Claim** | Atomic acquisition of an instance (`FOR UPDATE SKIP LOCKED`) |
 | **Context** | Multi-section state traveling with an instance (data, config, audit, runtime) |
 | **Signal** | External command sent to a running instance |
+
+---
+
+## See also
+
+- [Quick Start](QUICK_START.md) — zero to first completed instance in 5 minutes
+- [API Reference](API.md) — REST endpoints, block types, error codes
+- [Configuration](CONFIGURATION.md) — all config options and env vars
+- [External Workers](WORKERS.md) — writing handlers in any language
+- [Webhooks](WEBHOOKS.md) — event schema and delivery semantics
+- [Externalized State](EXTERNALIZATION.md) — how oversized payloads are offloaded
+- [Deployment](DEPLOYMENT.md) — production deploys
+- [Agent Patterns](agent-patterns/README.md) — reference sequences for AI agents

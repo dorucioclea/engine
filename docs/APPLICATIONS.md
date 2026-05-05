@@ -180,3 +180,12 @@ Every other workflow engine is built for servers talking to servers.
 Orch8 is small enough and fast enough to run **inside** a process — anywhere a process runs. That's the category: **the embeddable workflow runtime**.
 
 Server orchestration is a solved market. Embedded orchestration is not.
+
+---
+
+## See also
+
+- [Quick Start](QUICK_START.md) — get the engine running in 5 minutes
+- [Architecture](ARCHITECTURE.md) — execution model and crate structure
+- [Configuration](CONFIGURATION.md) — tuning for embedded constraints (batch size, tick interval, concurrency)
+- [Deployment](DEPLOYMENT.md) — production deployment patterns

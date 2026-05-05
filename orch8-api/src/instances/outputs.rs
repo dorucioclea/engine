@@ -22,7 +22,7 @@ pub async fn get_outputs(
     // Verify instance belongs to caller's tenant
     let instance = state
         .storage
-        .get_instance(InstanceId(id))
+        .get_instance(InstanceId::from_uuid(id))
         .await
         .map_err(|e| ApiError::from_storage(e, "instance"))?
         .ok_or_else(|| ApiError::NotFound(format!("instance {id}")))?;
@@ -34,7 +34,7 @@ pub async fn get_outputs(
 
     let mut outputs = state
         .storage
-        .get_all_outputs(InstanceId(id))
+        .get_all_outputs(InstanceId::from_uuid(id))
         .await
         .map_err(|e| ApiError::from_storage(e, "outputs"))?;
 
@@ -101,7 +101,7 @@ pub async fn get_execution_tree(
     tenant_ctx: crate::auth::OptionalTenant,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let instance_id = InstanceId(id);
+    let instance_id = InstanceId::from_uuid(id);
 
     let instance = state
         .storage

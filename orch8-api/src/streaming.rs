@@ -59,7 +59,7 @@ pub(crate) async fn stream_instance(
     Path(id): Path<Uuid>,
     Query(query): Query<StreamQuery>,
 ) -> Result<Sse<impl tokio_stream::Stream<Item = Result<Event, Infallible>>>, ApiError> {
-    let instance_id = InstanceId(id);
+    let instance_id = InstanceId::from_uuid(id);
 
     // Fetch instance to enforce tenant access before starting the stream.
     let instance = state
@@ -155,7 +155,7 @@ pub(crate) async fn stream_instance(
                 }
                 Err(e) => {
                     consecutive_errors = consecutive_errors.saturating_add(1);
-                    tracing::debug!(error = %e, instance_id = %instance_id.0, consecutive_errors, "stream: get_instance failed, will back off");
+                    tracing::debug!(error = %e, instance_id = %instance_id.into_uuid(), consecutive_errors, "stream: get_instance failed, will back off");
                     continue;
                 }
             };
@@ -164,7 +164,7 @@ pub(crate) async fn stream_instance(
             if last_state != Some(instance.state) {
                 let event = Event::default().event("state").data(
                     serde_json::json!({
-                        "instance_id": instance_id.0,
+                        "instance_id": instance_id.into_uuid(),
                         "state": instance.state.to_string(),
                     })
                     .to_string(),
@@ -190,7 +190,7 @@ pub(crate) async fn stream_instance(
                             // if it ever fails, drop the payload but keep the stream alive.
                             let payload = serde_json::to_string(output).unwrap_or_else(|e| {
                                 tracing::error!(
-                                    instance_id = %instance_id.0,
+                                    instance_id = %instance_id.into_uuid(),
                                     output_id = %output.id,
                                     error = %e,
                                     "failed to serialize output in SSE stream"
@@ -210,7 +210,7 @@ pub(crate) async fn stream_instance(
                 }
                 Err(e) => {
                     consecutive_errors = consecutive_errors.saturating_add(1);
-                    tracing::debug!(error = %e, instance_id = %instance_id.0, consecutive_errors, "stream: get_outputs_after_created_at failed, will back off");
+                    tracing::debug!(error = %e, instance_id = %instance_id.into_uuid(), consecutive_errors, "stream: get_outputs_after_created_at failed, will back off");
                     continue;
                 }
             }

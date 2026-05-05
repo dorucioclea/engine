@@ -31,8 +31,8 @@ mod tests {
     fn rate_limit_serde_roundtrip() {
         let rl = RateLimit {
             id: Uuid::now_v7(),
-            tenant_id: TenantId("t".into()),
-            resource_key: ResourceKey("api:create".into()),
+            tenant_id: TenantId::unchecked("t"),
+            resource_key: ResourceKey::new("api:create"),
             max_count: 100,
             window_seconds: 60,
             current_count: 42,
@@ -43,7 +43,7 @@ mod tests {
         assert_eq!(back.max_count, 100);
         assert_eq!(back.window_seconds, 60);
         assert_eq!(back.current_count, 42);
-        assert_eq!(back.resource_key.0, "api:create");
+        assert_eq!(back.resource_key.as_str(), "api:create");
     }
 
     #[test]

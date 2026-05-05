@@ -32,8 +32,8 @@ fn mk_instance(tenant: &str, data: serde_json::Value) -> TaskInstance {
     TaskInstance {
         id: InstanceId::new(),
         sequence_id: SequenceId::new(),
-        tenant_id: TenantId(tenant.into()),
-        namespace: Namespace("default".into()),
+        tenant_id: TenantId::unchecked(tenant),
+        namespace: Namespace::new("default"),
         state: InstanceState::Scheduled,
         next_fire_at: Some(now),
         priority: Priority::Normal,
@@ -58,8 +58,8 @@ fn mk_instance(tenant: &str, data: serde_json::Value) -> TaskInstance {
 async fn seed_sequence(storage: &dyn StorageBackend, seq_id: SequenceId, tenant: &str) {
     let seq = SequenceDefinition {
         id: seq_id,
-        tenant_id: TenantId(tenant.into()),
-        namespace: Namespace("default".into()),
+        tenant_id: TenantId::unchecked(tenant),
+        namespace: Namespace::new("default"),
         name: "s".into(),
         version: 1,
         deprecated: false,
@@ -172,7 +172,7 @@ async fn list_instances_decrypts_every_row() {
     storage.create_instance(&b).await.unwrap();
 
     let filter = InstanceFilter {
-        tenant_id: Some(TenantId("T1".into())),
+        tenant_id: Some(TenantId::unchecked("T1")),
         ..Default::default()
     };
     let pagination = Pagination::default();
@@ -413,7 +413,7 @@ async fn list_credentials_decrypts_all() {
         .unwrap();
 
     let creds = storage
-        .list_credentials(Some(&TenantId("T1".into())), 1000)
+        .list_credentials(Some(&TenantId::unchecked("T1")), 1000)
         .await
         .unwrap();
     assert_eq!(creds.len(), 2);
@@ -645,8 +645,8 @@ async fn delegated_sequence_crud_passes_through_encryption_layer() {
 
     let seq = SequenceDefinition {
         id: SequenceId::new(),
-        tenant_id: TenantId("t1".into()),
-        namespace: Namespace("ns".into()),
+        tenant_id: TenantId::unchecked("t1"),
+        namespace: Namespace::new("ns"),
         name: "delegated-test".into(),
         version: 1,
         deprecated: false,
@@ -665,7 +665,7 @@ async fn delegated_sequence_crud_passes_through_encryption_layer() {
 
     // list_sequences is also delegated
     let list = storage
-        .list_sequences(Some(&TenantId("t1".into())), None, 10, 0)
+        .list_sequences(Some(&TenantId::unchecked("t1")), None, 10, 0)
         .await
         .unwrap();
     assert_eq!(list.len(), 1);

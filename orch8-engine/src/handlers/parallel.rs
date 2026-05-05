@@ -152,7 +152,7 @@ mod tests {
         ExecutionNode {
             id: ExecutionNodeId::new(),
             instance_id,
-            block_id: BlockId(block_id.into()),
+            block_id: BlockId::new(block_id),
             parent_id,
             block_type,
             branch_index,
@@ -167,13 +167,13 @@ mod tests {
         let now = chrono::Utc::now();
         let seq = SequenceDefinition {
             id: SequenceId::new(),
-            tenant_id: TenantId("t".into()),
-            namespace: Namespace("ns".into()),
+            tenant_id: TenantId::unchecked("t"),
+            namespace: Namespace::new("ns"),
             name: "par_test".into(),
             version: 1,
             deprecated: false,
             blocks: vec![BlockDefinition::Step(Box::new(StepDef {
-                id: BlockId("noop".into()),
+                id: BlockId::new("noop"),
                 handler: "noop".into(),
                 params: json!({}),
                 delay: None,
@@ -197,8 +197,8 @@ mod tests {
         let inst_row = TaskInstance {
             id: inst,
             sequence_id: seq.id,
-            tenant_id: TenantId("t".into()),
-            namespace: Namespace("ns".into()),
+            tenant_id: TenantId::unchecked("t"),
+            namespace: Namespace::new("ns"),
             state: InstanceState::Running,
             next_fire_at: None,
             priority: Priority::Normal,
@@ -226,8 +226,8 @@ mod tests {
         TaskInstance {
             id: inst_id,
             sequence_id: SequenceId::new(),
-            tenant_id: TenantId("t".into()),
-            namespace: Namespace("ns".into()),
+            tenant_id: TenantId::unchecked("t"),
+            namespace: Namespace::new("ns"),
             state: InstanceState::Running,
             next_fire_at: None,
             priority: Priority::Normal,
@@ -246,7 +246,7 @@ mod tests {
 
     fn par_def(id: &str) -> ParallelDef {
         ParallelDef {
-            id: BlockId(id.into()),
+            id: BlockId::new(id),
             branches: vec![],
         }
     }
@@ -264,7 +264,7 @@ mod tests {
 
     fn node_by_block<'a>(tree: &'a [ExecutionNode], block: &str) -> &'a ExecutionNode {
         tree.iter()
-            .find(|n| n.block_id.0 == block)
+            .find(|n| n.block_id.as_str() == block)
             .unwrap_or_else(|| panic!("node not found: {block}"))
     }
 

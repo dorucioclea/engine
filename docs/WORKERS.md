@@ -6,13 +6,13 @@ Workers run handler code **outside** the engine binary. Use them when you want t
 - Keep handler code in an existing service so it shares code, secrets, and deploys.
 - Scale handler concurrency independently from the scheduler.
 
-The engine doesn't care how a worker is implemented — it's a pull-based REST protocol. This guide documents the protocol so you can implement a worker in any language; for Node specifically, use [`@orch8/worker-sdk`](../worker-sdk-node/README.md).
+The engine doesn't care how a worker is implemented — it's a pull-based REST protocol. This guide documents the protocol so you can implement a worker in any language; for Node specifically, use [`@orch8.io/sdk`](https://github.com/orch8-io/sdk-node).
 
 ---
 
 ## How it works
 
-1. Sequence contains a step with a handler name the engine does **not** have registered as a built-in (`noop`, `log`, `sleep`, `http_request`) or a native Rust handler.
+1. Sequence contains a step with a handler name the engine does **not** have registered as a built-in (see [Architecture — Built-in Step Handlers](ARCHITECTURE.md#built-in-step-handlers)) or a native Rust handler.
 2. Scheduler queues a row in `worker_tasks` with the block's `params` and instance `context`.
 3. Worker polls `POST /workers/tasks/poll` for tasks matching its handler name.
 4. Worker executes, optionally sends heartbeats, then reports success or failure.
@@ -163,6 +163,6 @@ Add heartbeats for any handler that may take more than ~30 seconds.
 
 ## See also
 
-- [`@orch8/worker-sdk` README](../worker-sdk-node/README.md) — the Node implementation of this protocol
+- [`@orch8.io/sdk`](https://github.com/orch8-io/sdk-node) — the Node implementation of this protocol
 - [API reference — External Workers](API.md#external-workers)
 - [Architecture — External Worker System](ARCHITECTURE.md#external-worker-system)

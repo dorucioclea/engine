@@ -37,7 +37,7 @@ pub(crate) async fn build_outputs_shape(
         .map_err(EngineError::Storage)?;
     let mut map = serde_json::Map::with_capacity(outputs.len());
     for o in outputs {
-        map.insert(o.block_id.0, o.output);
+        map.insert(o.block_id.as_str().to_owned(), o.output);
     }
     Ok(serde_json::Value::Object(map))
 }
@@ -123,7 +123,7 @@ pub(crate) async fn compute_attempt(
     block_id: &BlockId,
 ) -> Result<u32, EngineError> {
     match storage.get_block_output(instance_id, block_id).await? {
-        Some(prev) => Ok(u32::from(prev.attempt.unsigned_abs()) + 1),
+        Some(prev) => Ok(u32::from(prev.attempt) + 1),
         None => Ok(0),
     }
 }
@@ -225,8 +225,8 @@ mod tests {
         TaskInstance {
             id,
             sequence_id: SequenceId::new(),
-            tenant_id: TenantId("t".into()),
-            namespace: Namespace("ns".into()),
+            tenant_id: TenantId::unchecked("t"),
+            namespace: Namespace::new("ns"),
             state: InstanceState::Running,
             next_fire_at: None,
             priority: Priority::Normal,
@@ -257,7 +257,7 @@ mod tests {
         let bo = BlockOutput {
             id: uuid::Uuid::now_v7(),
             instance_id: id,
-            block_id: BlockId(bid.into()),
+            block_id: BlockId::new(bid),
             output: out,
             output_ref: None,
             output_size: 0,

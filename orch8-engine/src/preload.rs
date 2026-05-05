@@ -142,8 +142,8 @@ mod tests {
         TaskInstance {
             id: InstanceId::new(),
             sequence_id: SequenceId::new(),
-            tenant_id: TenantId("t".into()),
-            namespace: Namespace("ns".into()),
+            tenant_id: TenantId::unchecked("t"),
+            namespace: Namespace::new("ns"),
             state: InstanceState::Running,
             next_fire_at: None,
             priority: Priority::Normal,
@@ -184,7 +184,7 @@ mod tests {
             .unwrap();
         let inst_id = InstanceId::new();
         seed_instance(&storage, inst_id).await;
-        let ref_k = format!("{}:ctx:data:big", inst_id.0);
+        let ref_k = format!("{}:ctx:data:big", inst_id.into_uuid());
         let payload = json!({ "huge": "x".repeat(100) });
         storage
             .save_externalized_state(inst_id, &ref_k, &payload)
@@ -293,7 +293,7 @@ mod tests {
             .unwrap();
         let inst_id = InstanceId::new();
         seed_instance(&storage, inst_id).await;
-        let ref_k = format!("{}:ctx:data:nested", inst_id.0);
+        let ref_k = format!("{}:ctx:data:nested", inst_id.into_uuid());
         let payload = json!({ "secret": "should_not_appear" });
         storage
             .save_externalized_state(inst_id, &ref_k, &payload)
@@ -331,7 +331,7 @@ mod tests {
             .unwrap();
         let inst_id = InstanceId::new();
         seed_instance(&storage, inst_id).await;
-        let ref_ok = format!("{}:ctx:data:ok", inst_id.0);
+        let ref_ok = format!("{}:ctx:data:ok", inst_id.into_uuid());
         let payload = json!({"data": "resolved"});
         storage
             .save_externalized_state(inst_id, &ref_ok, &payload)
@@ -371,8 +371,8 @@ mod tests {
             .unwrap();
         let inst_id = InstanceId::new();
         seed_instance(&storage, inst_id).await;
-        let ref_a = format!("{}:ctx:data:a", inst_id.0);
-        let ref_b = format!("{}:ctx:data:b", inst_id.0);
+        let ref_a = format!("{}:ctx:data:a", inst_id.into_uuid());
+        let ref_b = format!("{}:ctx:data:b", inst_id.into_uuid());
         let payload_a = json!({"id": "A"});
         let payload_b = json!({"id": "B"});
         storage
@@ -409,7 +409,7 @@ mod tests {
             .unwrap();
         let inst_id = InstanceId::new();
         seed_instance(&storage, inst_id).await;
-        let ref_k = format!("{}:ctx:data:field", inst_id.0);
+        let ref_k = format!("{}:ctx:data:field", inst_id.into_uuid());
         let payload = json!({ "huge": "x".repeat(1024) });
         storage
             .save_externalized_state(inst_id, &ref_k, &payload)

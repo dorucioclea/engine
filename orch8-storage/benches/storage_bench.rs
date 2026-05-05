@@ -19,13 +19,13 @@ use orch8_types::worker::{WorkerTask, WorkerTaskState};
 fn make_sequence() -> SequenceDefinition {
     SequenceDefinition {
         id: SequenceId::new(),
-        tenant_id: TenantId("bench".into()),
-        namespace: Namespace("default".into()),
+        tenant_id: TenantId::unchecked("bench"),
+        namespace: Namespace::new("default"),
         name: "bench_seq".into(),
         version: 1,
         deprecated: false,
         blocks: vec![BlockDefinition::Step(Box::new(StepDef {
-            id: BlockId("s1".into()),
+            id: BlockId::new("s1"),
             handler: "noop".into(),
             params: json!({}),
             delay: None,
@@ -52,8 +52,8 @@ fn make_instance(seq_id: SequenceId) -> TaskInstance {
     TaskInstance {
         id: InstanceId::new(),
         sequence_id: seq_id,
-        tenant_id: TenantId("bench".into()),
-        namespace: Namespace("default".into()),
+        tenant_id: TenantId::unchecked("bench"),
+        namespace: Namespace::new("default"),
         state: InstanceState::Scheduled,
         next_fire_at: Some(now - Duration::seconds(10)),
         priority: Priority::Normal,
@@ -155,7 +155,7 @@ fn bench_block_outputs(c: &mut Criterion) {
                     let out = BlockOutput {
                         id: Uuid::now_v7(),
                         instance_id: inst_id,
-                        block_id: BlockId("step_1".into()),
+                        block_id: BlockId::new("step_1"),
                         output: json!({"result": "ok", "data": [1,2,3]}),
                         output_ref: None,
                         output_size: 30,
@@ -163,7 +163,7 @@ fn bench_block_outputs(c: &mut Criterion) {
                         created_at: Utc::now(),
                     };
                     s.save_block_output(&out).await.unwrap();
-                    s.get_block_output(inst_id, &BlockId("step_1".into()))
+                    s.get_block_output(inst_id, &BlockId::new("step_1"))
                         .await
                         .unwrap();
                 });
@@ -216,7 +216,7 @@ fn bench_execution_tree(c: &mut Criterion) {
                     let mut nodes = vec![ExecutionNode {
                         id: root_id,
                         instance_id: inst_id,
-                        block_id: BlockId("root".into()),
+                        block_id: BlockId::new("root"),
                         parent_id: None,
                         block_type: BlockType::Parallel,
                         branch_index: None,
@@ -228,7 +228,7 @@ fn bench_execution_tree(c: &mut Criterion) {
                         nodes.push(ExecutionNode {
                             id: ExecutionNodeId::new(),
                             instance_id: inst_id,
-                            block_id: BlockId(format!("s{i}")),
+                            block_id: BlockId::new(format!("s{i}")),
                             parent_id: Some(root_id),
                             block_type: BlockType::Step,
                             branch_index: Some(i),
@@ -260,7 +260,7 @@ fn bench_worker_tasks(c: &mut Criterion) {
                         let task = WorkerTask {
                             id: Uuid::now_v7(),
                             instance_id: inst_id,
-                            block_id: BlockId(format!("step_{i}")),
+                            block_id: BlockId::new(format!("step_{i}")),
                             handler_name: "bench_handler".into(),
                             queue_name: None,
                             params: json!({"i": i}),

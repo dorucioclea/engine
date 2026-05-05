@@ -148,12 +148,12 @@ Same commands as Option A, steps 4–6. The API surface is identical.
 
 ## Option C: TypeScript SDK
 
-Use `@orch8/workflow-sdk` to author sequences in TypeScript with Zod-validated block shapes. See [workflow-sdk-node/README.md](../workflow-sdk-node/README.md) for the full surface.
+Use `@orch8.io/sdk` to author sequences in TypeScript. See the [SDK README](https://github.com/orch8-io/sdk-node) for the full surface.
 
 ### 1. Install
 
 ```bash
-npm install @orch8/workflow-sdk
+npm install @orch8.io/sdk
 ```
 
 Requires Node 18+ (uses the global `fetch`).
@@ -161,7 +161,7 @@ Requires Node 18+ (uses the global `fetch`).
 ### 2. Define a workflow and deploy it
 
 ```ts
-import { workflow, Orch8Client } from "@orch8/workflow-sdk";
+import { workflow, Orch8Client } from "@orch8.io/sdk";
 
 const hello = workflow("hello-world")
   .step("greet", "noop", { message: "Hello!" })
@@ -207,7 +207,7 @@ const result = await waitForCompletion(id);
 console.log("Final state:", result.state);
 ```
 
-To run handlers in Node instead of built-ins, see [`@orch8/worker-sdk`](../worker-sdk-node/README.md) and [External Workers](WORKERS.md).
+To run handlers in Node instead of built-ins, see the [SDK documentation](https://github.com/orch8-io/sdk-node) and [External Workers](WORKERS.md).
 
 ---
 
@@ -304,3 +304,6 @@ curl -s -X PATCH http://localhost:8080/instances/bulk/state \
 - [External Workers](WORKERS.md) — write handlers in Node, Python, Go, or anything that can POST JSON
 - [Webhooks](WEBHOOKS.md) — subscribe to `instance.completed` and `instance.failed` events
 - [Deployment](DEPLOYMENT.md) — Docker, Kubernetes, and managed-cloud setups
+- [Embedding Use Cases](APPLICATIONS.md) — mobile, browser, desktop, IoT, and more
+- [Externalized State](EXTERNALIZATION.md) — handling large payloads
+- [Agent Patterns](agent-patterns/README.md) — reference sequences for AI agents

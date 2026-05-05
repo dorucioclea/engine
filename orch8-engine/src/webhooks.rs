@@ -167,7 +167,7 @@ mod tests {
 
     #[test]
     fn instance_event_sets_fields() {
-        let id = InstanceId(uuid::Uuid::now_v7());
+        let id = InstanceId::new();
         let event = instance_event("instance.completed", id, serde_json::json!({"key": "val"}));
         assert_eq!(event.event_type, "instance.completed");
         assert_eq!(event.instance_id, Some(id));
@@ -221,7 +221,7 @@ mod tests {
 
     #[test]
     fn webhook_event_with_instance_id_serializes_id_as_string() {
-        let id = InstanceId(uuid::Uuid::now_v7());
+        let id = InstanceId::new();
         let event = WebhookEvent {
             event_type: "instance.running".into(),
             instance_id: Some(id),
@@ -230,7 +230,7 @@ mod tests {
         };
         let json = serde_json::to_string(&event).unwrap();
         assert!(
-            json.contains(&id.0.to_string()),
+            json.contains(&id.to_string()),
             "serialized JSON must contain UUID: {json}"
         );
         assert!(json.contains("\"instance_id\""));
@@ -250,7 +250,7 @@ mod tests {
 
     #[test]
     fn instance_event_timestamp_is_rfc3339_parseable() {
-        let id = InstanceId(uuid::Uuid::now_v7());
+        let id = InstanceId::new();
         let event = instance_event("x", id, serde_json::json!({}));
         // Must parse as a valid RFC 3339 timestamp.
         let parsed = chrono::DateTime::parse_from_rfc3339(&event.timestamp);
@@ -263,7 +263,7 @@ mod tests {
 
     #[test]
     fn instance_event_preserves_arbitrary_nested_data() {
-        let id = InstanceId(uuid::Uuid::now_v7());
+        let id = InstanceId::new();
         let payload = serde_json::json!({
             "nested": {"a": [1, 2, 3], "b": null},
             "flag": true,
@@ -275,7 +275,7 @@ mod tests {
     #[test]
     fn webhook_event_is_cloneable() {
         // Clone is derived; this test locks the derive in place.
-        let id = InstanceId(uuid::Uuid::now_v7());
+        let id = InstanceId::new();
         let a = WebhookEvent {
             event_type: "e".into(),
             instance_id: Some(id),
@@ -388,7 +388,7 @@ mod tests {
         let cancel = CancellationToken::new();
         let event = WebhookEvent {
             event_type: "instance.completed".into(),
-            instance_id: Some(InstanceId(uuid::Uuid::now_v7())),
+            instance_id: Some(InstanceId::new()),
             timestamp: "2024-01-01T00:00:00Z".into(),
             data: serde_json::json!({"k": "v"}),
         };
@@ -515,7 +515,7 @@ mod tests {
         };
         let event = instance_event(
             "test",
-            InstanceId(uuid::Uuid::now_v7()),
+            InstanceId::new(),
             serde_json::json!({}),
         );
         let cancel = CancellationToken::new();

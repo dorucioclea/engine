@@ -34,9 +34,9 @@ mod tests {
         let now = Utc::now();
         let cs = CronSchedule {
             id: Uuid::now_v7(),
-            tenant_id: TenantId("t1".into()),
-            namespace: Namespace("prod".into()),
-            sequence_id: SequenceId(Uuid::now_v7()),
+            tenant_id: TenantId::unchecked("t1"),
+            namespace: Namespace::new("prod"),
+            sequence_id: SequenceId::new(),
             cron_expr: "0 9 * * MON-FRI".into(),
             timezone: "America/New_York".into(),
             enabled: true,
@@ -59,9 +59,9 @@ mod tests {
         let now = Utc::now();
         let cs = CronSchedule {
             id: Uuid::now_v7(),
-            tenant_id: TenantId("t".into()),
-            namespace: Namespace("ns".into()),
-            sequence_id: SequenceId(Uuid::now_v7()),
+            tenant_id: TenantId::unchecked("t"),
+            namespace: Namespace::new("ns"),
+            sequence_id: SequenceId::new(),
             cron_expr: "* * * * *".into(),
             timezone: "UTC".into(),
             enabled: false,

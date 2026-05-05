@@ -29,7 +29,7 @@ pub(super) async fn upsert(
             cooldown_secs = EXCLUDED.cooldown_secs,
             opened_at = EXCLUDED.opened_at",
     )
-    .bind(&state.tenant_id.0)
+    .bind(&state.tenant_id.as_str())
     .bind(&state.handler)
     .bind(state.state.to_string())
     .bind(i64::from(state.failure_count))
@@ -69,7 +69,7 @@ pub(super) async fn list_open(
                 };
                 #[allow(clippy::cast_sign_loss)]
                 Ok(CircuitBreakerState {
-                    tenant_id: TenantId(tenant_id),
+                    tenant_id: TenantId::unchecked(tenant_id),
                     handler,
                     state,
                     failure_count: fc as u32,
@@ -88,7 +88,7 @@ pub(super) async fn delete(
     handler: &str,
 ) -> Result<(), StorageError> {
     sqlx::query("DELETE FROM circuit_breakers WHERE tenant_id = $1 AND handler = $2")
-        .bind(&tenant_id.0)
+        .bind(tenant_id.as_str())
         .bind(handler)
         .execute(&store.pool)
         .await?;

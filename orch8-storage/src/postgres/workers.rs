@@ -16,13 +16,13 @@ pub(super) async fn create(store: &PostgresStorage, task: &WorkerTask) -> Result
           ON CONFLICT (instance_id, block_id) DO NOTHING",
     )
     .bind(task.id)
-    .bind(task.instance_id.0)
-    .bind(&task.block_id.0)
+    .bind(task.instance_id.into_uuid())
+    .bind(&task.block_id.as_str())
     .bind(&task.handler_name)
     .bind(&task.queue_name)
     .bind(&task.params)
     .bind(&task.context)
-    .bind(task.attempt)
+    .bind(task.attempt as i16)
     .bind(task.timeout_ms)
     .bind(task.state.to_string())
     .bind(task.created_at)
@@ -108,7 +108,7 @@ pub(super) async fn claim_for_tenant(
     .bind(handler_name)
     .bind(worker_id)
     .bind(i64::from(limit))
-    .bind(&tenant_id.0)
+    .bind(tenant_id.as_str())
     .fetch_all(&store.pool)
     .await?;
     Ok(rows.into_iter().map(WorkerTaskRow::into_task).collect())
@@ -236,13 +236,13 @@ pub(super) async fn retry(
           ON CONFLICT (instance_id, block_id) DO NOTHING",
     )
     .bind(new_task.id)
-    .bind(new_task.instance_id.0)
-    .bind(&new_task.block_id.0)
+    .bind(new_task.instance_id.into_uuid())
+    .bind(&new_task.block_id.as_str())
     .bind(&new_task.handler_name)
     .bind(&new_task.queue_name)
     .bind(&new_task.params)
     .bind(&new_task.context)
-    .bind(new_task.attempt)
+    .bind(new_task.attempt as i16)
     .bind(new_task.timeout_ms)
     .bind(new_task.state.to_string())
     .bind(new_task.created_at)
@@ -251,13 +251,13 @@ pub(super) async fn retry(
 
     if let Some(nid) = node_id {
         sqlx::query("UPDATE execution_tree SET state = 'pending' WHERE id = $1")
-            .bind(nid.0)
+            .bind(nid.into_uuid())
             .execute(&mut *tx)
             .await?;
     }
 
     sqlx::query("UPDATE task_instances SET state = 'scheduled', next_fire_at = $2, updated_at = NOW() WHERE id = $1")
-        .bind(instance_id.0)
+        .bind(instance_id.into_uuid())
         .bind(fire_at)
         .execute(&mut *tx)
         .await?;
@@ -343,7 +343,7 @@ pub(super) async fn stats(
         sqlx::QueryBuilder::new("SELECT state, handler_name, COUNT(*) as cnt FROM worker_tasks");
     if let Some(tid) = tenant_id {
         qb.push(" WHERE instance_id IN (SELECT id FROM task_instances WHERE tenant_id =")
-            .push_bind(&tid.0)
+            .push_bind(tid.as_str())
             .push(")");
     }
     qb.push(" GROUP BY state, handler_name");
@@ -372,7 +372,7 @@ pub(super) async fn stats(
     );
     if let Some(tid) = tenant_id {
         wqb.push(" AND instance_id IN (SELECT id FROM task_instances WHERE tenant_id =")
-            .push_bind(&tid.0)
+            .push_bind(tid.as_str())
             .push(")");
     }
     let workers = wqb
@@ -396,7 +396,7 @@ fn apply_worker_task_filter<'a>(
 ) {
     if let Some(ref tid) = filter.tenant_id {
         qb.push(" AND instance_id IN (SELECT id FROM task_instances WHERE tenant_id =")
-            .push_bind(&tid.0)
+            .push_bind(tid.as_str())
             .push(")");
     }
     if let Some(ref states) = filter.states {

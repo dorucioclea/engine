@@ -18,10 +18,10 @@ pub(super) async fn create_node(
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
         ",
     )
-    .bind(node.id.0)
-    .bind(node.instance_id.0)
-    .bind(&node.block_id.0)
-    .bind(node.parent_id.map(|p| p.0))
+    .bind(node.id.into_uuid())
+    .bind(node.instance_id.into_uuid())
+    .bind(&node.block_id.as_str())
+    .bind(node.parent_id.map(|p| p.into_uuid()))
     .bind(node.block_type.to_string())
     .bind(node.branch_index)
     .bind(node.state.to_string())
@@ -43,10 +43,10 @@ pub(super) async fn create_batch(
         "INSERT INTO execution_tree (id, instance_id, block_id, parent_id, block_type, branch_index, state, started_at, completed_at) ",
     );
     qb.push_values(nodes, |mut b, node| {
-        b.push_bind(node.id.0)
-            .push_bind(node.instance_id.0)
-            .push_bind(&node.block_id.0)
-            .push_bind(node.parent_id.map(|p| p.0))
+        b.push_bind(node.id.into_uuid())
+            .push_bind(node.instance_id.into_uuid())
+            .push_bind(node.block_id.as_str())
+            .push_bind(node.parent_id.map(|p| p.into_uuid()))
             .push_bind(node.block_type.to_string())
             .push_bind(node.branch_index)
             .push_bind(node.state.to_string())
@@ -65,7 +65,7 @@ pub(super) async fn get_tree(
         r"SELECT id, instance_id, block_id, parent_id, block_type, branch_index, state, started_at, completed_at
            FROM execution_tree WHERE instance_id = $1 ORDER BY id",
     )
-    .bind(instance_id.0)
+    .bind(instance_id.into_uuid())
     .fetch_all(&store.pool)
     .await?;
     Ok(rows.into_iter().map(ExecutionNodeRow::into_node).collect())
@@ -95,7 +95,7 @@ pub(super) async fn update_node_state(
     sqlx::query(
         "UPDATE execution_tree SET state = $2, completed_at = COALESCE($3, completed_at), started_at = COALESCE($4, started_at) WHERE id = $1",
     )
-    .bind(node_id.0)
+    .bind(node_id.into_uuid())
     .bind(state.to_string())
     .bind(completed_at)
     .bind(started_at)
@@ -119,7 +119,7 @@ pub(super) async fn batch_activate_nodes(
     qb.push(") WHERE state = 'pending' AND id IN (");
     let mut sep = qb.separated(", ");
     for id in node_ids {
-        sep.push_bind(id.0);
+        sep.push_bind(id.into_uuid());
     }
     sep.push_unseparated(")");
     qb.build().execute(&store.pool).await?;
@@ -150,7 +150,7 @@ pub(super) async fn update_nodes_state(
     } else {
         None
     };
-    let ids: Vec<uuid::Uuid> = node_ids.iter().map(|id| id.0).collect();
+    let ids: Vec<uuid::Uuid> = node_ids.iter().map(|id| id.into_uuid()).collect();
     sqlx::query(
         "UPDATE execution_tree \
          SET state = $1, \
@@ -172,7 +172,7 @@ pub(super) async fn delete_tree(
     instance_id: InstanceId,
 ) -> Result<(), StorageError> {
     sqlx::query("DELETE FROM execution_tree WHERE instance_id = $1")
-        .bind(instance_id.0)
+        .bind(instance_id.into_uuid())
         .execute(&store.pool)
         .await?;
     Ok(())
@@ -186,7 +186,7 @@ pub(super) async fn get_children(
         r"SELECT id, instance_id, block_id, parent_id, block_type, branch_index, state, started_at, completed_at
            FROM execution_tree WHERE parent_id = $1 ORDER BY branch_index, id",
     )
-    .bind(parent_id.0)
+    .bind(parent_id.into_uuid())
     .fetch_all(&store.pool)
     .await?;
     Ok(rows.into_iter().map(ExecutionNodeRow::into_node).collect())

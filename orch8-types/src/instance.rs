@@ -161,7 +161,7 @@ pub struct TaskInstance {
     pub concurrency_key: Option<String>,
     /// Max concurrent running instances with the same concurrency key.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub max_concurrency: Option<i32>,
+    pub max_concurrency: Option<u32>,
     /// Optional idempotency key for deduplication at creation time.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub idempotency_key: Option<String>,

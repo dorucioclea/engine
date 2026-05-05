@@ -160,8 +160,8 @@ mod tests {
         let inst = TaskInstance {
             id,
             sequence_id: SequenceId::new(),
-            tenant_id: TenantId("t".into()),
-            namespace: Namespace("ns".into()),
+            tenant_id: TenantId::unchecked("t"),
+            namespace: Namespace::new("ns"),
             state: InstanceState::Running,
             next_fire_at: None,
             priority: Priority::Normal,
@@ -261,7 +261,7 @@ mod tests {
             .unwrap();
 
         let router = RouterDef {
-            id: BlockId("r".into()),
+            id: BlockId::new("r"),
             routes: vec![
                 Route {
                     condition: "status == \"active\"".into(),
@@ -315,7 +315,7 @@ mod tests {
         ExecutionNode {
             id: ExecutionNodeId::new(),
             instance_id: inst,
-            block_id: BlockId(bid.into()),
+            block_id: BlockId::new(bid),
             parent_id: parent,
             block_type: bt,
             branch_index,
@@ -330,8 +330,8 @@ mod tests {
         TaskInstance {
             id,
             sequence_id: SequenceId::new(),
-            tenant_id: TenantId("t".into()),
-            namespace: Namespace("ns".into()),
+            tenant_id: TenantId::unchecked("t"),
+            namespace: Namespace::new("ns"),
             state: InstanceState::Running,
             next_fire_at: None,
             priority: Priority::Normal,
@@ -401,7 +401,7 @@ mod tests {
             },
         );
         let router = RouterDef {
-            id: BlockId("r".into()),
+            id: BlockId::new("r"),
             routes: vec![Route {
                 condition: "x == 1".into(),
                 blocks: vec![],
@@ -465,7 +465,7 @@ mod tests {
             },
         );
         let router = RouterDef {
-            id: BlockId("r".into()),
+            id: BlockId::new("r"),
             routes: vec![
                 Route {
                     condition: "x == 1".into(),
@@ -525,7 +525,7 @@ mod tests {
         let (s, tree) = setup_rt(vec![parent.clone(), r0.clone()], inst_id).await;
         let inst = mk_instance_rt(inst_id, ExecutionContext::default());
         let router = RouterDef {
-            id: BlockId("r".into()),
+            id: BlockId::new("r"),
             routes: vec![Route {
                 condition: "never".into(),
                 blocks: vec![],
@@ -589,7 +589,7 @@ mod tests {
         let bo = orch8_types::output::BlockOutput {
             id: uuid::Uuid::now_v7(),
             instance_id: inst_id,
-            block_id: BlockId("prev".into()),
+            block_id: BlockId::new("prev"),
             output: json!({"val": 7}),
             output_ref: None,
             output_size: 0,
@@ -599,7 +599,7 @@ mod tests {
         s.save_block_output(&bo).await.unwrap();
         let inst = mk_instance_rt(inst_id, ExecutionContext::default());
         let router = RouterDef {
-            id: BlockId("r".into()),
+            id: BlockId::new("r"),
             routes: vec![
                 Route {
                     condition: "outputs.prev.val > 100".into(),
@@ -656,7 +656,7 @@ mod tests {
             },
         );
         let router = RouterDef {
-            id: BlockId("r".into()),
+            id: BlockId::new("r"),
             routes: vec![Route {
                 condition: "x == 1".into(),
                 blocks: vec![],
@@ -710,7 +710,7 @@ mod tests {
             },
         );
         let router = RouterDef {
-            id: BlockId("r".into()),
+            id: BlockId::new("r"),
             routes: vec![Route {
                 condition: "x == 1".into(),
                 blocks: vec![],
@@ -776,7 +776,7 @@ mod tests {
             },
         );
         let router = RouterDef {
-            id: BlockId("r".into()),
+            id: BlockId::new("r"),
             routes: vec![
                 Route {
                     condition: "x == 1".into(),
@@ -824,7 +824,7 @@ mod tests {
     async fn router_broken_ref_falls_through_to_default() {
         let storage = SqliteStorage::in_memory().await.unwrap();
         let router = RouterDef {
-            id: BlockId("r".into()),
+            id: BlockId::new("r"),
             routes: vec![Route {
                 condition: "status == \"active\"".into(),
                 blocks: vec![],

@@ -116,7 +116,7 @@ pub trait StorageBackend: Send + Sync + 'static {
         let mut inst_clone = instance.clone();
         let refs = crate::externalizing::externalize_fields(
             &mut inst_clone.context.data,
-            &instance.id.0.to_string(),
+            &instance.id.into_uuid().to_string(),
             threshold_bytes,
         );
         if !refs.is_empty() {
@@ -142,7 +142,7 @@ pub trait StorageBackend: Send + Sync + 'static {
             let mut c = inst.clone();
             let refs = crate::externalizing::externalize_fields(
                 &mut c.context.data,
-                &inst.id.0.to_string(),
+                &inst.id.into_uuid().to_string(),
                 threshold_bytes,
             );
             if !refs.is_empty() {
@@ -281,7 +281,7 @@ pub trait StorageBackend: Send + Sync + 'static {
         let mut ctx_clone = context.clone();
         let refs = crate::externalizing::externalize_fields(
             &mut ctx_clone.data,
-            &id.0.to_string(),
+            &id.to_string(),
             threshold_bytes,
         );
         if !refs.is_empty() {

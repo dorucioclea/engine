@@ -26,7 +26,7 @@ fn bind_signal_insert<'q>(
     signal_type_str: &'q str,
 ) -> sqlx::query::Query<'q, sqlx::Postgres, sqlx::postgres::PgArguments> {
     q.bind(s.id)
-        .bind(s.instance_id.0)
+        .bind(s.instance_id.into_uuid())
         .bind(signal_type_str)
         .bind(&s.payload)
         .bind(s.delivered)
@@ -55,7 +55,7 @@ pub(super) async fn enqueue_if_active(
 
     let row: Option<(String,)> =
         sqlx::query_as("SELECT state FROM task_instances WHERE id = $1 FOR UPDATE")
-            .bind(signal.instance_id.0)
+            .bind(signal.instance_id.into_uuid())
             .fetch_optional(&mut *tx)
             .await?;
 
@@ -63,7 +63,7 @@ pub(super) async fn enqueue_if_active(
         let _ = tx.rollback().await;
         return Err(StorageError::NotFound {
             entity: "task_instance",
-            id: signal.instance_id.0.to_string(),
+            id: signal.instance_id.into_uuid().to_string(),
         });
     };
 
@@ -72,7 +72,7 @@ pub(super) async fn enqueue_if_active(
         let _ = tx.rollback().await;
         return Err(StorageError::TerminalTarget {
             entity: "task_instance".to_string(),
-            id: signal.instance_id.0.to_string(),
+            id: signal.instance_id.into_uuid().to_string(),
         });
     }
 
@@ -94,7 +94,7 @@ pub(super) async fn get_pending(
            FROM signal_inbox WHERE instance_id = $1 AND delivered = FALSE
            ORDER BY created_at",
     )
-    .bind(instance_id.0)
+    .bind(instance_id.into_uuid())
     .fetch_all(&store.pool)
     .await?;
     rows.into_iter().map(SignalRow::into_signal).collect()
@@ -107,7 +107,7 @@ pub(super) async fn get_pending_batch(
     if instance_ids.is_empty() {
         return Ok(std::collections::HashMap::new());
     }
-    let uuids: Vec<Uuid> = instance_ids.iter().map(|id| id.0).collect();
+    let uuids: Vec<Uuid> = instance_ids.iter().map(|id| id.into_uuid()).collect();
     let rows = sqlx::query_as::<_, SignalRow>(
         r"SELECT id, instance_id, signal_type, payload, delivered, created_at, delivered_at
            FROM signal_inbox WHERE instance_id = ANY($1) AND delivered = FALSE
@@ -179,7 +179,7 @@ pub(super) async fn get_signalled_instance_ids(
     rows.into_iter()
         .map(|(id, state_str)| {
             let state = InstanceState::from_str(&state_str).map_err(StorageError::Query)?;
-            Ok((InstanceId(id), state))
+            Ok((InstanceId::from_uuid(id), state))
         })
         .collect()
 }

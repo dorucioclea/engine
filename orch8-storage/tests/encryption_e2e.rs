@@ -16,13 +16,13 @@ const TEST_KEY_2: &str = "ffeeffeeffeeffeeffeeffeeffeeffeeffeeffeeffeeffeeffeeff
 fn make_sequence() -> SequenceDefinition {
     SequenceDefinition {
         id: SequenceId::new(),
-        tenant_id: TenantId("test".into()),
-        namespace: Namespace("default".into()),
+        tenant_id: TenantId::unchecked("test"),
+        namespace: Namespace::new("default"),
         name: "enc_seq".into(),
         version: 1,
         deprecated: false,
         blocks: vec![BlockDefinition::Step(Box::new(StepDef {
-            id: orch8_types::ids::BlockId("s1".into()),
+            id: orch8_types::ids::BlockId::new("s1"),
             handler: "noop".into(),
             params: serde_json::json!({}),
             delay: None,
@@ -49,8 +49,8 @@ fn make_instance(seq_id: SequenceId) -> TaskInstance {
     TaskInstance {
         id: InstanceId::new(),
         sequence_id: seq_id,
-        tenant_id: TenantId("test".into()),
-        namespace: Namespace("default".into()),
+        tenant_id: TenantId::unchecked("test"),
+        namespace: Namespace::new("default"),
         state: InstanceState::Scheduled,
         next_fire_at: Some(now),
         priority: Priority::Normal,

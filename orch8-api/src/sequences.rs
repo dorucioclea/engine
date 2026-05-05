@@ -86,7 +86,7 @@ pub(crate) async fn get_sequence(
 ) -> Result<impl IntoResponse, ApiError> {
     let seq = state
         .storage
-        .get_sequence(SequenceId(id))
+        .get_sequence(SequenceId::from_uuid(id))
         .await
         .map_err(|e| ApiError::from_storage(e, "sequence"))?
         .ok_or_else(|| ApiError::NotFound(format!("sequence {id}")))?;
@@ -122,8 +122,8 @@ pub(crate) async fn get_sequence_by_name(
     Query(q): Query<ByNameQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     let tenant_id = crate::auth::scoped_tenant_id(&tenant_ctx, Some(&q.tenant_id))
-        .unwrap_or_else(|| orch8_types::ids::TenantId(q.tenant_id.clone()));
-    let namespace = orch8_types::ids::Namespace(q.namespace);
+        .unwrap_or_else(|| orch8_types::ids::TenantId::unchecked(q.tenant_id.clone()));
+    let namespace = orch8_types::ids::Namespace::new(q.namespace);
 
     let seq = state
         .storage
@@ -154,7 +154,7 @@ pub(crate) async fn deprecate_sequence(
 ) -> Result<StatusCode, ApiError> {
     let seq = state
         .storage
-        .get_sequence(SequenceId(id))
+        .get_sequence(SequenceId::from_uuid(id))
         .await
         .map_err(|e| ApiError::from_storage(e, "sequence"))?
         .ok_or_else(|| ApiError::NotFound(format!("sequence {id}")))?;
@@ -163,7 +163,7 @@ pub(crate) async fn deprecate_sequence(
 
     state
         .storage
-        .deprecate_sequence(SequenceId(id))
+        .deprecate_sequence(SequenceId::from_uuid(id))
         .await
         .map_err(|e| ApiError::from_storage(e, "sequence"))?;
     Ok(StatusCode::NO_CONTENT)
@@ -184,7 +184,7 @@ pub(crate) async fn delete_sequence(
 ) -> Result<StatusCode, ApiError> {
     let seq = state
         .storage
-        .get_sequence(SequenceId(id))
+        .get_sequence(SequenceId::from_uuid(id))
         .await
         .map_err(|e| ApiError::from_storage(e, "sequence"))?
         .ok_or_else(|| ApiError::NotFound(format!("sequence {id}")))?;
@@ -193,7 +193,7 @@ pub(crate) async fn delete_sequence(
 
     // Reject delete if non-terminal instances reference this sequence.
     let active_filter = InstanceFilter {
-        sequence_id: Some(SequenceId(id)),
+        sequence_id: Some(SequenceId::from_uuid(id)),
         states: Some(vec![
             InstanceState::Scheduled,
             InstanceState::Running,
@@ -215,7 +215,7 @@ pub(crate) async fn delete_sequence(
 
     state
         .storage
-        .delete_sequence(SequenceId(id))
+        .delete_sequence(SequenceId::from_uuid(id))
         .await
         .map_err(|e| ApiError::from_storage(e, "sequence"))?;
     Ok(StatusCode::NO_CONTENT)
@@ -237,8 +237,8 @@ pub(crate) async fn list_sequence_versions(
     Query(q): Query<ByNameQuery>,
 ) -> Result<Json<Vec<SequenceDefinition>>, ApiError> {
     let tenant_id = crate::auth::scoped_tenant_id(&tenant_ctx, Some(&q.tenant_id))
-        .unwrap_or_else(|| orch8_types::ids::TenantId(q.tenant_id.clone()));
-    let namespace = orch8_types::ids::Namespace(q.namespace);
+        .unwrap_or_else(|| orch8_types::ids::TenantId::unchecked(q.tenant_id.clone()));
+    let namespace = orch8_types::ids::Namespace::new(q.namespace);
 
     let versions = state
         .storage
@@ -277,8 +277,8 @@ pub(crate) async fn list_sequences(
     // the filter. Anonymous/global callers may pass tenant_id to filter, or
     // omit it to see all sequences across all tenants.
     let effective_tenant = crate::auth::scoped_tenant_id(&tenant_ctx, q.tenant_id.as_deref())
-        .or_else(|| q.tenant_id.clone().map(orch8_types::ids::TenantId));
-    let effective_namespace = q.namespace.map(orch8_types::ids::Namespace);
+        .or_else(|| q.tenant_id.clone().map(orch8_types::ids::TenantId::unchecked));
+    let effective_namespace = q.namespace.map(orch8_types::ids::Namespace::new);
     let limit = q.limit.unwrap_or(200).min(1000);
     let offset = q.offset.unwrap_or(0);
 
@@ -323,7 +323,7 @@ pub(crate) async fn migrate_instance(
     // Validate the instance exists and is not terminal.
     let instance = state
         .storage
-        .get_instance(InstanceId(req.instance_id))
+        .get_instance(InstanceId::from_uuid(req.instance_id))
         .await
         .map_err(|e| ApiError::from_storage(e, "instance"))?
         .ok_or_else(|| ApiError::NotFound(format!("instance {}", req.instance_id)))?;
@@ -344,7 +344,7 @@ pub(crate) async fn migrate_instance(
     // Validate the target sequence exists.
     let target_seq = state
         .storage
-        .get_sequence(SequenceId(req.target_sequence_id))
+        .get_sequence(SequenceId::from_uuid(req.target_sequence_id))
         .await
         .map_err(|e| ApiError::from_storage(e, "sequence"))?
         .ok_or_else(|| ApiError::NotFound(format!("sequence {}", req.target_sequence_id)))?;
@@ -365,8 +365,8 @@ pub(crate) async fn migrate_instance(
     state
         .storage
         .update_instance_sequence(
-            InstanceId(req.instance_id),
-            SequenceId(req.target_sequence_id),
+            InstanceId::from_uuid(req.instance_id),
+            SequenceId::from_uuid(req.target_sequence_id),
         )
         .await
         .map_err(|e| ApiError::from_storage(e, "instance"))?;

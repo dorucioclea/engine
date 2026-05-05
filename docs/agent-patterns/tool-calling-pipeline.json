@@ -9,14 +9,11 @@
       "params": {
         "provider": "openai",
         "model": "gpt-4o",
+        "system": "Given the user's request, create an execution plan. Return JSON: {\"steps\": [{\"tool\": \"name\", \"input\": {...}}, ...]}",
         "messages": [
           {
-            "role": "system",
-            "content": "Given the user's request, create an execution plan. Return JSON: {\"steps\": [{\"tool\": \"name\", \"input\": {...}}, ...]}"
-          },
-          {
             "role": "user",
-            "content": "{{context.task}}"
+            "content": "{{context.data.task}}"
           }
         ]
       }
@@ -24,21 +21,23 @@
     {
       "type": "for_each",
       "id": "execute_tools",
-      "collection_expr": "outputs.plan.message.content.steps",
+      "collection": "outputs.plan.content.steps",
       "item_var": "tool_step",
-      "blocks": [
+      "body": [
         {
           "type": "step",
           "id": "call_tool",
           "handler": "tool_call",
           "params": {
-            "tool_name": "{{item.tool_step.tool}}",
-            "arguments": "{{item.tool_step.input}}",
-            "url": "{{context.tool_dispatch_url}}"
+            "tool_name": "{{context.data.tool_step.tool}}",
+            "arguments": "{{context.data.tool_step.input}}",
+            "url": "{{context.data.tool_dispatch_url}}"
           },
           "retry": {
             "max_attempts": 2,
-            "delay_seconds": 1
+            "initial_backoff": 1000,
+            "max_backoff": 5000,
+            "backoff_multiplier": 2.0
           }
         }
       ]
@@ -50,14 +49,11 @@
       "params": {
         "provider": "openai",
         "model": "gpt-4o",
+        "system": "Synthesize the results of all tool executions into a final response.",
         "messages": [
           {
-            "role": "system",
-            "content": "Synthesize the results of all tool executions into a final response."
-          },
-          {
             "role": "user",
-            "content": "Task: {{context.task}}\n\nTool results: {{outputs.execute_tools}}"
+            "content": "Task: {{context.data.task}}\n\nTool results: {{outputs.execute_tools}}"
           }
         ]
       }

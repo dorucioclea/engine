@@ -19,7 +19,7 @@ pub(super) async fn create(
     .bind(&trigger.slug)
     .bind(&trigger.sequence_name)
     .bind(trigger.version)
-    .bind(&trigger.tenant_id.0)
+    .bind(&trigger.tenant_id.as_str())
     .bind(&trigger.namespace)
     .bind(trigger.enabled)
     .bind(trigger.secret.as_ref().map(|s| s.expose().to_string()))
@@ -58,7 +58,7 @@ pub(super) async fn list(
                 r"SELECT slug, sequence_name, version, tenant_id, namespace, enabled, secret, trigger_type, config, created_at, updated_at
                   FROM triggers WHERE tenant_id = ?1 ORDER BY created_at LIMIT ?2",
             )
-            .bind(&tid.0)
+            .bind(tid.as_str())
             .bind(cap)
             .fetch_all(&store.pool)
             .await?
@@ -92,7 +92,7 @@ pub(super) async fn update(
     .bind(&trigger.slug)
     .bind(&trigger.sequence_name)
     .bind(trigger.version)
-    .bind(&trigger.tenant_id.0)
+    .bind(&trigger.tenant_id.as_str())
     .bind(&trigger.namespace)
     .bind(trigger.enabled)
     .bind(trigger.secret.as_ref().map(|s| s.expose().to_string()))
@@ -133,7 +133,7 @@ impl TriggerRow {
             slug: self.slug,
             sequence_name: self.sequence_name,
             version: self.version,
-            tenant_id: TenantId(self.tenant_id),
+            tenant_id: TenantId::unchecked(self.tenant_id),
             namespace: self.namespace,
             enabled: self.enabled,
             secret: self.secret.map(orch8_types::config::SecretString::new),

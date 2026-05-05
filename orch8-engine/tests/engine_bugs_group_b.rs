@@ -53,7 +53,7 @@ const fn mk_retry(max_attempts: u32) -> RetryPolicy {
 
 fn mk_step_with_retry(id: &str, handler: &str, retry: Option<RetryPolicy>) -> StepDef {
     StepDef {
-        id: BlockId(id.into()),
+        id: BlockId::new(id),
         handler: handler.into(),
         params: json!({}),
         delay: None,
@@ -77,8 +77,8 @@ fn mk_instance(seq_id: SequenceId) -> TaskInstance {
     TaskInstance {
         id: InstanceId::new(),
         sequence_id: seq_id,
-        tenant_id: TenantId("t".into()),
-        namespace: Namespace("ns".into()),
+        tenant_id: TenantId::unchecked("t"),
+        namespace: Namespace::new("ns"),
         state: InstanceState::Running,
         next_fire_at: None,
         priority: Priority::Normal,
@@ -115,8 +115,8 @@ async fn setup_single_step(
     let step_id = step.id.clone();
     let seq = SequenceDefinition {
         id: SequenceId::new(),
-        tenant_id: TenantId("t".into()),
-        namespace: Namespace("ns".into()),
+        tenant_id: TenantId::unchecked("t"),
+        namespace: Namespace::new("ns"),
         name: "bug-b-repro".into(),
         version: 1,
         deprecated: false,
@@ -199,7 +199,7 @@ async fn b3_tree_retryable_reschedules_instance_with_backoff() {
     // on the next tick. Without this, every tick would see attempt=0 and
     // never trip max_attempts.
     let latest = storage
-        .get_block_output(instance.id, &BlockId("s1".into()))
+        .get_block_output(instance.id, &BlockId::new("s1"))
         .await
         .unwrap()
         .expect("retry marker output must be persisted");
@@ -226,7 +226,7 @@ async fn b3_tree_retryable_fails_node_when_attempts_exhausted() {
     let marker = orch8_types::output::BlockOutput {
         id: uuid::Uuid::now_v7(),
         instance_id: instance.id,
-        block_id: BlockId("s1".into()),
+        block_id: BlockId::new("s1"),
         output: json!({"_retry_marker": true}),
         output_ref: Some("__retry__".into()),
         output_size: 0,
@@ -329,8 +329,8 @@ async fn b28_apply_self_modify_append_preserves_prior_blocks() {
 
     let seq = SequenceDefinition {
         id: SequenceId::new(),
-        tenant_id: TenantId("t".into()),
-        namespace: Namespace("ns".into()),
+        tenant_id: TenantId::unchecked("t"),
+        namespace: Namespace::new("ns"),
         name: "sm-append".into(),
         version: 1,
         deprecated: false,
@@ -407,8 +407,8 @@ async fn b28_apply_self_modify_position_still_preserves_prior() {
 
     let seq = SequenceDefinition {
         id: SequenceId::new(),
-        tenant_id: TenantId("t".into()),
-        namespace: Namespace("ns".into()),
+        tenant_id: TenantId::unchecked("t"),
+        namespace: Namespace::new("ns"),
         name: "sm-pos".into(),
         version: 1,
         deprecated: false,

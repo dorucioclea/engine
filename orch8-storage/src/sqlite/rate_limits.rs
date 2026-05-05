@@ -48,8 +48,8 @@ pub(super) async fn check_rate_limit(
               )
         ",
     )
-    .bind(&tenant_id.0)
-    .bind(&resource_key.0)
+    .bind(tenant_id.as_str())
+    .bind(resource_key.as_str())
     .bind(&now_str)
     .execute(&mut *conn)
     .await?;
@@ -63,8 +63,8 @@ pub(super) async fn check_rate_limit(
     let row = sqlx::query(
         "SELECT window_start, window_seconds FROM rate_limits WHERE tenant_id=?1 AND resource_key=?2",
     )
-    .bind(&tenant_id.0)
-    .bind(&resource_key.0)
+    .bind(tenant_id.as_str())
+    .bind(resource_key.as_str())
     .fetch_optional(&mut *conn)
     .await
     ?;
@@ -90,8 +90,8 @@ pub(super) async fn upsert_rate_limit(
         "INSERT INTO rate_limits (id,tenant_id,resource_key,max_count,window_seconds,current_count,window_start) VALUES (?1,?2,?3,?4,?5,?6,?7) ON CONFLICT(tenant_id,resource_key) DO UPDATE SET max_count=?4, window_seconds=?5"
     )
     .bind(limit.id.to_string())
-    .bind(&limit.tenant_id.0)
-    .bind(&limit.resource_key.0)
+    .bind(&limit.tenant_id.as_str())
+    .bind(&limit.resource_key.as_str())
     .bind(i64::from(limit.max_count))
     .bind(i64::from(limit.window_seconds))
     .bind(i64::from(limit.current_count))

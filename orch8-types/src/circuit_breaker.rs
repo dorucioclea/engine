@@ -49,7 +49,7 @@ mod tests {
     use super::*;
 
     fn tid() -> TenantId {
-        TenantId("test-tenant".into())
+        TenantId::unchecked("test-tenant")
     }
 
     #[test]

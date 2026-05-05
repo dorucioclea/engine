@@ -23,7 +23,7 @@ mod tests {
     fn checkpoint_serde_roundtrip() {
         let cp = Checkpoint {
             id: Uuid::now_v7(),
-            instance_id: InstanceId(Uuid::now_v7()),
+            instance_id: InstanceId::new(),
             checkpoint_data: serde_json::json!({"completed_blocks": ["a", "b"], "context_snapshot": {"x": 1}}),
             created_at: Utc::now(),
         };

@@ -26,7 +26,7 @@ use orch8_types::sequence::{BlockDefinition, ForEachDef, LoopDef, SequenceDefini
 
 fn mk_step(id: &str) -> BlockDefinition {
     BlockDefinition::Step(Box::new(StepDef {
-        id: BlockId(id.into()),
+        id: BlockId::new(id),
         handler: "builtin.noop".into(),
         params: serde_json::Value::Null,
         delay: None,
@@ -53,8 +53,8 @@ async fn setup(
 
     let seq = SequenceDefinition {
         id: SequenceId::new(),
-        tenant_id: TenantId("t".into()),
-        namespace: Namespace("ns".into()),
+        tenant_id: TenantId::unchecked("t"),
+        namespace: Namespace::new("ns"),
         name: "loop-fe-cov".into(),
         version: 1,
         deprecated: false,
@@ -68,8 +68,8 @@ async fn setup(
     let instance = TaskInstance {
         id: InstanceId::new(),
         sequence_id: seq.id,
-        tenant_id: TenantId("t".into()),
-        namespace: Namespace("ns".into()),
+        tenant_id: TenantId::unchecked("t"),
+        namespace: Namespace::new("ns"),
         state: InstanceState::Running,
         next_fire_at: None,
         priority: Priority::Normal,
@@ -98,7 +98,7 @@ async fn setup(
 }
 
 fn find_by_block<'a>(tree: &'a [ExecutionNode], id: &str) -> &'a ExecutionNode {
-    tree.iter().find(|n| n.block_id.0 == id).expect("node")
+    tree.iter().find(|n| n.block_id.as_str() == id).expect("node")
 }
 
 async fn refresh(storage: &SqliteStorage, instance: &TaskInstance) -> Vec<ExecutionNode> {
@@ -113,7 +113,7 @@ async fn refresh(storage: &SqliteStorage, instance: &TaskInstance) -> Vec<Execut
 #[tokio::test]
 async fn loop_empty_body_completes_immediately() {
     let loop_def = LoopDef {
-        id: BlockId("lp".into()),
+        id: BlockId::new("lp"),
         condition: "true".into(),
         body: vec![],
         max_iterations: 10,
@@ -137,7 +137,7 @@ async fn loop_empty_body_completes_immediately() {
 #[tokio::test]
 async fn loop_max_iterations_zero_fails() {
     let loop_def = LoopDef {
-        id: BlockId("lp".into()),
+        id: BlockId::new("lp"),
         condition: "true".into(),
         body: vec![mk_step("body")],
         max_iterations: 0,
@@ -161,7 +161,7 @@ async fn loop_max_iterations_zero_fails() {
 #[tokio::test]
 async fn loop_falsy_condition_completes_without_activating_body() {
     let loop_def = LoopDef {
-        id: BlockId("lp".into()),
+        id: BlockId::new("lp"),
         condition: "keep_going".into(),
         body: vec![mk_step("body")],
         max_iterations: 10,
@@ -188,7 +188,7 @@ async fn loop_falsy_condition_completes_without_activating_body() {
 #[tokio::test]
 async fn loop_first_tick_activates_body() {
     let loop_def = LoopDef {
-        id: BlockId("lp".into()),
+        id: BlockId::new("lp"),
         condition: "true".into(),
         body: vec![mk_step("body")],
         max_iterations: 10,
@@ -209,7 +209,7 @@ async fn loop_first_tick_activates_body() {
     // No iteration marker yet — one is only persisted after the body
     // goes terminal on a subsequent tick.
     assert!(storage
-        .get_block_output(instance.id, &BlockId("lp".into()))
+        .get_block_output(instance.id, &BlockId::new("lp"))
         .await
         .unwrap()
         .is_none());
@@ -219,7 +219,7 @@ async fn loop_first_tick_activates_body() {
 #[tokio::test]
 async fn loop_body_completion_increments_iteration_marker() {
     let loop_def = LoopDef {
-        id: BlockId("lp".into()),
+        id: BlockId::new("lp"),
         condition: "true".into(),
         body: vec![mk_step("body")],
         max_iterations: 5,
@@ -248,7 +248,7 @@ async fn loop_body_completion_increments_iteration_marker() {
         .await
         .unwrap();
     let marker = storage
-        .get_block_output(instance.id, &BlockId("lp".into()))
+        .get_block_output(instance.id, &BlockId::new("lp"))
         .await
         .unwrap()
         .expect("iteration marker persisted");
@@ -263,7 +263,7 @@ async fn loop_body_completion_increments_iteration_marker() {
 #[tokio::test]
 async fn loop_cap_reached_after_increment_leaves_body_terminal() {
     let loop_def = LoopDef {
-        id: BlockId("lp".into()),
+        id: BlockId::new("lp"),
         condition: "true".into(),
         body: vec![mk_step("body")],
         max_iterations: 1,
@@ -311,7 +311,7 @@ async fn loop_cap_reached_after_increment_leaves_body_terminal() {
 #[tokio::test]
 async fn loop_body_failure_fails_loop() {
     let loop_def = LoopDef {
-        id: BlockId("lp".into()),
+        id: BlockId::new("lp"),
         condition: "true".into(),
         body: vec![mk_step("body")],
         max_iterations: 5,
@@ -345,7 +345,7 @@ async fn loop_body_failure_fails_loop() {
 #[tokio::test]
 async fn loop_preexisting_marker_at_cap_short_circuits() {
     let loop_def = LoopDef {
-        id: BlockId("lp".into()),
+        id: BlockId::new("lp"),
         condition: "true".into(),
         body: vec![mk_step("body")],
         max_iterations: 3,
@@ -362,7 +362,7 @@ async fn loop_preexisting_marker_at_cap_short_circuits() {
         .save_block_output(&BlockOutput {
             id: uuid::Uuid::now_v7(),
             instance_id: instance.id,
-            block_id: BlockId("lp".into()),
+            block_id: BlockId::new("lp"),
             output: json!({"_iterations": 3}),
             output_ref: None,
             output_size: 0,
@@ -385,7 +385,7 @@ async fn loop_preexisting_marker_at_cap_short_circuits() {
 #[tokio::test]
 async fn loop_running_body_does_not_increment_counter() {
     let loop_def = LoopDef {
-        id: BlockId("lp".into()),
+        id: BlockId::new("lp"),
         condition: "true".into(),
         body: vec![mk_step("body")],
         max_iterations: 5,
@@ -411,7 +411,7 @@ async fn loop_running_body_does_not_increment_counter() {
     assert_eq!(find_by_block(&tree, "body").state, NodeState::Running);
     assert!(
         storage
-            .get_block_output(instance.id, &BlockId("lp".into()))
+            .get_block_output(instance.id, &BlockId::new("lp"))
             .await
             .unwrap()
             .is_none(),
@@ -423,7 +423,7 @@ async fn loop_running_body_does_not_increment_counter() {
 #[tokio::test]
 async fn loop_condition_flips_false_mid_run_completes_cleanly() {
     let loop_def = LoopDef {
-        id: BlockId("lp".into()),
+        id: BlockId::new("lp"),
         condition: "keep".into(),
         body: vec![mk_step("body")],
         max_iterations: 10,
@@ -477,7 +477,7 @@ async fn loop_condition_flips_false_mid_run_completes_cleanly() {
 #[tokio::test]
 async fn loop_break_on_exits_when_condition_met() {
     let loop_def = LoopDef {
-        id: BlockId("lp".into()),
+        id: BlockId::new("lp"),
         condition: "true".into(),
         body: vec![mk_step("body")],
         max_iterations: 100,
@@ -522,7 +522,7 @@ async fn loop_break_on_exits_when_condition_met() {
 #[tokio::test]
 async fn loop_break_on_does_not_exit_when_condition_falsy() {
     let loop_def = LoopDef {
-        id: BlockId("lp".into()),
+        id: BlockId::new("lp"),
         condition: "true".into(),
         body: vec![mk_step("body")],
         max_iterations: 100,
@@ -562,7 +562,7 @@ async fn loop_break_on_does_not_exit_when_condition_falsy() {
     assert_eq!(find_by_block(&tree, "body").state, NodeState::Pending);
     // Iteration marker should show 1.
     let marker = storage
-        .get_block_output(instance.id, &BlockId("lp".into()))
+        .get_block_output(instance.id, &BlockId::new("lp"))
         .await
         .unwrap()
         .expect("marker should exist");
@@ -573,7 +573,7 @@ async fn loop_break_on_does_not_exit_when_condition_falsy() {
 #[tokio::test]
 async fn loop_continue_on_error_skips_failed_iteration() {
     let loop_def = LoopDef {
-        id: BlockId("lp".into()),
+        id: BlockId::new("lp"),
         condition: "true".into(),
         body: vec![mk_step("body")],
         max_iterations: 5,
@@ -613,7 +613,7 @@ async fn loop_continue_on_error_skips_failed_iteration() {
     assert_eq!(find_by_block(&tree, "body").state, NodeState::Pending);
     // Iteration counter should advance.
     let marker = storage
-        .get_block_output(instance.id, &BlockId("lp".into()))
+        .get_block_output(instance.id, &BlockId::new("lp"))
         .await
         .unwrap()
         .expect("marker should exist");
@@ -624,7 +624,7 @@ async fn loop_continue_on_error_skips_failed_iteration() {
 #[tokio::test]
 async fn loop_poll_interval_sets_next_fire_at() {
     let loop_def = LoopDef {
-        id: BlockId("lp".into()),
+        id: BlockId::new("lp"),
         condition: "true".into(),
         body: vec![mk_step("body")],
         max_iterations: 10,
@@ -675,7 +675,7 @@ async fn loop_poll_interval_sets_next_fire_at() {
 #[tokio::test]
 async fn for_each_empty_body_completes_immediately() {
     let fe_def = ForEachDef {
-        id: BlockId("fe".into()),
+        id: BlockId::new("fe"),
         collection: "items".into(),
         item_var: "it".into(),
         body: vec![],
@@ -705,7 +705,7 @@ async fn for_each_empty_body_completes_immediately() {
 #[tokio::test]
 async fn for_each_missing_collection_completes() {
     let fe_def = ForEachDef {
-        id: BlockId("fe".into()),
+        id: BlockId::new("fe"),
         collection: "missing".into(),
         item_var: "it".into(),
         body: vec![mk_step("body")],
@@ -736,7 +736,7 @@ async fn for_each_missing_collection_completes() {
 #[tokio::test]
 async fn for_each_non_array_completes() {
     let fe_def = ForEachDef {
-        id: BlockId("fe".into()),
+        id: BlockId::new("fe"),
         collection: "items".into(),
         item_var: "it".into(),
         body: vec![mk_step("body")],
@@ -766,7 +766,7 @@ async fn for_each_non_array_completes() {
 #[tokio::test]
 async fn for_each_empty_collection_completes() {
     let fe_def = ForEachDef {
-        id: BlockId("fe".into()),
+        id: BlockId::new("fe"),
         collection: "items".into(),
         item_var: "it".into(),
         body: vec![mk_step("body")],
@@ -797,7 +797,7 @@ async fn for_each_empty_collection_completes() {
 #[tokio::test]
 async fn for_each_first_tick_binds_item_var_and_activates_body() {
     let fe_def = ForEachDef {
-        id: BlockId("fe".into()),
+        id: BlockId::new("fe"),
         collection: "xs".into(),
         item_var: "cur".into(),
         body: vec![mk_step("body")],
@@ -828,7 +828,7 @@ async fn for_each_first_tick_binds_item_var_and_activates_body() {
 
     // Snapshot marker persisted on first visit.
     let marker = storage
-        .get_block_output(instance.id, &BlockId("fe".into()))
+        .get_block_output(instance.id, &BlockId::new("fe"))
         .await
         .unwrap()
         .expect("snapshot marker persisted");
@@ -857,7 +857,7 @@ async fn for_each_first_tick_binds_item_var_and_activates_body() {
 #[tokio::test]
 async fn for_each_snapshot_is_stable_under_context_mutation() {
     let fe_def = ForEachDef {
-        id: BlockId("fe".into()),
+        id: BlockId::new("fe"),
         collection: "xs".into(),
         item_var: "cur".into(),
         body: vec![mk_step("body")],
@@ -911,7 +911,7 @@ async fn for_each_snapshot_is_stable_under_context_mutation() {
     .await
     .unwrap();
     let marker = storage
-        .get_block_output(instance.id, &BlockId("fe".into()))
+        .get_block_output(instance.id, &BlockId::new("fe"))
         .await
         .unwrap()
         .expect("marker present");
@@ -938,7 +938,7 @@ async fn for_each_snapshot_is_stable_under_context_mutation() {
 #[tokio::test]
 async fn for_each_body_failure_fails_node() {
     let fe_def = ForEachDef {
-        id: BlockId("fe".into()),
+        id: BlockId::new("fe"),
         collection: "xs".into(),
         item_var: "it".into(),
         body: vec![mk_step("body")],
@@ -986,7 +986,7 @@ async fn for_each_body_failure_fails_node() {
 #[tokio::test]
 async fn for_each_max_iterations_caps_below_collection_length() {
     let fe_def = ForEachDef {
-        id: BlockId("fe".into()),
+        id: BlockId::new("fe"),
         collection: "xs".into(),
         item_var: "it".into(),
         body: vec![mk_step("body")],

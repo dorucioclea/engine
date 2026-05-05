@@ -66,7 +66,7 @@ mod tests {
         PoolResource {
             id: Uuid::now_v7(),
             pool_id: Uuid::now_v7(),
-            resource_key: ResourceKey(key.into()),
+            resource_key: ResourceKey::new(key),
             name: key.into(),
             weight,
             enabled: true,
@@ -96,7 +96,7 @@ mod tests {
         let keys: Vec<String> = (0..6)
             .map(|_| {
                 match select_resource(&resources, RotationStrategy::RoundRobin, &mut idx, today()) {
-                    PoolAssignment::Assigned(k) => k.0,
+                    PoolAssignment::Assigned(k) => k.into_string(),
                     _ => panic!("expected assigned"),
                 }
             })
@@ -152,7 +152,7 @@ mod tests {
             if let PoolAssignment::Assigned(k) =
                 select_resource(&resources, RotationStrategy::Weighted, &mut idx, today())
             {
-                if k.0 == "heavy" {
+                if k.into_string() == "heavy" {
                     heavy_count += 1;
                 }
             }
@@ -170,7 +170,7 @@ mod tests {
         let mut idx = 0;
         // Only "b" should be picked (round robin with 1 available)
         match select_resource(&resources, RotationStrategy::RoundRobin, &mut idx, t) {
-            PoolAssignment::Assigned(k) => assert_eq!(k.0, "b"),
+            PoolAssignment::Assigned(k) => assert_eq!(k.into_string(), "b"),
             other => panic!("expected assigned, got {other:?}"),
         }
     }

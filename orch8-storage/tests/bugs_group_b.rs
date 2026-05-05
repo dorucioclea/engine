@@ -44,8 +44,8 @@ fn make_instance(
     TaskInstance {
         id: InstanceId::new(),
         sequence_id: SequenceId::new(),
-        tenant_id: TenantId(tenant.into()),
-        namespace: Namespace("default".into()),
+        tenant_id: TenantId::unchecked(tenant),
+        namespace: Namespace::new("default"),
         state,
         next_fire_at,
         priority: Priority::Normal,
@@ -66,7 +66,7 @@ fn make_task(instance_id: InstanceId, handler: &str) -> WorkerTask {
     WorkerTask {
         id: Uuid::now_v7(),
         instance_id,
-        block_id: BlockId("step_1".into()),
+        block_id: BlockId::new("step_1"),
         handler_name: handler.into(),
         queue_name: None,
         params: json!({}),
@@ -110,7 +110,7 @@ async fn tenant_claim_ignores_other_tenant_tasks() {
 
     // tenant_a poll — must not see task_b.
     let claimed = s
-        .claim_worker_tasks_for_tenant("http_send", "w-a", &TenantId("tenant_a".into()), 10)
+        .claim_worker_tasks_for_tenant("http_send", "w-a", &TenantId::unchecked("tenant_a"), 10)
         .await
         .unwrap();
     assert_eq!(claimed.len(), 1, "only tenant_a's task should be returned");
@@ -124,7 +124,7 @@ async fn tenant_claim_ignores_other_tenant_tasks() {
     assert!(b_fetched.worker_id.is_none());
 
     let b_claimed = s
-        .claim_worker_tasks_for_tenant("http_send", "w-b", &TenantId("tenant_b".into()), 10)
+        .claim_worker_tasks_for_tenant("http_send", "w-b", &TenantId::unchecked("tenant_b"), 10)
         .await
         .unwrap();
     assert_eq!(b_claimed.len(), 1);
@@ -154,7 +154,7 @@ async fn tenant_queue_claim_ignores_other_tenant_tasks() {
             "priority",
             "email_send",
             "w-a",
-            &TenantId("tenant_a".into()),
+            &TenantId::unchecked("tenant_a"),
             10,
         )
         .await

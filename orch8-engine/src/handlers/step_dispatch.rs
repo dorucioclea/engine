@@ -32,7 +32,7 @@ where
     match handler_fn().await {
         Ok(output) => {
             let output_size = serde_json::to_vec(&output)
-                .map_or(0, |v| i32::try_from(v.len()).unwrap_or(i32::MAX));
+                .map_or(0, |v| u32::try_from(v.len()).unwrap_or(u32::MAX));
             let bo = orch8_types::output::BlockOutput {
                 id: uuid::Uuid::now_v7(),
                 instance_id: node.instance_id,
@@ -40,7 +40,7 @@ where
                 output,
                 output_ref: None,
                 output_size,
-                attempt: i16::try_from(attempt).unwrap_or(i16::MAX),
+                attempt: u16::try_from(attempt).unwrap_or(u16::MAX),
                 created_at: chrono::Utc::now(),
             };
             // Output persistence is part of the success contract. Previously
@@ -97,7 +97,7 @@ where
                 "details": details,
             });
             let output_size = serde_json::to_vec(&err_output)
-                .map_or(0, |v| i32::try_from(v.len()).unwrap_or(i32::MAX));
+                .map_or(0, |v| u32::try_from(v.len()).unwrap_or(u32::MAX));
             let bo = orch8_types::output::BlockOutput {
                 id: uuid::Uuid::now_v7(),
                 instance_id: node.instance_id,
@@ -105,7 +105,7 @@ where
                 output: err_output,
                 output_ref: Some("__error__".into()),
                 output_size,
-                attempt: i16::try_from(attempt).unwrap_or(i16::MAX),
+                attempt: u16::try_from(attempt).unwrap_or(u16::MAX),
                 created_at: chrono::Utc::now(),
             };
             if let Err(persist_err) = storage.save_block_output(&bo).await {
@@ -159,7 +159,7 @@ pub(crate) async fn dispatch_step_to_external_worker(
         // filter on its own.
         context: serde_json::to_value(step_context)
             .map_err(orch8_types::error::StorageError::Serialization)?,
-        attempt: i16::try_from(attempt).unwrap_or(i16::MAX),
+        attempt: u16::try_from(attempt).unwrap_or(u16::MAX),
         timeout_ms: step_def
             .timeout
             .map(|d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX)),
@@ -268,8 +268,8 @@ mod tests {
         TaskInstance {
             id,
             sequence_id: SequenceId::new(),
-            tenant_id: TenantId("t".into()),
-            namespace: Namespace("ns".into()),
+            tenant_id: TenantId::unchecked("t"),
+            namespace: Namespace::new("ns"),
             state: InstanceState::Running,
             next_fire_at: None,
             priority: Priority::Normal,
@@ -291,7 +291,7 @@ mod tests {
             id: ExecutionNodeId::new(),
             instance_id,
             parent_id: None,
-            block_id: BlockId(block_id.into()),
+            block_id: BlockId::new(block_id),
             block_type: BlockType::Step,
             state,
             branch_index: None,
@@ -323,7 +323,7 @@ mod tests {
         assert_eq!(tree[0].state, NodeState::Completed);
 
         let output = s
-            .get_block_output(inst.id, &BlockId("step1".into()))
+            .get_block_output(inst.id, &BlockId::new("step1"))
             .await
             .unwrap();
         assert!(output.is_some());
@@ -354,7 +354,7 @@ mod tests {
         assert_eq!(tree[0].state, NodeState::Failed);
 
         let output = s
-            .get_block_output(inst.id, &BlockId("step_fail".into()))
+            .get_block_output(inst.id, &BlockId::new("step_fail"))
             .await
             .unwrap();
         assert!(output.is_some());
@@ -384,7 +384,7 @@ mod tests {
 
         assert!(!result);
         let output = s
-            .get_block_output(inst.id, &BlockId("step_retry".into()))
+            .get_block_output(inst.id, &BlockId::new("step_retry"))
             .await
             .unwrap()
             .unwrap();
@@ -406,7 +406,7 @@ mod tests {
         let node = mk_node(inst.id, "ext_step", NodeState::Waiting);
         s.create_execution_node(&node).await.unwrap();
 
-        complete_external_step_node(&s, inst.id, &BlockId("ext_step".into()))
+        complete_external_step_node(&s, inst.id, &BlockId::new("ext_step"))
             .await
             .unwrap();
 
@@ -423,7 +423,7 @@ mod tests {
         let node = mk_node(inst.id, "ext_step", NodeState::Waiting);
         s.create_execution_node(&node).await.unwrap();
 
-        fail_external_step_node(&s, inst.id, &BlockId("ext_step".into()))
+        fail_external_step_node(&s, inst.id, &BlockId::new("ext_step"))
             .await
             .unwrap();
 
@@ -441,7 +441,7 @@ mod tests {
         let node = mk_node(inst.id, "done_step", NodeState::Completed);
         s.create_execution_node(&node).await.unwrap();
 
-        complete_external_step_node(&s, inst.id, &BlockId("done_step".into()))
+        complete_external_step_node(&s, inst.id, &BlockId::new("done_step"))
             .await
             .unwrap();
 
@@ -456,7 +456,7 @@ mod tests {
         s.create_instance(&inst).await.unwrap();
 
         // No nodes at all for this instance
-        fail_external_step_node(&s, inst.id, &BlockId("ghost".into()))
+        fail_external_step_node(&s, inst.id, &BlockId::new("ghost"))
             .await
             .unwrap();
     }
@@ -549,7 +549,7 @@ mod tests {
         s.create_execution_node(&node).await.unwrap();
 
         let step_def = StepDef {
-            id: BlockId("ext".into()),
+            id: BlockId::new("ext"),
             handler: "http".into(),
             params: json!({}),
             delay: None,

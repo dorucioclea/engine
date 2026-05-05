@@ -17,9 +17,9 @@ pub(super) async fn create(
     sqlx::query(
         "INSERT INTO sequences (id, tenant_id, namespace, name, version, deprecated, blocks, interceptors, created_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)"
     )
-    .bind(seq.id.0.to_string())
-    .bind(&seq.tenant_id.0)
-    .bind(&seq.namespace.0)
+    .bind(seq.id.into_uuid().to_string())
+    .bind(&seq.tenant_id.as_str())
+    .bind(&seq.namespace.as_str())
     .bind(&seq.name)
     .bind(seq.version)
     .bind(seq.deprecated as i32)
@@ -35,7 +35,7 @@ pub(super) async fn get(
     id: SequenceId,
 ) -> Result<Option<orch8_types::sequence::SequenceDefinition>, StorageError> {
     let row = sqlx::query("SELECT * FROM sequences WHERE id = ?1")
-        .bind(id.0.to_string())
+        .bind(id.to_string())
         .fetch_optional(&storage.pool)
         .await?;
     row.map(|r| row_to_sequence(&r)).transpose()
@@ -50,11 +50,11 @@ pub(super) async fn get_by_name(
 ) -> Result<Option<orch8_types::sequence::SequenceDefinition>, StorageError> {
     let row = if let Some(v) = version {
         sqlx::query("SELECT * FROM sequences WHERE tenant_id=?1 AND namespace=?2 AND name=?3 AND version=?4")
-            .bind(&tenant_id.0).bind(&namespace.0).bind(name).bind(v)
+            .bind(tenant_id.as_str()).bind(namespace.as_str()).bind(name).bind(v)
             .fetch_optional(&storage.pool).await
     } else {
         sqlx::query("SELECT * FROM sequences WHERE tenant_id=?1 AND namespace=?2 AND name=?3 AND deprecated=0 ORDER BY version DESC LIMIT 1")
-            .bind(&tenant_id.0).bind(&namespace.0).bind(name)
+            .bind(tenant_id.as_str()).bind(namespace.as_str()).bind(name)
             .fetch_optional(&storage.pool).await
     }?;
     row.map(|r| row_to_sequence(&r)).transpose()
@@ -67,7 +67,7 @@ pub(super) async fn list_versions(
     name: &str,
 ) -> Result<Vec<orch8_types::sequence::SequenceDefinition>, StorageError> {
     let rows = sqlx::query("SELECT * FROM sequences WHERE tenant_id=?1 AND namespace=?2 AND name=?3 AND deprecated=0 ORDER BY version DESC")
-        .bind(&tenant_id.0).bind(&namespace.0).bind(name)
+        .bind(tenant_id.as_str()).bind(namespace.as_str()).bind(name)
         .fetch_all(&storage.pool).await?;
     rows.iter().map(row_to_sequence).collect()
 }
@@ -82,11 +82,11 @@ pub(super) async fn list_all(
     let mut qb = sqlx::QueryBuilder::new("SELECT * FROM sequences WHERE 1=1");
     if let Some(t) = tenant_id {
         qb.push(" AND tenant_id = ");
-        qb.push_bind(&t.0);
+        qb.push_bind(t.as_str().to_owned());
     }
     if let Some(n) = namespace {
         qb.push(" AND namespace = ");
-        qb.push_bind(&n.0);
+        qb.push_bind(n.as_str().to_owned());
     }
     qb.push(" ORDER BY tenant_id, namespace, name, version DESC LIMIT ");
     qb.push_bind(limit as i64);
@@ -99,7 +99,7 @@ pub(super) async fn list_all(
 
 pub(super) async fn deprecate(storage: &SqliteStorage, id: SequenceId) -> Result<(), StorageError> {
     sqlx::query("UPDATE sequences SET deprecated=1 WHERE id=?1")
-        .bind(id.0.to_string())
+        .bind(id.to_string())
         .execute(&storage.pool)
         .await?;
     Ok(())
@@ -108,7 +108,7 @@ pub(super) async fn deprecate(storage: &SqliteStorage, id: SequenceId) -> Result
 pub(super) async fn delete(storage: &SqliteStorage, id: SequenceId) -> Result<(), StorageError> {
     let mut tx = storage.pool.begin().await?;
 
-    let id_str = id.0.to_string();
+    let id_str = id.to_string();
 
     // Gather instance IDs referencing this sequence.
     let instance_ids: Vec<String> =

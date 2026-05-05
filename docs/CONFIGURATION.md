@@ -13,7 +13,7 @@ Controls the storage backend and connection pool.
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `backend` | string | `"postgres"` | Storage backend. `"sqlite"` or `"postgres"` |
-| `url` | string | `"postgres://orch8:orch8@localhost:5432/orch8"` | Connection URL. For SQLite: `"sqlite://orch8.db"` |
+| `url` | string | — | Connection URL (required). Postgres: `"postgres://user:pass@host:5432/db"`. SQLite: `"sqlite://orch8.db"` |
 | `max_connections` | integer | `64` | Connection pool size |
 | `run_migrations` | bool | `true` | Automatically apply schema migrations on startup |
 
@@ -68,9 +68,9 @@ Controls the HTTP and gRPC servers, authentication, CORS, and rate limiting.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `http_addr` | string | `"0.0.0.0:8080"` | HTTP API listen address |
-| `grpc_addr` | string | `"0.0.0.0:50051"` | gRPC API listen address |
-| `cors_origins` | string | `"*"` | CORS `Access-Control-Allow-Origin` value. Use `*` to allow all origins or a comma-separated list of specific origins |
+| `http_addr` | string | `"127.0.0.1:8080"` | HTTP API listen address |
+| `grpc_addr` | string | `"127.0.0.1:50051"` | gRPC API listen address |
+| `cors_origins` | string | `""` | CORS `Access-Control-Allow-Origin` value. Empty means no CORS headers. Use `*` to allow all origins or a comma-separated list of specific origins |
 | `api_key` | string | `""` | If set, all requests must include `Authorization: Bearer <key>`. Empty means no authentication |
 | `require_tenant_header` | bool | `false` | If `true`, all requests must include `X-Tenant-Id`. Requests without it receive `400 Bad Request` |
 | `max_concurrent_requests` | integer | `0` | Global cap on in-flight HTTP requests (0 = unlimited). This is a concurrency limit, not an RPS limiter. Accepts the legacy alias `rate_limit_rps`. |
@@ -94,30 +94,30 @@ All config fields can be set via `ORCH8_*` environment variables. Environment va
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `ORCH8_DATABASE_BACKEND` | `postgres` | `sqlite` or `postgres` |
-| `ORCH8_DATABASE_URL` | `postgres://orch8:orch8@localhost:5432/orch8` | Connection string |
+| `ORCH8_STORAGE_BACKEND` | `postgres` | `sqlite` or `postgres` |
+| `ORCH8_DATABASE_URL` | — | Connection string (required) |
 | `ORCH8_DATABASE_MAX_CONNECTIONS` | `64` | Connection pool size |
-| `ORCH8_DATABASE_RUN_MIGRATIONS` | `true` | Auto-run migrations on startup |
 
 ### Engine
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `ORCH8_TICK_INTERVAL_MS` | `100` | Scheduler tick interval (ms) |
-| `ORCH8_MAX_INSTANCES_PER_TICK` | `256` | Batch size per tick |
+| `ORCH8_BATCH_SIZE` | `256` | Batch size per tick |
 | `ORCH8_MAX_CONCURRENT_STEPS` | `128` | Semaphore limit for step execution |
-| `ORCH8_SHUTDOWN_GRACE_PERIOD_SECS` | `30` | Graceful shutdown timeout |
-| `ORCH8_STALE_THRESHOLD_SECS` | `300` | Stale instance recovery threshold |
+| `ORCH8_MAX_INSTANCES_PER_TENANT` | `0` | Per-tenant claim limit (0 = unlimited) |
 | `ORCH8_ENCRYPTION_KEY` | — | 64 hex chars for AES-256-GCM encryption at rest |
 | `ORCH8_CRON_TICK_SECS` | `10` | Cron loop check interval (seconds) |
+| `ORCH8_EXTERNALIZE_THRESHOLD` | `0` | Externalize outputs larger than N bytes (0 = disabled) |
+| `ORCH8_WEBHOOK_URLS` | — | Comma-separated webhook endpoint URLs |
 
 ### API
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `ORCH8_HTTP_ADDR` | `0.0.0.0:8080` | HTTP listen address |
-| `ORCH8_GRPC_ADDR` | `0.0.0.0:50051` | gRPC listen address |
-| `ORCH8_CORS_ORIGINS` | `*` | CORS allowed origins |
+| `ORCH8_HTTP_ADDR` | `127.0.0.1:8080` | HTTP listen address |
+| `ORCH8_GRPC_ADDR` | `127.0.0.1:50051` | gRPC listen address |
+| `ORCH8_CORS_ORIGINS` | — | CORS allowed origins (empty = no CORS headers) |
 | `ORCH8_API_KEY` | — | Set to enable API key authentication |
 | `ORCH8_REQUIRE_TENANT_HEADER` | `false` | Enforce `X-Tenant-Id` header |
 | `ORCH8_MAX_CONCURRENT_REQUESTS` | `0` | Global in-flight request cap (0 = unlimited). Legacy `ORCH8_RATE_LIMIT_RPS` still accepted. |

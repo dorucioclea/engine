@@ -29,7 +29,7 @@ use orch8_types::signal::{Signal, SignalType};
 
 fn mk_step(id: &str, handler: &str) -> BlockDefinition {
     BlockDefinition::Step(Box::new(StepDef {
-        id: BlockId(id.into()),
+        id: BlockId::new(id),
         handler: handler.into(),
         params: json!({}),
         delay: None,
@@ -51,7 +51,7 @@ fn mk_step(id: &str, handler: &str) -> BlockDefinition {
 #[allow(dead_code)]
 fn mk_step_with_params(id: &str, handler: &str, params: serde_json::Value) -> BlockDefinition {
     BlockDefinition::Step(Box::new(StepDef {
-        id: BlockId(id.into()),
+        id: BlockId::new(id),
         handler: handler.into(),
         params,
         delay: None,
@@ -72,7 +72,7 @@ fn mk_step_with_params(id: &str, handler: &str, params: serde_json::Value) -> Bl
 
 fn mk_step_with_retry(id: &str, handler: &str, max_attempts: u32) -> BlockDefinition {
     BlockDefinition::Step(Box::new(StepDef {
-        id: BlockId(id.into()),
+        id: BlockId::new(id),
         handler: handler.into(),
         params: json!({}),
         delay: None,
@@ -98,7 +98,7 @@ fn mk_step_with_retry(id: &str, handler: &str, max_attempts: u32) -> BlockDefini
 
 fn mk_non_cancellable_step(id: &str, handler: &str) -> BlockDefinition {
     BlockDefinition::Step(Box::new(StepDef {
-        id: BlockId(id.into()),
+        id: BlockId::new(id),
         handler: handler.into(),
         params: json!({}),
         delay: None,
@@ -120,8 +120,8 @@ fn mk_non_cancellable_step(id: &str, handler: &str) -> BlockDefinition {
 fn mk_sequence(blocks: Vec<BlockDefinition>) -> SequenceDefinition {
     SequenceDefinition {
         id: SequenceId::new(),
-        tenant_id: TenantId("t".into()),
-        namespace: Namespace("ns".into()),
+        tenant_id: TenantId::unchecked("t"),
+        namespace: Namespace::new("ns"),
         name: "test-flow".into(),
         version: 1,
         deprecated: false,
@@ -140,8 +140,8 @@ fn mk_instance_with_ctx(seq_id: SequenceId, data: serde_json::Value) -> TaskInst
     TaskInstance {
         id: InstanceId::new(),
         sequence_id: seq_id,
-        tenant_id: TenantId("t".into()),
-        namespace: Namespace("ns".into()),
+        tenant_id: TenantId::unchecked("t"),
+        namespace: Namespace::new("ns"),
         state: InstanceState::Running,
         next_fire_at: None,
         priority: Priority::Normal,
@@ -255,7 +255,7 @@ async fn drive_n(
 
 fn node_state(tree: &[orch8_types::execution::ExecutionNode], block_id: &str) -> NodeState {
     tree.iter()
-        .find(|n| n.block_id.0 == block_id)
+        .find(|n| n.block_id.as_str() == block_id)
         .unwrap_or_else(|| panic!("node '{block_id}' not found in tree"))
         .state
 }
@@ -410,7 +410,7 @@ async fn sequential_step_failure_stops_sequence() {
 #[tokio::test]
 async fn ab_split_routes_to_one_variant() {
     let ab = BlockDefinition::ABSplit(Box::new(ABSplitDef {
-        id: BlockId("ab".into()),
+        id: BlockId::new("ab"),
         variants: vec![
             ABVariant {
                 name: "control".into(),
@@ -431,8 +431,8 @@ async fn ab_split_routes_to_one_variant() {
     // The AB split node itself should complete.
     assert_eq!(node_state(&tree, "ab"), NodeState::Completed);
     // Exactly one branch should have run.
-    let ctrl = tree.iter().find(|n| n.block_id.0 == "ctrl_step");
-    let var_a = tree.iter().find(|n| n.block_id.0 == "var_a_step");
+    let ctrl = tree.iter().find(|n| n.block_id.as_str() == "ctrl_step");
+    let var_a = tree.iter().find(|n| n.block_id.as_str() == "var_a_step");
     let completed_count = [ctrl, var_a]
         .iter()
         .filter(|n| n.is_some_and(|n| n.state == NodeState::Completed))
@@ -443,7 +443,7 @@ async fn ab_split_routes_to_one_variant() {
 #[tokio::test]
 async fn ab_split_single_variant_always_chosen() {
     let ab = BlockDefinition::ABSplit(Box::new(ABSplitDef {
-        id: BlockId("ab".into()),
+        id: BlockId::new("ab"),
         variants: vec![ABVariant {
             name: "only".into(),
             weight: 100,
@@ -461,7 +461,7 @@ async fn ab_split_single_variant_always_chosen() {
 #[tokio::test]
 async fn ab_split_failure_in_chosen_variant_fails_split() {
     let ab = BlockDefinition::ABSplit(Box::new(ABSplitDef {
-        id: BlockId("ab".into()),
+        id: BlockId::new("ab"),
         variants: vec![ABVariant {
             name: "only".into(),
             weight: 100,
@@ -484,8 +484,8 @@ async fn sub_sequence_spawns_child_and_enters_waiting() {
     // Create the child sequence first.
     let child_seq = SequenceDefinition {
         id: SequenceId::new(),
-        tenant_id: TenantId("t".into()),
-        namespace: Namespace("ns".into()),
+        tenant_id: TenantId::unchecked("t"),
+        namespace: Namespace::new("ns"),
         name: "child-flow".into(),
         version: 1,
         deprecated: false,
@@ -498,13 +498,13 @@ async fn sub_sequence_spawns_child_and_enters_waiting() {
     // Parent sequence with SubSequence block.
     let parent_seq = SequenceDefinition {
         id: SequenceId::new(),
-        tenant_id: TenantId("t".into()),
-        namespace: Namespace("ns".into()),
+        tenant_id: TenantId::unchecked("t"),
+        namespace: Namespace::new("ns"),
         name: "parent-flow".into(),
         version: 1,
         deprecated: false,
         blocks: vec![BlockDefinition::SubSequence(Box::new(SubSequenceDef {
-            id: BlockId("sub".into()),
+            id: BlockId::new("sub"),
             sequence_name: "child-flow".into(),
             version: None,
             input: json!({}),
@@ -531,7 +531,7 @@ async fn sub_sequence_spawns_child_and_enters_waiting() {
 #[tokio::test]
 async fn cancellation_scope_protects_blocks() {
     let scope = BlockDefinition::CancellationScope(Box::new(CancellationScopeDef {
-        id: BlockId("scope".into()),
+        id: BlockId::new("scope"),
         blocks: vec![mk_step("protected", "noop")],
     }));
     let (storage, seq, inst) = setup(vec![scope]).await;
@@ -547,7 +547,7 @@ async fn cancellation_scope_protects_blocks() {
 #[tokio::test]
 async fn for_each_iterates_over_array() {
     let fe = BlockDefinition::ForEach(Box::new(ForEachDef {
-        id: BlockId("fe".into()),
+        id: BlockId::new("fe"),
         collection: "items".into(),
         item_var: "item".into(),
         body: vec![mk_step("body", "noop")],
@@ -563,7 +563,7 @@ async fn for_each_iterates_over_array() {
 #[tokio::test]
 async fn for_each_empty_collection_completes_immediately() {
     let fe = BlockDefinition::ForEach(Box::new(ForEachDef {
-        id: BlockId("fe".into()),
+        id: BlockId::new("fe"),
         collection: "items".into(),
         item_var: "item".into(),
         body: vec![mk_step("body", "noop")],
@@ -579,7 +579,7 @@ async fn for_each_empty_collection_completes_immediately() {
 #[tokio::test]
 async fn for_each_failure_in_body_fails_foreach() {
     let fe = BlockDefinition::ForEach(Box::new(ForEachDef {
-        id: BlockId("fe".into()),
+        id: BlockId::new("fe"),
         collection: "items".into(),
         item_var: "item".into(),
         body: vec![mk_step("body", "fail")],
@@ -597,7 +597,7 @@ async fn for_each_failure_in_body_fails_foreach() {
 #[tokio::test]
 async fn loop_condition_false_immediately_completes() {
     let lp = BlockDefinition::Loop(Box::new(LoopDef {
-        id: BlockId("lp".into()),
+        id: BlockId::new("lp"),
         condition: "false".into(),
         body: vec![mk_step("body", "noop")],
         max_iterations: 10,
@@ -615,7 +615,7 @@ async fn loop_condition_false_immediately_completes() {
 #[tokio::test]
 async fn loop_runs_until_max_iterations() {
     let lp = BlockDefinition::Loop(Box::new(LoopDef {
-        id: BlockId("lp".into()),
+        id: BlockId::new("lp"),
         condition: "true".into(),
         body: vec![mk_step("body", "noop")],
         max_iterations: 5,
@@ -633,7 +633,7 @@ async fn loop_runs_until_max_iterations() {
 #[tokio::test]
 async fn loop_body_failure_fails_loop() {
     let lp = BlockDefinition::Loop(Box::new(LoopDef {
-        id: BlockId("lp".into()),
+        id: BlockId::new("lp"),
         condition: "true".into(),
         body: vec![mk_step("body", "fail")],
         max_iterations: 5,
@@ -653,7 +653,7 @@ async fn loop_body_failure_fails_loop() {
 #[tokio::test]
 async fn router_matches_first_true_route() {
     let router = BlockDefinition::Router(Box::new(RouterDef {
-        id: BlockId("r".into()),
+        id: BlockId::new("r"),
         routes: vec![
             Route {
                 condition: "false".into(),
@@ -677,7 +677,7 @@ async fn router_matches_first_true_route() {
 #[tokio::test]
 async fn router_uses_default_when_no_match() {
     let router = BlockDefinition::Router(Box::new(RouterDef {
-        id: BlockId("r".into()),
+        id: BlockId::new("r"),
         routes: vec![Route {
             condition: "false".into(),
             blocks: vec![mk_step("r1", "noop")],
@@ -695,7 +695,7 @@ async fn router_uses_default_when_no_match() {
 #[tokio::test]
 async fn router_with_context_condition() {
     let router = BlockDefinition::Router(Box::new(RouterDef {
-        id: BlockId("r".into()),
+        id: BlockId::new("r"),
         routes: vec![
             Route {
                 condition: "tier == \"premium\"".into(),
@@ -721,7 +721,7 @@ async fn router_with_context_condition() {
 #[tokio::test]
 async fn parallel_all_branches_complete() {
     let par = BlockDefinition::Parallel(Box::new(ParallelDef {
-        id: BlockId("par".into()),
+        id: BlockId::new("par"),
         branches: vec![
             vec![mk_step("b0", "noop")],
             vec![mk_step("b1", "noop")],
@@ -741,7 +741,7 @@ async fn parallel_all_branches_complete() {
 #[tokio::test]
 async fn parallel_one_branch_failure_fails_parallel() {
     let par = BlockDefinition::Parallel(Box::new(ParallelDef {
-        id: BlockId("par".into()),
+        id: BlockId::new("par"),
         branches: vec![vec![mk_step("b0", "noop")], vec![mk_step("b1", "fail")]],
     }));
     let (storage, seq, inst) = setup(vec![par]).await;
@@ -754,7 +754,7 @@ async fn parallel_one_branch_failure_fails_parallel() {
 #[tokio::test]
 async fn parallel_with_multi_step_branches() {
     let par = BlockDefinition::Parallel(Box::new(ParallelDef {
-        id: BlockId("par".into()),
+        id: BlockId::new("par"),
         branches: vec![
             vec![mk_step("b0s0", "noop"), mk_step("b0s1", "noop")],
             vec![mk_step("b1s0", "noop")],
@@ -775,7 +775,7 @@ async fn parallel_with_multi_step_branches() {
 #[tokio::test]
 async fn try_catch_success_skips_catch() {
     let tc = BlockDefinition::TryCatch(Box::new(TryCatchDef {
-        id: BlockId("tc".into()),
+        id: BlockId::new("tc"),
         try_block: vec![mk_step("t1", "noop")],
         catch_block: vec![mk_step("c1", "noop")],
         finally_block: None,
@@ -792,7 +792,7 @@ async fn try_catch_success_skips_catch() {
 #[tokio::test]
 async fn try_catch_failure_runs_catch() {
     let tc = BlockDefinition::TryCatch(Box::new(TryCatchDef {
-        id: BlockId("tc".into()),
+        id: BlockId::new("tc"),
         try_block: vec![mk_step("t1", "fail")],
         catch_block: vec![mk_step("c1", "noop")],
         finally_block: None,
@@ -809,7 +809,7 @@ async fn try_catch_failure_runs_catch() {
 #[tokio::test]
 async fn try_catch_with_finally_always_runs() {
     let tc = BlockDefinition::TryCatch(Box::new(TryCatchDef {
-        id: BlockId("tc".into()),
+        id: BlockId::new("tc"),
         try_block: vec![mk_step("t1", "fail")],
         catch_block: vec![mk_step("c1", "noop")],
         finally_block: Some(vec![mk_step("f1", "noop")]),
@@ -939,10 +939,10 @@ async fn non_cancellable_step_completes_before_cancel() {
 #[tokio::test]
 async fn nested_parallel_in_loop() {
     let lp = BlockDefinition::Loop(Box::new(LoopDef {
-        id: BlockId("lp".into()),
+        id: BlockId::new("lp"),
         condition: "true".into(),
         body: vec![BlockDefinition::Parallel(Box::new(ParallelDef {
-            id: BlockId("par".into()),
+            id: BlockId::new("par"),
             branches: vec![vec![mk_step("b0", "noop")], vec![mk_step("b1", "noop")]],
         }))],
         max_iterations: 3,
@@ -960,10 +960,10 @@ async fn nested_parallel_in_loop() {
 #[tokio::test]
 async fn nested_try_catch_in_parallel() {
     let par = BlockDefinition::Parallel(Box::new(ParallelDef {
-        id: BlockId("par".into()),
+        id: BlockId::new("par"),
         branches: vec![
             vec![BlockDefinition::TryCatch(Box::new(TryCatchDef {
-                id: BlockId("tc".into()),
+                id: BlockId::new("tc"),
                 try_block: vec![mk_step("t1", "fail")],
                 catch_block: vec![mk_step("c1", "noop")],
                 finally_block: None,
@@ -983,11 +983,11 @@ async fn nested_try_catch_in_parallel() {
 #[tokio::test]
 async fn nested_loop_in_for_each() {
     let fe = BlockDefinition::ForEach(Box::new(ForEachDef {
-        id: BlockId("fe".into()),
+        id: BlockId::new("fe"),
         collection: "items".into(),
         item_var: "item".into(),
         body: vec![BlockDefinition::Loop(Box::new(LoopDef {
-            id: BlockId("inner_lp".into()),
+            id: BlockId::new("inner_lp"),
             condition: "true".into(),
             body: vec![mk_step("inner_body", "noop")],
             max_iterations: 2,
@@ -1009,7 +1009,7 @@ async fn nested_loop_in_for_each() {
 #[tokio::test]
 async fn router_numeric_condition() {
     let router = BlockDefinition::Router(Box::new(RouterDef {
-        id: BlockId("r".into()),
+        id: BlockId::new("r"),
         routes: vec![
             Route {
                 condition: "score > 80".into(),
@@ -1037,7 +1037,7 @@ async fn loop_with_context_condition() {
     // Loop condition references context; since noop doesn't change context,
     // condition stays truthy until max_iterations.
     let lp = BlockDefinition::Loop(Box::new(LoopDef {
-        id: BlockId("lp".into()),
+        id: BlockId::new("lp"),
         condition: "active".into(),
         body: vec![mk_step("body", "noop")],
         max_iterations: 3,
@@ -1057,7 +1057,7 @@ async fn loop_with_context_condition() {
 #[tokio::test]
 async fn permanent_failure_caught_by_try_catch() {
     let tc = BlockDefinition::TryCatch(Box::new(TryCatchDef {
-        id: BlockId("tc".into()),
+        id: BlockId::new("tc"),
         try_block: vec![mk_step("t1", "fail")],
         catch_block: vec![mk_step("c1", "noop")],
         finally_block: None,
@@ -1076,7 +1076,7 @@ async fn permanent_failure_caught_by_try_catch() {
 #[tokio::test]
 async fn failure_inside_loop_fails_loop() {
     let lp = BlockDefinition::Loop(Box::new(LoopDef {
-        id: BlockId("lp".into()),
+        id: BlockId::new("lp"),
         condition: "true".into(),
         body: vec![mk_step("body", "fail")],
         max_iterations: 2,
@@ -1096,7 +1096,7 @@ async fn failure_inside_loop_fails_loop() {
 #[tokio::test]
 async fn for_each_respects_max_iterations() {
     let fe = BlockDefinition::ForEach(Box::new(ForEachDef {
-        id: BlockId("fe".into()),
+        id: BlockId::new("fe"),
         collection: "items".into(),
         item_var: "item".into(),
         body: vec![mk_step("body", "noop")],
@@ -1114,7 +1114,7 @@ async fn for_each_respects_max_iterations() {
 #[tokio::test]
 async fn race_first_to_complete_wins() {
     let race = BlockDefinition::Race(Box::new(orch8_types::sequence::RaceDef {
-        id: BlockId("race".into()),
+        id: BlockId::new("race"),
         branches: vec![
             vec![mk_step("fast", "noop")],
             vec![mk_step("slow_s1", "noop"), mk_step("slow_s2", "noop")],
@@ -1134,7 +1134,7 @@ async fn race_first_to_complete_wins() {
 #[tokio::test]
 async fn step_after_parallel_runs() {
     let par = BlockDefinition::Parallel(Box::new(ParallelDef {
-        id: BlockId("par".into()),
+        id: BlockId::new("par"),
         branches: vec![vec![mk_step("b0", "noop")], vec![mk_step("b1", "noop")]],
     }));
     let (storage, seq, inst) = setup(vec![par, mk_step("after", "noop")]).await;
@@ -1148,7 +1148,7 @@ async fn step_after_parallel_runs() {
 #[tokio::test]
 async fn step_after_loop_runs() {
     let lp = BlockDefinition::Loop(Box::new(LoopDef {
-        id: BlockId("lp".into()),
+        id: BlockId::new("lp"),
         condition: "true".into(),
         body: vec![mk_step("body", "noop")],
         max_iterations: 2,
@@ -1167,7 +1167,7 @@ async fn step_after_loop_runs() {
 #[tokio::test]
 async fn step_after_try_catch_runs() {
     let tc = BlockDefinition::TryCatch(Box::new(TryCatchDef {
-        id: BlockId("tc".into()),
+        id: BlockId::new("tc"),
         try_block: vec![mk_step("t1", "noop")],
         catch_block: vec![mk_step("c1", "noop")],
         finally_block: None,
@@ -1187,12 +1187,12 @@ async fn step_after_try_catch_runs() {
 #[tokio::test]
 async fn deeply_nested_parallel_in_try_catch_in_loop() {
     let lp = BlockDefinition::Loop(Box::new(LoopDef {
-        id: BlockId("lp".into()),
+        id: BlockId::new("lp"),
         condition: "true".into(),
         body: vec![BlockDefinition::TryCatch(Box::new(TryCatchDef {
-            id: BlockId("tc".into()),
+            id: BlockId::new("tc"),
             try_block: vec![BlockDefinition::Parallel(Box::new(ParallelDef {
-                id: BlockId("par".into()),
+                id: BlockId::new("par"),
                 branches: vec![vec![mk_step("b0", "noop")], vec![mk_step("b1", "noop")]],
             }))],
             catch_block: vec![mk_step("c1", "noop")],
@@ -1213,10 +1213,10 @@ async fn deeply_nested_parallel_in_try_catch_in_loop() {
 #[tokio::test]
 async fn router_inside_parallel_branch() {
     let par = BlockDefinition::Parallel(Box::new(ParallelDef {
-        id: BlockId("par".into()),
+        id: BlockId::new("par"),
         branches: vec![
             vec![BlockDefinition::Router(Box::new(RouterDef {
-                id: BlockId("r".into()),
+                id: BlockId::new("r"),
                 routes: vec![Route {
                     condition: "true".into(),
                     blocks: vec![mk_step("routed", "noop")],
@@ -1237,11 +1237,11 @@ async fn router_inside_parallel_branch() {
 #[tokio::test]
 async fn for_each_with_nested_router() {
     let fe = BlockDefinition::ForEach(Box::new(ForEachDef {
-        id: BlockId("fe".into()),
+        id: BlockId::new("fe"),
         collection: "items".into(),
         item_var: "item".into(),
         body: vec![BlockDefinition::Router(Box::new(RouterDef {
-            id: BlockId("r".into()),
+            id: BlockId::new("r"),
             routes: vec![Route {
                 condition: "true".into(),
                 blocks: vec![mk_step("routed", "noop")],
@@ -1260,11 +1260,11 @@ async fn for_each_with_nested_router() {
 #[tokio::test]
 async fn try_catch_in_for_each_catches_per_iteration() {
     let fe = BlockDefinition::ForEach(Box::new(ForEachDef {
-        id: BlockId("fe".into()),
+        id: BlockId::new("fe"),
         collection: "items".into(),
         item_var: "item".into(),
         body: vec![BlockDefinition::TryCatch(Box::new(TryCatchDef {
-            id: BlockId("tc".into()),
+            id: BlockId::new("tc"),
             try_block: vec![mk_step("t1", "fail")],
             catch_block: vec![mk_step("c1", "noop")],
             finally_block: None,
@@ -1282,10 +1282,10 @@ async fn try_catch_in_for_each_catches_per_iteration() {
 #[tokio::test]
 async fn loop_with_parallel_body() {
     let lp = BlockDefinition::Loop(Box::new(LoopDef {
-        id: BlockId("lp".into()),
+        id: BlockId::new("lp"),
         condition: "true".into(),
         body: vec![BlockDefinition::Parallel(Box::new(ParallelDef {
-            id: BlockId("par".into()),
+            id: BlockId::new("par"),
             branches: vec![vec![mk_step("b0", "noop")], vec![mk_step("b1", "noop")]],
         }))],
         max_iterations: 3,
@@ -1303,7 +1303,7 @@ async fn loop_with_parallel_body() {
 #[tokio::test]
 async fn empty_parallel_completes() {
     let par = BlockDefinition::Parallel(Box::new(ParallelDef {
-        id: BlockId("par".into()),
+        id: BlockId::new("par"),
         branches: vec![],
     }));
     let (storage, seq, inst) = setup(vec![par]).await;
@@ -1350,7 +1350,7 @@ async fn ten_sequential_steps_all_complete() {
 #[tokio::test]
 async fn cancellation_scope_with_multiple_steps() {
     let scope = BlockDefinition::CancellationScope(Box::new(CancellationScopeDef {
-        id: BlockId("scope".into()),
+        id: BlockId::new("scope"),
         blocks: vec![
             mk_step("p1", "noop"),
             mk_step("p2", "noop"),
@@ -1370,7 +1370,7 @@ async fn cancellation_scope_with_multiple_steps() {
 #[tokio::test]
 async fn ab_split_with_multiple_steps_in_variant() {
     let ab = BlockDefinition::ABSplit(Box::new(ABSplitDef {
-        id: BlockId("ab".into()),
+        id: BlockId::new("ab"),
         variants: vec![ABVariant {
             name: "only".into(),
             weight: 100,
@@ -1389,7 +1389,7 @@ async fn ab_split_with_multiple_steps_in_variant() {
 #[tokio::test]
 async fn for_each_single_item_collection() {
     let fe = BlockDefinition::ForEach(Box::new(ForEachDef {
-        id: BlockId("fe".into()),
+        id: BlockId::new("fe"),
         collection: "items".into(),
         item_var: "item".into(),
         body: vec![mk_step("body", "noop")],
@@ -1405,7 +1405,7 @@ async fn for_each_single_item_collection() {
 #[tokio::test]
 async fn loop_single_iteration() {
     let lp = BlockDefinition::Loop(Box::new(LoopDef {
-        id: BlockId("lp".into()),
+        id: BlockId::new("lp"),
         condition: "true".into(),
         body: vec![mk_step("body", "noop")],
         max_iterations: 1,
@@ -1423,7 +1423,7 @@ async fn loop_single_iteration() {
 #[tokio::test]
 async fn race_single_branch() {
     let race = BlockDefinition::Race(Box::new(orch8_types::sequence::RaceDef {
-        id: BlockId("race".into()),
+        id: BlockId::new("race"),
         branches: vec![vec![mk_step("only", "noop")]],
         semantics: orch8_types::sequence::RaceSemantics::default(),
     }));
@@ -1437,7 +1437,7 @@ async fn race_single_branch() {
 #[tokio::test]
 async fn parallel_single_branch() {
     let par = BlockDefinition::Parallel(Box::new(ParallelDef {
-        id: BlockId("par".into()),
+        id: BlockId::new("par"),
         branches: vec![vec![mk_step("only", "noop")]],
     }));
     let (storage, seq, inst) = setup(vec![par]).await;
@@ -1453,7 +1453,7 @@ async fn parallel_single_branch() {
 #[tokio::test]
 async fn parallel_failure_fails_instance() {
     let par = BlockDefinition::Parallel(Box::new(ParallelDef {
-        id: BlockId("par".into()),
+        id: BlockId::new("par"),
         branches: vec![vec![mk_step("b0", "fail")]],
     }));
     let (storage, seq, inst) = setup(vec![par]).await;
@@ -1466,7 +1466,7 @@ async fn parallel_failure_fails_instance() {
 #[tokio::test]
 async fn loop_failure_fails_instance() {
     let lp = BlockDefinition::Loop(Box::new(LoopDef {
-        id: BlockId("lp".into()),
+        id: BlockId::new("lp"),
         condition: "true".into(),
         body: vec![mk_step("body", "fail")],
         max_iterations: 5,
@@ -1484,7 +1484,7 @@ async fn loop_failure_fails_instance() {
 #[tokio::test]
 async fn try_catch_success_completes_instance() {
     let tc = BlockDefinition::TryCatch(Box::new(TryCatchDef {
-        id: BlockId("tc".into()),
+        id: BlockId::new("tc"),
         try_block: vec![mk_step("t1", "fail")],
         catch_block: vec![mk_step("c1", "noop")],
         finally_block: Some(vec![mk_step("f1", "noop")]),
@@ -1508,8 +1508,8 @@ fn mk_sequence_with_interceptors(
 ) -> SequenceDefinition {
     SequenceDefinition {
         id: SequenceId::new(),
-        tenant_id: TenantId("t".into()),
-        namespace: Namespace("ns".into()),
+        tenant_id: TenantId::unchecked("t"),
+        namespace: Namespace::new("ns"),
         name: "intercepted-flow".into(),
         version: 1,
         deprecated: false,
@@ -1543,14 +1543,14 @@ async fn interceptors_emit_before_and_after_step_artifacts() {
     drive(&storage, &reg, inst.id, &seq).await;
 
     let before = storage
-        .get_block_output(inst.id, &BlockId("_interceptor:before:s1".into()))
+        .get_block_output(inst.id, &BlockId::new("_interceptor:before:s1"))
         .await
         .unwrap();
     assert!(before.is_some(), "before_step artifact must exist");
     assert_eq!(before.unwrap().output["stage"], "pre");
 
     let after = storage
-        .get_block_output(inst.id, &BlockId("_interceptor:after:s1".into()))
+        .get_block_output(inst.id, &BlockId::new("_interceptor:after:s1"))
         .await
         .unwrap();
     assert!(after.is_some(), "after_step artifact must exist");
@@ -1642,7 +1642,7 @@ async fn self_modify_injects_blocks_and_evaluator_executes_them() {
 
     // The self-modify step will inject a new "injected" noop step.
     let inj = serde_json::to_value(BlockDefinition::Step(Box::new(StepDef {
-        id: BlockId("injected".into()),
+        id: BlockId::new("injected"),
         handler: "noop".into(),
         params: json!({}),
         delay: None,
@@ -1716,7 +1716,7 @@ async fn self_modify_injects_blocks_and_evaluator_executes_them() {
 
     // The injected block should have been executed and be in Completed state.
     let tree = storage.get_execution_tree(inst.id).await.unwrap();
-    let injected_node = tree.iter().find(|n| n.block_id.0 == "injected");
+    let injected_node = tree.iter().find(|n| n.block_id.as_str() == "injected");
     assert!(
         injected_node.is_some(),
         "injected block must appear in execution tree"
@@ -1921,7 +1921,7 @@ async fn router_in_operator_routes_based_on_step_output() {
     let seq = mk_sequence(vec![
         mk_step_with_params("producer", "produce", json!({})),
         BlockDefinition::Router(Box::new(RouterDef {
-            id: BlockId("router".into()),
+            id: BlockId::new("router"),
             routes: vec![Route {
                 condition: "steps.producer.level in ['strong', 'moderate']".into(),
                 blocks: vec![mk_step("bet_path", "noop")],
@@ -1947,7 +1947,7 @@ async fn router_ternary_expression_selects_route() {
     let seq = mk_sequence(vec![
         mk_step_with_params("producer", "produce", json!({})),
         BlockDefinition::Router(Box::new(RouterDef {
-            id: BlockId("router".into()),
+            id: BlockId::new("router"),
             routes: vec![Route {
                 condition: "(steps.producer.score > 70) ? true : false".into(),
                 blocks: vec![mk_step("high_path", "noop")],

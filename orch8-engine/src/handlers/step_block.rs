@@ -136,7 +136,7 @@ pub async fn execute_step_node(
     // surface as StepError::Permanent which fails the node immediately.
     if let Err(step_err) = crate::credentials::resolve_in_value(
         storage.as_ref(),
-        &instance.tenant_id.0,
+        &instance.tenant_id.as_str(),
         &mut resolved_params,
     )
     .await
@@ -433,7 +433,7 @@ pub async fn execute_step_node(
                 }),
                 output_ref: Some("__retry__".into()),
                 output_size: 0,
-                attempt: i16::try_from(attempt).unwrap_or(i16::MAX),
+                attempt: u16::try_from(attempt).unwrap_or(u16::MAX),
                 created_at: chrono::Utc::now(),
             };
             // Marker-save failures are non-fatal — worst case the attempt
@@ -548,8 +548,8 @@ mod tests {
         let inst = TaskInstance {
             id,
             sequence_id: SequenceId::new(),
-            tenant_id: TenantId("t".into()),
-            namespace: Namespace("ns".into()),
+            tenant_id: TenantId::unchecked("t"),
+            namespace: Namespace::new("ns"),
             state: InstanceState::Running,
             next_fire_at: None,
             priority: Priority::Normal,
@@ -641,8 +641,8 @@ mod tests {
         let inst = TaskInstance {
             id,
             sequence_id: SequenceId::new(),
-            tenant_id: TenantId("t".into()),
-            namespace: Namespace("ns".into()),
+            tenant_id: TenantId::unchecked("t"),
+            namespace: Namespace::new("ns"),
             state: InstanceState::Running,
             next_fire_at: None,
             priority: Priority::Normal,
@@ -662,7 +662,7 @@ mod tests {
 
     fn mk_step_def(id: &str, handler: &str, params: serde_json::Value) -> StepDef {
         StepDef {
-            id: BlockId(id.into()),
+            id: BlockId::new(id),
             handler: handler.into(),
             params,
             delay: None,
@@ -687,9 +687,9 @@ mod tests {
         block_id: &str,
     ) -> ExecutionNode {
         let node = ExecutionNode {
-            id: ExecutionNodeId(uuid::Uuid::now_v7()),
+            id: ExecutionNodeId::new(),
             instance_id,
-            block_id: BlockId(block_id.into()),
+            block_id: BlockId::new(block_id),
             parent_id: None,
             block_type: BlockType::Step,
             branch_index: None,
@@ -710,7 +710,7 @@ mod tests {
         let bo = BlockOutput {
             id: uuid::Uuid::now_v7(),
             instance_id,
-            block_id: BlockId(block_id.into()),
+            block_id: BlockId::new(block_id),
             output,
             output_ref: None,
             output_size: 0,

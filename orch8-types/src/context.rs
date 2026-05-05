@@ -180,7 +180,7 @@ mod tests {
                 details: serde_json::json!({}),
             }],
             runtime: RuntimeContext {
-                current_step: Some(BlockId("step-1".into())),
+                current_step: Some(BlockId::new("step-1")),
                 attempt: 2,
                 started_at: Some(Utc::now()),
                 current_step_started_at: None,

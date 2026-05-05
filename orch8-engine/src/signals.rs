@@ -201,7 +201,7 @@ async fn process_signals_inner(
                         let block_id = name.strip_prefix("human_input:").unwrap_or(&name);
                         let tree = storage.get_execution_tree(instance_id).await?;
                         for node in &tree {
-                            if node.block_id.0 == block_id
+                            if node.block_id.as_str() == block_id
                                 && node.state == orch8_types::execution::NodeState::Waiting
                             {
                                 storage
@@ -400,8 +400,8 @@ mod tests {
         TaskInstance {
             id: InstanceId::new(),
             sequence_id: SequenceId::new(),
-            tenant_id: TenantId("t".into()),
-            namespace: Namespace("ns".into()),
+            tenant_id: TenantId::unchecked("t"),
+            namespace: Namespace::new("ns"),
             state,
             next_fire_at: Some(now),
             priority: Priority::Normal,
@@ -838,7 +838,7 @@ mod tests {
         use orch8_types::ids::BlockId;
         use orch8_types::sequence::{BlockDefinition, StepDef};
         BlockDefinition::Step(Box::new(StepDef {
-            id: BlockId(id.into()),
+            id: BlockId::new(id),
             handler: "noop".into(),
             params: json!({}),
             delay: None,
@@ -861,8 +861,8 @@ mod tests {
         use orch8_types::ids::{Namespace, SequenceId, TenantId};
         SequenceDefinition {
             id: SequenceId::new(),
-            tenant_id: TenantId("t".into()),
-            namespace: Namespace("ns".into()),
+            tenant_id: TenantId::unchecked("t"),
+            namespace: Namespace::new("ns"),
             name: "seq".into(),
             version: 1,
             deprecated: false,
@@ -884,10 +884,10 @@ mod tests {
         use orch8_types::execution::ExecutionNode;
         use orch8_types::ids::{BlockId, ExecutionNodeId};
         let node = ExecutionNode {
-            id: ExecutionNodeId(uuid::Uuid::now_v7()),
+            id: ExecutionNodeId::new(),
             instance_id,
             parent_id,
-            block_id: BlockId(block_id.into()),
+            block_id: BlockId::new(block_id),
             block_type,
             branch_index,
             state,
@@ -939,7 +939,7 @@ mod tests {
         let stored = storage.get_instance(inst.id).await.unwrap().unwrap();
         assert_eq!(stored.state, InstanceState::Running);
         let tree = storage.get_execution_tree(inst.id).await.unwrap();
-        let step = tree.iter().find(|n| n.block_id.0 == "s1").unwrap();
+        let step = tree.iter().find(|n| n.block_id.as_str() == "s1").unwrap();
         assert_eq!(step.state, NodeState::Running);
     }
 
@@ -958,7 +958,7 @@ mod tests {
             .unwrap();
 
         let scope = BlockDefinition::CancellationScope(Box::new(CancellationScopeDef {
-            id: orch8_types::ids::BlockId("scope".into()),
+            id: orch8_types::ids::BlockId::new("scope"),
             blocks: vec![mk_step_block("inner", true)],
         }));
         let seq = mk_sequence(vec![scope]);
@@ -1024,7 +1024,7 @@ mod tests {
             .unwrap();
 
         let tc = BlockDefinition::TryCatch(Box::new(TryCatchDef {
-            id: orch8_types::ids::BlockId("tc".into()),
+            id: orch8_types::ids::BlockId::new("tc"),
             try_block: vec![mk_step_block("t", true)],
             catch_block: vec![],
             finally_block: Some(vec![mk_step_block("f", true)]),
@@ -1067,7 +1067,7 @@ mod tests {
         let stored = storage.get_instance(inst.id).await.unwrap().unwrap();
         assert_eq!(stored.state, InstanceState::Running);
         let tree = storage.get_execution_tree(inst.id).await.unwrap();
-        let finally_node = tree.iter().find(|n| n.block_id.0 == "f").unwrap();
+        let finally_node = tree.iter().find(|n| n.block_id.as_str() == "f").unwrap();
         assert_eq!(finally_node.state, NodeState::Running);
     }
 
@@ -1136,7 +1136,7 @@ mod tests {
             id: ExecutionNodeId::new(),
             instance_id,
             parent_id: None,
-            block_id: BlockId("root".into()),
+            block_id: BlockId::new("root"),
             block_type: BlockType::CancellationScope,
             branch_index: None,
             state: NodeState::Running,
@@ -1147,7 +1147,7 @@ mod tests {
             id: ExecutionNodeId::new(),
             instance_id,
             parent_id: Some(root.id),
-            block_id: BlockId("child".into()),
+            block_id: BlockId::new("child"),
             block_type: BlockType::Step,
             branch_index: None,
             state: NodeState::Running,
@@ -1158,7 +1158,7 @@ mod tests {
             id: ExecutionNodeId::new(),
             instance_id,
             parent_id: Some(child.id),
-            block_id: BlockId("grandchild".into()),
+            block_id: BlockId::new("grandchild"),
             block_type: BlockType::Step,
             branch_index: None,
             state: NodeState::Running,

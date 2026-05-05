@@ -11,8 +11,8 @@ pub(super) async fn append(
 ) -> Result<(), StorageError> {
     sqlx::query("INSERT INTO audit_log (id,instance_id,tenant_id,event_type,from_state,to_state,block_id,details,created_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)")
         .bind(entry.id.to_string())
-        .bind(entry.instance_id.0.to_string())
-        .bind(&entry.tenant_id.0)
+        .bind(entry.instance_id.into_uuid().to_string())
+        .bind(&entry.tenant_id.as_str())
         .bind(&entry.event_type)
         .bind(&entry.from_state)
         .bind(&entry.to_state)
@@ -31,7 +31,7 @@ pub(super) async fn list_by_instance(
     let rows = sqlx::query(
         "SELECT * FROM audit_log WHERE instance_id=?1 ORDER BY created_at DESC LIMIT ?2",
     )
-    .bind(instance_id.0.to_string())
+    .bind(instance_id.into_uuid().to_string())
     .bind(limit as i64)
     .fetch_all(&storage.pool)
     .await?;
@@ -45,7 +45,7 @@ pub(super) async fn list_by_tenant(
 ) -> Result<Vec<AuditLogEntry>, StorageError> {
     let rows =
         sqlx::query("SELECT * FROM audit_log WHERE tenant_id=?1 ORDER BY created_at DESC LIMIT ?2")
-            .bind(&tenant_id.0)
+            .bind(tenant_id.as_str())
             .bind(limit as i64)
             .fetch_all(&storage.pool)
             .await?;

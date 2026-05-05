@@ -26,7 +26,7 @@ use uuid::Uuid;
 
 fn mk_step(id: &str, handler: &str) -> StepDef {
     StepDef {
-        id: BlockId(id.into()),
+        id: BlockId::new(id),
         handler: handler.into(),
         params: json!({}),
         delay: None,
@@ -50,8 +50,8 @@ fn mk_instance(seq_id: SequenceId) -> TaskInstance {
     TaskInstance {
         id: InstanceId::new(),
         sequence_id: seq_id,
-        tenant_id: TenantId("t".into()),
-        namespace: Namespace("ns".into()),
+        tenant_id: TenantId::unchecked("t"),
+        namespace: Namespace::new("ns"),
         state: InstanceState::Running,
         next_fire_at: None,
         priority: Priority::Normal,
@@ -76,8 +76,8 @@ fn mk_instance(seq_id: SequenceId) -> TaskInstance {
 async fn seed_instance(storage: &SqliteStorage, instance_id: InstanceId) {
     let seq = SequenceDefinition {
         id: SequenceId::new(),
-        tenant_id: TenantId("t".into()),
-        namespace: Namespace("ns".into()),
+        tenant_id: TenantId::unchecked("t"),
+        namespace: Namespace::new("ns"),
         name: "seed".into(),
         version: 1,
         deprecated: false,
@@ -105,8 +105,8 @@ async fn setup_single_step(
     let step_id = step.id.clone();
     let seq = SequenceDefinition {
         id: SequenceId::new(),
-        tenant_id: TenantId("t".into()),
-        namespace: Namespace("ns".into()),
+        tenant_id: TenantId::unchecked("t"),
+        namespace: Namespace::new("ns"),
         name: "gap-repro".into(),
         version: 1,
         deprecated: false,
@@ -221,7 +221,7 @@ async fn circuit_breaker_fallback_handler_when_primary_open() {
 
     // Verify fallback output was saved (look for the most recent output).
     let outs = storage.get_all_outputs(instance.id).await.unwrap();
-    let fallback_out = outs.iter().rfind(|o| o.block_id.0 == "s1");
+    let fallback_out = outs.iter().rfind(|o| o.block_id.as_str() == "s1");
     assert!(fallback_out.is_some(), "fallback output must be saved");
     assert_eq!(
         fallback_out.unwrap().output,
@@ -316,8 +316,8 @@ async fn save_output_complete_node_and_transition_is_atomic() {
     let storage = SqliteStorage::in_memory().await.unwrap();
     let seq = SequenceDefinition {
         id: SequenceId::new(),
-        tenant_id: TenantId("t".into()),
-        namespace: Namespace("ns".into()),
+        tenant_id: TenantId::unchecked("t"),
+        namespace: Namespace::new("ns"),
         name: "atomic-test".into(),
         version: 1,
         deprecated: false,
@@ -333,7 +333,7 @@ async fn save_output_complete_node_and_transition_is_atomic() {
     let node = ExecutionNode {
         id: ExecutionNodeId::new(),
         instance_id: instance.id,
-        block_id: BlockId("s1".into()),
+        block_id: BlockId::new("s1"),
         parent_id: None,
         block_type: BlockType::Step,
         branch_index: None,
@@ -346,7 +346,7 @@ async fn save_output_complete_node_and_transition_is_atomic() {
     let output = BlockOutput {
         id: Uuid::now_v7(),
         instance_id: instance.id,
-        block_id: BlockId("s1".into()),
+        block_id: BlockId::new("s1"),
         output: json!({"ok": true}),
         output_ref: None,
         output_size: 13,
@@ -393,8 +393,8 @@ async fn save_output_complete_node_and_transition_rejects_terminal_instance() {
     let storage = SqliteStorage::in_memory().await.unwrap();
     let seq = SequenceDefinition {
         id: SequenceId::new(),
-        tenant_id: TenantId("t".into()),
-        namespace: Namespace("ns".into()),
+        tenant_id: TenantId::unchecked("t"),
+        namespace: Namespace::new("ns"),
         name: "cas-test".into(),
         version: 1,
         deprecated: false,
@@ -411,7 +411,7 @@ async fn save_output_complete_node_and_transition_rejects_terminal_instance() {
     let node = ExecutionNode {
         id: ExecutionNodeId::new(),
         instance_id: instance.id,
-        block_id: BlockId("s1".into()),
+        block_id: BlockId::new("s1"),
         parent_id: None,
         block_type: BlockType::Step,
         branch_index: None,
@@ -424,7 +424,7 @@ async fn save_output_complete_node_and_transition_rejects_terminal_instance() {
     let output = BlockOutput {
         id: Uuid::now_v7(),
         instance_id: instance.id,
-        block_id: BlockId("s1".into()),
+        block_id: BlockId::new("s1"),
         output: json!({"ok": true}),
         output_ref: None,
         output_size: 13,
@@ -476,7 +476,7 @@ async fn sqlite_get_batch_chunking_does_not_drop_keys() {
     // Seed 450 outputs to exercise the 400-key chunk boundary.
     let mut keys = Vec::with_capacity(450);
     for i in 0..450 {
-        let block_id = BlockId(format!("block_{i:03}"));
+        let block_id = BlockId::new(format!("block_{i:03}"));
         let out = BlockOutput {
             id: Uuid::now_v7(),
             instance_id: instance,
@@ -516,7 +516,7 @@ async fn activate_first_pending_child_only_flips_first() {
     let parent = ExecutionNode {
         id: ExecutionNodeId::new(),
         instance_id: instance,
-        block_id: BlockId("parent".into()),
+        block_id: BlockId::new("parent"),
         parent_id: None,
         block_type: BlockType::Router,
         branch_index: None,
@@ -530,7 +530,7 @@ async fn activate_first_pending_child_only_flips_first() {
     let child_a = ExecutionNode {
         id: ExecutionNodeId::new(),
         instance_id: instance,
-        block_id: BlockId("a".into()),
+        block_id: BlockId::new("a"),
         parent_id: Some(parent.id),
         block_type: BlockType::Step,
         branch_index: Some(0),
@@ -541,7 +541,7 @@ async fn activate_first_pending_child_only_flips_first() {
     let child_b = ExecutionNode {
         id: ExecutionNodeId::new(),
         instance_id: instance,
-        block_id: BlockId("b".into()),
+        block_id: BlockId::new("b"),
         parent_id: Some(parent.id),
         block_type: BlockType::Step,
         branch_index: Some(0),
@@ -563,8 +563,8 @@ async fn activate_first_pending_child_only_flips_first() {
         .unwrap();
 
     let after = storage.get_execution_tree(instance).await.unwrap();
-    let state_a = after.iter().find(|n| n.block_id.0 == "a").unwrap().state;
-    let state_b = after.iter().find(|n| n.block_id.0 == "b").unwrap().state;
+    let state_a = after.iter().find(|n| n.block_id.as_str() == "a").unwrap().state;
+    let state_b = after.iter().find(|n| n.block_id.as_str() == "b").unwrap().state;
 
     assert_eq!(
         state_a,
@@ -594,7 +594,7 @@ async fn cancel_subtree_recursively_cancels_deep_descendants() {
     let root = ExecutionNode {
         id: ExecutionNodeId::new(),
         instance_id: instance,
-        block_id: BlockId("root".into()),
+        block_id: BlockId::new("root"),
         parent_id: None,
         block_type: BlockType::Parallel,
         branch_index: None,
@@ -607,7 +607,7 @@ async fn cancel_subtree_recursively_cancels_deep_descendants() {
     let mid = ExecutionNode {
         id: ExecutionNodeId::new(),
         instance_id: instance,
-        block_id: BlockId("mid".into()),
+        block_id: BlockId::new("mid"),
         parent_id: Some(root.id),
         block_type: BlockType::Parallel,
         branch_index: Some(0),
@@ -620,7 +620,7 @@ async fn cancel_subtree_recursively_cancels_deep_descendants() {
     let deep = ExecutionNode {
         id: ExecutionNodeId::new(),
         instance_id: instance,
-        block_id: BlockId("deep".into()),
+        block_id: BlockId::new("deep"),
         parent_id: Some(mid.id),
         block_type: BlockType::Step,
         branch_index: Some(0),
@@ -636,8 +636,8 @@ async fn cancel_subtree_recursively_cancels_deep_descendants() {
         .unwrap();
 
     let after = storage.get_execution_tree(instance).await.unwrap();
-    let state_mid = after.iter().find(|n| n.block_id.0 == "mid").unwrap().state;
-    let state_deep = after.iter().find(|n| n.block_id.0 == "deep").unwrap().state;
+    let state_mid = after.iter().find(|n| n.block_id.as_str() == "mid").unwrap().state;
+    let state_deep = after.iter().find(|n| n.block_id.as_str() == "deep").unwrap().state;
 
     assert_eq!(state_mid, NodeState::Cancelled, "mid must be cancelled");
     assert_eq!(state_deep, NodeState::Cancelled, "deep must be cancelled");

@@ -33,10 +33,10 @@ pub(super) fn bind_instance_insert<'q>(
     inst: &'q TaskInstance,
     context_json: &'q serde_json::Value,
 ) -> sqlx::query::Query<'q, sqlx::Postgres, sqlx::postgres::PgArguments> {
-    q.bind(inst.id.0)
-        .bind(inst.sequence_id.0)
-        .bind(&inst.tenant_id.0)
-        .bind(&inst.namespace.0)
+    q.bind(inst.id.into_uuid())
+        .bind(inst.sequence_id.into_uuid())
+        .bind(inst.tenant_id.as_str())
+        .bind(inst.namespace.as_str())
         .bind(inst.state.to_string())
         .bind(inst.next_fire_at)
         .bind(inst.priority as i16)
@@ -44,10 +44,10 @@ pub(super) fn bind_instance_insert<'q>(
         .bind(&inst.metadata)
         .bind(context_json)
         .bind(&inst.concurrency_key)
-        .bind(inst.max_concurrency)
+        .bind(inst.max_concurrency.map(|v| v as i32))
         .bind(&inst.idempotency_key)
         .bind(inst.session_id)
-        .bind(inst.parent_instance_id.map(|id| id.0))
+        .bind(inst.parent_instance_id.map(|id| id.into_uuid()))
         .bind(inst.created_at)
         .bind(inst.updated_at)
 }
@@ -86,10 +86,10 @@ pub(super) async fn create_batch(
         qb.push_values(chunk, |mut b, inst| {
             let context = serde_json::to_value(&inst.context)
                 .unwrap_or_else(|_| serde_json::Value::Object(serde_json::Map::default()));
-            b.push_bind(inst.id.0)
-                .push_bind(inst.sequence_id.0)
-                .push_bind(&inst.tenant_id.0)
-                .push_bind(&inst.namespace.0)
+            b.push_bind(inst.id.into_uuid())
+                .push_bind(inst.sequence_id.into_uuid())
+                .push_bind(inst.tenant_id.as_str())
+                .push_bind(inst.namespace.as_str())
                 .push_bind(inst.state.to_string())
                 .push_bind(inst.next_fire_at)
                 .push_bind(inst.priority as i16)
@@ -97,10 +97,10 @@ pub(super) async fn create_batch(
                 .push_bind(&inst.metadata)
                 .push_bind(context)
                 .push_bind(&inst.concurrency_key)
-                .push_bind(inst.max_concurrency)
+                .push_bind(inst.max_concurrency.map(|v| v as i32))
                 .push_bind(&inst.idempotency_key)
                 .push_bind(inst.session_id)
-                .push_bind(inst.parent_instance_id.map(|id| id.0))
+                .push_bind(inst.parent_instance_id.map(|id| id.into_uuid()))
                 .push_bind(inst.created_at)
                 .push_bind(inst.updated_at);
         });
@@ -123,7 +123,7 @@ pub(super) async fn get(
                   session_id, parent_instance_id, created_at, updated_at
            FROM task_instances WHERE id = $1",
     )
-    .bind(id.0)
+    .bind(id.into_uuid())
     .fetch_optional(&store.pool)
     .await?;
     row.map(InstanceRow::into_instance).transpose()
@@ -222,7 +222,7 @@ pub(super) async fn claim_due(
 
     if !instances.is_empty() {
         // Step 3: Only update the filtered instances to Running.
-        let ids: Vec<uuid::Uuid> = instances.iter().map(|i| i.id.0).collect();
+        let ids: Vec<uuid::Uuid> = instances.iter().map(|i| i.id.into_uuid()).collect();
         sqlx::query(
             r"UPDATE task_instances SET state = 'running', updated_at = $1 WHERE id = ANY($2)",
         )
@@ -284,7 +284,7 @@ async fn filter_by_concurrency_pg(
 
     let mut excluded = std::collections::HashSet::new();
     for (key, indices) in &keyed {
-        let max = candidates[indices[0]].max_concurrency.unwrap_or(i32::MAX);
+        let max = candidates[indices[0]].max_concurrency.unwrap_or(u32::MAX);
         let already_running = running_counts.get(*key).copied().unwrap_or(0);
 
         #[allow(clippy::cast_possible_truncation)]
@@ -317,7 +317,7 @@ pub(super) async fn update_state(
         WHERE id = $1
         ",
     )
-    .bind(id.0)
+    .bind(id.into_uuid())
     .bind(new_state.to_string())
     .bind(next_fire_at)
     .execute(&store.pool)
@@ -333,7 +333,7 @@ pub(super) async fn batch_reschedule(
     if ids.is_empty() {
         return Ok(());
     }
-    let uuids: Vec<uuid::Uuid> = ids.iter().map(|id| id.0).collect();
+    let uuids: Vec<uuid::Uuid> = ids.iter().map(|id| id.into_uuid()).collect();
     sqlx::query(
         "UPDATE task_instances SET state = 'scheduled', next_fire_at = $1, updated_at = NOW() WHERE id = ANY($2)",
     )
@@ -360,7 +360,7 @@ pub(super) async fn conditional_update_state(
         WHERE id = $1 AND state = $4
         ",
     )
-    .bind(id.0)
+    .bind(id.into_uuid())
     .bind(new_state.to_string())
     .bind(next_fire_at)
     .bind(expected_state.to_string())
@@ -376,7 +376,7 @@ pub(super) async fn update_context(
 ) -> Result<(), StorageError> {
     let ctx_json = serde_json::to_value(context)?;
     sqlx::query("UPDATE task_instances SET context = $2, updated_at = NOW() WHERE id = $1")
-        .bind(id.0)
+        .bind(id.into_uuid())
         .bind(&ctx_json)
         .execute(&store.pool)
         .await?;
@@ -393,7 +393,7 @@ pub(super) async fn update_context_cas(
     let result = sqlx::query(
         "UPDATE task_instances SET context = $2, updated_at = NOW() WHERE id = $1 AND updated_at = $3",
     )
-    .bind(id.0)
+    .bind(id.into_uuid())
     .bind(&ctx_json)
     .bind(expected_updated_at)
     .execute(&store.pool)
@@ -416,7 +416,7 @@ pub(super) async fn update_started_at(
              updated_at = NOW() \
          WHERE id = $1",
     )
-    .bind(id.0)
+    .bind(id.into_uuid())
     .bind(started_at_json)
     .execute(&store.pool)
     .await?;
@@ -435,7 +435,7 @@ pub(super) async fn update_current_step_started_at(
              updated_at = NOW() \
          WHERE id = $1",
     )
-    .bind(id.0)
+    .bind(id.into_uuid())
     .bind(ts_json)
     .execute(&store.pool)
     .await?;
@@ -464,7 +464,7 @@ pub(super) async fn update_context_externalized(
     let mut ctx_clone = context.clone();
     let refs = crate::externalizing::externalize_fields(
         &mut ctx_clone.data,
-        &id.0.to_string(),
+        &id.to_string(),
         threshold_bytes,
     );
     let ctx_json = serde_json::to_value(&ctx_clone)?;
@@ -478,7 +478,7 @@ pub(super) async fn update_context_externalized(
 
     // Step 2: flip the instance context to the marker-swapped form.
     sqlx::query("UPDATE task_instances SET context = $2, updated_at = NOW() WHERE id = $1")
-        .bind(id.0)
+        .bind(id.into_uuid())
         .bind(&ctx_json)
         .execute(&mut *tx)
         .await?;
@@ -500,7 +500,7 @@ pub(super) async fn create_externalized(
     let mut inst_clone = instance.clone();
     let refs = crate::externalizing::externalize_fields(
         &mut inst_clone.context.data,
-        &instance.id.0.to_string(),
+        &instance.id.into_uuid().to_string(),
         threshold_bytes,
     );
     let context_json = serde_json::to_value(&inst_clone.context)?;
@@ -544,7 +544,7 @@ pub(super) async fn create_batch_externalized(
         let mut c = inst.clone();
         let refs = crate::externalizing::externalize_fields(
             &mut c.context.data,
-            &inst.id.0.to_string(),
+            &inst.id.into_uuid().to_string(),
             threshold_bytes,
         );
         prepared.push((c, refs));
@@ -567,10 +567,10 @@ pub(super) async fn create_batch_externalized(
         qb.push_values(chunk, |mut b, (inst, _)| {
             let context = serde_json::to_value(&inst.context)
                 .unwrap_or_else(|_| serde_json::Value::Object(serde_json::Map::default()));
-            b.push_bind(inst.id.0)
-                .push_bind(inst.sequence_id.0)
-                .push_bind(&inst.tenant_id.0)
-                .push_bind(&inst.namespace.0)
+            b.push_bind(inst.id.into_uuid())
+                .push_bind(inst.sequence_id.into_uuid())
+                .push_bind(inst.tenant_id.as_str())
+                .push_bind(inst.namespace.as_str())
                 .push_bind(inst.state.to_string())
                 .push_bind(inst.next_fire_at)
                 .push_bind(inst.priority as i16)
@@ -578,10 +578,10 @@ pub(super) async fn create_batch_externalized(
                 .push_bind(&inst.metadata)
                 .push_bind(context)
                 .push_bind(&inst.concurrency_key)
-                .push_bind(inst.max_concurrency)
+                .push_bind(inst.max_concurrency.map(|v| v as i32))
                 .push_bind(&inst.idempotency_key)
                 .push_bind(inst.session_id)
-                .push_bind(inst.parent_instance_id.map(|id| id.0))
+                .push_bind(inst.parent_instance_id.map(|id| id.into_uuid()))
                 .push_bind(inst.created_at)
                 .push_bind(inst.updated_at);
         });
@@ -626,7 +626,7 @@ async fn insert_externalized_row(
                     size_bytes = EXCLUDED.size_bytes",
         )
         .bind(uuid::Uuid::now_v7())
-        .bind(instance_id.0)
+        .bind(instance_id.into_uuid())
         .bind(ref_key)
         .bind(&compressed)
         .bind(raw_size)
@@ -644,7 +644,7 @@ async fn insert_externalized_row(
                     size_bytes = EXCLUDED.size_bytes",
         )
         .bind(uuid::Uuid::now_v7())
-        .bind(instance_id.0)
+        .bind(instance_id.into_uuid())
         .bind(ref_key)
         .bind(payload)
         .bind(raw_size)
@@ -660,8 +660,8 @@ pub(super) async fn update_sequence(
     new_sequence_id: SequenceId,
 ) -> Result<(), StorageError> {
     sqlx::query("UPDATE task_instances SET sequence_id = $2, updated_at = NOW() WHERE id = $1")
-        .bind(id.0)
-        .bind(new_sequence_id.0)
+        .bind(id.into_uuid())
+        .bind(new_sequence_id.into_uuid())
         .execute(&store.pool)
         .await?;
     Ok(())
@@ -692,7 +692,7 @@ pub(super) async fn merge_context_data(
               updated_at = NOW()
           WHERE id = $1",
     )
-    .bind(id.0)
+    .bind(id.into_uuid())
     .bind(key)
     .bind(value)
     .execute(&store.pool)
@@ -752,7 +752,7 @@ pub(super) async fn list_waiting_with_trees(
     }
 
     // 2. Batch-fetch all execution trees in a single query instead of N+1.
-    let instance_ids: Vec<uuid::Uuid> = instances.iter().map(|i| i.id.0).collect();
+    let instance_ids: Vec<uuid::Uuid> = instances.iter().map(|i| i.id.into_uuid()).collect();
     let tree_rows = sqlx::query_as::<_, super::rows::ExecutionNodeRow>(
         r"SELECT id, instance_id, block_id, parent_id, block_type, branch_index, state, started_at, completed_at
            FROM execution_tree WHERE instance_id = ANY($1) ORDER BY id",
@@ -771,7 +771,7 @@ pub(super) async fn list_waiting_with_trees(
     let out = instances
         .into_iter()
         .map(|inst| {
-            let tree = trees.remove(&inst.id.0).unwrap_or_default();
+            let tree = trees.remove(&inst.id.into_uuid()).unwrap_or_default();
             (inst, tree)
         })
         .collect();
@@ -831,13 +831,13 @@ fn apply_instance_filter<'a>(
     filter: &'a InstanceFilter,
 ) {
     if let Some(ref tid) = filter.tenant_id {
-        qb.push(" AND tenant_id = ").push_bind(&tid.0);
+        qb.push(" AND tenant_id = ").push_bind(tid.as_str());
     }
     if let Some(ref ns) = filter.namespace {
-        qb.push(" AND namespace = ").push_bind(&ns.0);
+        qb.push(" AND namespace = ").push_bind(ns.as_str());
     }
     if let Some(ref sid) = filter.sequence_id {
-        qb.push(" AND sequence_id = ").push_bind(sid.0);
+        qb.push(" AND sequence_id = ").push_bind(sid.into_uuid());
     }
     if let Some(ref states) = filter.states {
         if !states.is_empty() {

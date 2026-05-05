@@ -684,11 +684,11 @@ fn check_id(
     id: &BlockId,
     seen: &mut std::collections::HashSet<String>,
 ) -> Result<(), SequenceValidationError> {
-    if id.0.is_empty() {
+    if id.as_str().is_empty() {
         return Err(block_err("(empty)", "block id must not be empty"));
     }
-    if !seen.insert(id.0.clone()) {
-        return Err(SequenceValidationError::DuplicateBlockId(id.0.clone()));
+    if !seen.insert(id.as_str().to_owned()) {
+        return Err(SequenceValidationError::DuplicateBlockId(id.as_str().to_owned()));
     }
     Ok(())
 }
@@ -698,7 +698,7 @@ fn validate_step(
     seen: &mut std::collections::HashSet<String>,
 ) -> Result<(), SequenceValidationError> {
     check_id(&s.id, seen)?;
-    let id = &s.id.0;
+    let id = &s.id.as_str();
 
     if s.handler.is_empty() {
         return Err(block_err(id, "handler name must not be empty"));
@@ -746,7 +746,7 @@ fn validate_step(
         human
             .validate()
             .map_err(|message| SequenceValidationError::InvalidHumanInput {
-                block_id: id.clone(),
+                block_id: id.to_string(),
                 message,
             })?;
     }
@@ -763,7 +763,7 @@ fn validate_branches(
     check_id(id, seen)?;
     if branches.is_empty() {
         return Err(block_err(
-            &id.0,
+            id.as_str(),
             format!("{label} must have at least one branch"),
         ));
     }
@@ -782,7 +782,7 @@ fn validate_ab_split(
     check_id(&ab.id, seen)?;
     if ab.variants.len() < 2 {
         return Err(block_err(
-            &ab.id.0,
+            &ab.id.as_str(),
             "ab_split must have at least 2 variants",
         ));
     }
@@ -791,19 +791,19 @@ fn validate_ab_split(
         .iter()
         .fold(0u32, |acc, v| acc.saturating_add(v.weight));
     if total_weight == 0 {
-        return Err(block_err(&ab.id.0, "ab_split total weight must be > 0"));
+        return Err(block_err(&ab.id.as_str(), "ab_split total weight must be > 0"));
     }
     let mut names_seen = std::collections::HashSet::new();
     for v in &ab.variants {
         if v.name.trim().is_empty() {
             return Err(block_err(
-                &ab.id.0,
+                &ab.id.as_str(),
                 "ab_split variant name must not be empty",
             ));
         }
         if !names_seen.insert(&v.name) {
             return Err(block_err(
-                &ab.id.0,
+                &ab.id.as_str(),
                 format!("ab_split duplicate variant name `{}`", v.name),
             ));
         }
@@ -836,13 +836,13 @@ fn validate_block(
         BlockDefinition::Loop(l) => {
             check_id(&l.id, seen)?;
             if l.condition.trim().is_empty() {
-                return Err(block_err(&l.id.0, "loop condition must not be empty"));
+                return Err(block_err(&l.id.as_str(), "loop condition must not be empty"));
             }
             if l.body.is_empty() {
-                return Err(block_err(&l.id.0, "loop body must not be empty"));
+                return Err(block_err(&l.id.as_str(), "loop body must not be empty"));
             }
             if l.max_iterations == 0 {
-                return Err(block_err(&l.id.0, "loop max_iterations must be > 0"));
+                return Err(block_err(&l.id.as_str(), "loop max_iterations must be > 0"));
             }
             validate_children(&l.body, seen)
         }
@@ -850,16 +850,16 @@ fn validate_block(
         BlockDefinition::ForEach(fe) => {
             check_id(&fe.id, seen)?;
             if fe.collection.trim().is_empty() {
-                return Err(block_err(&fe.id.0, "for_each collection must not be empty"));
+                return Err(block_err(&fe.id.as_str(), "for_each collection must not be empty"));
             }
             if fe.body.is_empty() {
-                return Err(block_err(&fe.id.0, "for_each body must not be empty"));
+                return Err(block_err(&fe.id.as_str(), "for_each body must not be empty"));
             }
             if fe.item_var.trim().is_empty() {
-                return Err(block_err(&fe.id.0, "for_each item_var must not be empty"));
+                return Err(block_err(&fe.id.as_str(), "for_each item_var must not be empty"));
             }
             if fe.max_iterations == 0 {
-                return Err(block_err(&fe.id.0, "for_each max_iterations must be > 0"));
+                return Err(block_err(&fe.id.as_str(), "for_each max_iterations must be > 0"));
             }
             validate_children(&fe.body, seen)
         }
@@ -868,14 +868,14 @@ fn validate_block(
             check_id(&r.id, seen)?;
             if r.routes.is_empty() && r.default.is_none() {
                 return Err(block_err(
-                    &r.id.0,
+                    &r.id.as_str(),
                     "router must have at least one route or a default",
                 ));
             }
             for route in &r.routes {
                 if route.condition.trim().is_empty() {
                     return Err(block_err(
-                        &r.id.0,
+                        &r.id.as_str(),
                         "router route condition must not be empty",
                     ));
                 }
@@ -890,7 +890,7 @@ fn validate_block(
         BlockDefinition::TryCatch(tc) => {
             check_id(&tc.id, seen)?;
             if tc.try_block.is_empty() {
-                return Err(block_err(&tc.id.0, "try_catch try_block must not be empty"));
+                return Err(block_err(&tc.id.as_str(), "try_catch try_block must not be empty"));
             }
             validate_children(&tc.try_block, seen)?;
             validate_children(&tc.catch_block, seen)?;
@@ -904,7 +904,7 @@ fn validate_block(
             check_id(&s.id, seen)?;
             if s.sequence_name.trim().is_empty() {
                 return Err(block_err(
-                    &s.id.0,
+                    &s.id.as_str(),
                     "sub_sequence sequence_name must not be empty",
                 ));
             }
@@ -917,7 +917,7 @@ fn validate_block(
             check_id(&cs.id, seen)?;
             if cs.blocks.is_empty() {
                 return Err(block_err(
-                    &cs.id.0,
+                    &cs.id.as_str(),
                     "cancellation_scope must have at least one block",
                 ));
             }
@@ -1120,8 +1120,8 @@ mod tests {
     fn sample_seq(blocks: Vec<BlockDefinition>) -> SequenceDefinition {
         SequenceDefinition {
             id: SequenceId::new(),
-            tenant_id: TenantId("t".into()),
-            namespace: Namespace("default".into()),
+            tenant_id: TenantId::unchecked("t"),
+            namespace: Namespace::new("default"),
             name: "sample".into(),
             version: 1,
             deprecated: false,
@@ -1133,7 +1133,7 @@ mod tests {
 
     fn step(id: &str) -> BlockDefinition {
         BlockDefinition::Step(Box::new(StepDef {
-            id: BlockId(id.into()),
+            id: BlockId::new(id),
             handler: "noop".into(),
             params: serde_json::Value::Null,
             delay: None,
@@ -1170,7 +1170,7 @@ mod tests {
         let seq = sample_seq(vec![
             step("outer"),
             BlockDefinition::Parallel(Box::new(ParallelDef {
-                id: BlockId("par".into()),
+                id: BlockId::new("par"),
                 branches: vec![vec![step("outer")]],
             })),
         ]);
@@ -1183,7 +1183,7 @@ mod tests {
     #[test]
     fn validate_descends_into_try_catch() {
         let seq = sample_seq(vec![BlockDefinition::TryCatch(Box::new(TryCatchDef {
-            id: BlockId("tc".into()),
+            id: BlockId::new("tc"),
             try_block: vec![step("x")],
             catch_block: vec![step("x")],
             finally_block: None,
@@ -1197,7 +1197,7 @@ mod tests {
     #[test]
     fn validate_descends_into_router() {
         let seq = sample_seq(vec![BlockDefinition::Router(Box::new(RouterDef {
-            id: BlockId("r".into()),
+            id: BlockId::new("r"),
             routes: vec![Route {
                 condition: "true".into(),
                 blocks: vec![step("dup")],
@@ -1214,11 +1214,11 @@ mod tests {
     fn validate_descends_into_cancellation_scope_and_ab_split() {
         let seq = sample_seq(vec![
             BlockDefinition::CancellationScope(Box::new(CancellationScopeDef {
-                id: BlockId("cs".into()),
+                id: BlockId::new("cs"),
                 blocks: vec![step("shared")],
             })),
             BlockDefinition::ABSplit(Box::new(ABSplitDef {
-                id: BlockId("ab".into()),
+                id: BlockId::new("ab"),
                 variants: vec![
                     ABVariant {
                         name: "v1".into(),
@@ -1281,7 +1281,7 @@ mod tests {
             store_as: None,
         };
         let step_with_bad = BlockDefinition::Step(Box::new(StepDef {
-            id: BlockId("review".into()),
+            id: BlockId::new("review"),
             handler: "human_review".into(),
             params: serde_json::Value::Null,
             delay: None,
@@ -1480,7 +1480,7 @@ mod tests {
     #[test]
     fn validate_rejects_empty_parallel_branches() {
         let seq = sample_seq(vec![BlockDefinition::Parallel(Box::new(ParallelDef {
-            id: BlockId("p".into()),
+            id: BlockId::new("p"),
             branches: vec![],
         }))]);
         let err = seq.validate().unwrap_err();
@@ -1490,7 +1490,7 @@ mod tests {
     #[test]
     fn validate_rejects_empty_loop_body() {
         let seq = sample_seq(vec![BlockDefinition::Loop(Box::new(LoopDef {
-            id: BlockId("l".into()),
+            id: BlockId::new("l"),
             condition: "true".into(),
             body: vec![],
             max_iterations: 10,
@@ -1505,7 +1505,7 @@ mod tests {
     #[test]
     fn validate_rejects_empty_loop_condition() {
         let seq = sample_seq(vec![BlockDefinition::Loop(Box::new(LoopDef {
-            id: BlockId("l".into()),
+            id: BlockId::new("l"),
             condition: "  ".into(),
             body: vec![step("s1")],
             max_iterations: 10,
@@ -1520,7 +1520,7 @@ mod tests {
     #[test]
     fn validate_rejects_zero_max_iterations() {
         let seq = sample_seq(vec![BlockDefinition::Loop(Box::new(LoopDef {
-            id: BlockId("l".into()),
+            id: BlockId::new("l"),
             condition: "true".into(),
             body: vec![step("s1")],
             max_iterations: 0,
@@ -1535,7 +1535,7 @@ mod tests {
     #[test]
     fn validate_rejects_for_each_empty_collection() {
         let seq = sample_seq(vec![BlockDefinition::ForEach(Box::new(ForEachDef {
-            id: BlockId("fe".into()),
+            id: BlockId::new("fe"),
             collection: "  ".into(),
             item_var: "item".into(),
             body: vec![step("s1")],
@@ -1548,7 +1548,7 @@ mod tests {
     #[test]
     fn validate_rejects_for_each_empty_body() {
         let seq = sample_seq(vec![BlockDefinition::ForEach(Box::new(ForEachDef {
-            id: BlockId("fe".into()),
+            id: BlockId::new("fe"),
             collection: "data.items".into(),
             item_var: "item".into(),
             body: vec![],
@@ -1561,7 +1561,7 @@ mod tests {
     #[test]
     fn validate_rejects_router_no_routes_and_no_default() {
         let seq = sample_seq(vec![BlockDefinition::Router(Box::new(RouterDef {
-            id: BlockId("r".into()),
+            id: BlockId::new("r"),
             routes: vec![],
             default: None,
         }))]);
@@ -1572,7 +1572,7 @@ mod tests {
     #[test]
     fn validate_accepts_router_with_default_only() {
         let seq = sample_seq(vec![BlockDefinition::Router(Box::new(RouterDef {
-            id: BlockId("r".into()),
+            id: BlockId::new("r"),
             routes: vec![],
             default: Some(vec![step("s1")]),
         }))]);
@@ -1582,7 +1582,7 @@ mod tests {
     #[test]
     fn validate_rejects_router_empty_condition() {
         let seq = sample_seq(vec![BlockDefinition::Router(Box::new(RouterDef {
-            id: BlockId("r".into()),
+            id: BlockId::new("r"),
             routes: vec![Route {
                 condition: String::new(),
                 blocks: vec![step("s1")],
@@ -1596,7 +1596,7 @@ mod tests {
     #[test]
     fn validate_rejects_try_catch_empty_try() {
         let seq = sample_seq(vec![BlockDefinition::TryCatch(Box::new(TryCatchDef {
-            id: BlockId("tc".into()),
+            id: BlockId::new("tc"),
             try_block: vec![],
             catch_block: vec![step("c1")],
             finally_block: None,
@@ -1608,7 +1608,7 @@ mod tests {
     #[test]
     fn validate_rejects_ab_split_one_variant() {
         let seq = sample_seq(vec![BlockDefinition::ABSplit(Box::new(ABSplitDef {
-            id: BlockId("ab".into()),
+            id: BlockId::new("ab"),
             variants: vec![ABVariant {
                 name: "only".into(),
                 weight: 1,
@@ -1622,7 +1622,7 @@ mod tests {
     #[test]
     fn validate_rejects_ab_split_zero_total_weight() {
         let seq = sample_seq(vec![BlockDefinition::ABSplit(Box::new(ABSplitDef {
-            id: BlockId("ab".into()),
+            id: BlockId::new("ab"),
             variants: vec![
                 ABVariant {
                     name: "a".into(),
@@ -1643,7 +1643,7 @@ mod tests {
     #[test]
     fn validate_rejects_ab_split_duplicate_variant_names() {
         let seq = sample_seq(vec![BlockDefinition::ABSplit(Box::new(ABSplitDef {
-            id: BlockId("ab".into()),
+            id: BlockId::new("ab"),
             variants: vec![
                 ABVariant {
                     name: "v1".into(),
@@ -1664,7 +1664,7 @@ mod tests {
     #[test]
     fn validate_rejects_ab_split_empty_variant_name() {
         let seq = sample_seq(vec![BlockDefinition::ABSplit(Box::new(ABSplitDef {
-            id: BlockId("ab".into()),
+            id: BlockId::new("ab"),
             variants: vec![
                 ABVariant {
                     name: String::new(),
@@ -1686,7 +1686,7 @@ mod tests {
     fn validate_rejects_sub_sequence_empty_name() {
         let seq = sample_seq(vec![BlockDefinition::SubSequence(Box::new(
             SubSequenceDef {
-                id: BlockId("ss".into()),
+                id: BlockId::new("ss"),
                 sequence_name: "  ".into(),
                 version: None,
                 input: serde_json::Value::Null,
@@ -1700,7 +1700,7 @@ mod tests {
     fn validate_rejects_cancellation_scope_empty_blocks() {
         let seq = sample_seq(vec![BlockDefinition::CancellationScope(Box::new(
             CancellationScopeDef {
-                id: BlockId("cs".into()),
+                id: BlockId::new("cs"),
                 blocks: vec![],
             },
         ))]);

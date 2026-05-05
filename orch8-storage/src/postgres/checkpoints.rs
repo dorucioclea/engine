@@ -14,7 +14,7 @@ pub(super) async fn save(
         "INSERT INTO checkpoints (id, instance_id, checkpoint_data, created_at) VALUES ($1, $2, $3, $4)",
     )
     .bind(cp.id)
-    .bind(cp.instance_id.0)
+    .bind(cp.instance_id.into_uuid())
     .bind(&cp.checkpoint_data)
     .bind(cp.created_at)
     .execute(&store.pool)
@@ -29,13 +29,13 @@ pub(super) async fn get_latest(
     let row: Option<(Uuid, Uuid, serde_json::Value, DateTime<Utc>)> = sqlx::query_as(
         "SELECT id, instance_id, checkpoint_data, created_at FROM checkpoints WHERE instance_id = $1 ORDER BY created_at DESC LIMIT 1",
     )
-    .bind(instance_id.0)
+    .bind(instance_id.into_uuid())
     .fetch_optional(&store.pool)
     .await?;
     Ok(row.map(
         |(id, inst_id, data, created_at)| orch8_types::checkpoint::Checkpoint {
             id,
-            instance_id: InstanceId(inst_id),
+            instance_id: InstanceId::from_uuid(inst_id),
             checkpoint_data: data,
             created_at,
         },
@@ -50,7 +50,7 @@ pub(super) async fn list(
     let rows: Vec<(Uuid, Uuid, serde_json::Value, DateTime<Utc>)> = sqlx::query_as(
         "SELECT id, instance_id, checkpoint_data, created_at FROM checkpoints WHERE instance_id = $1 ORDER BY created_at DESC LIMIT $2",
     )
-    .bind(instance_id.0)
+    .bind(instance_id.into_uuid())
     .bind(i64::from(limit.min(1000)))
     .fetch_all(&store.pool)
     .await?;
@@ -59,7 +59,7 @@ pub(super) async fn list(
         .map(
             |(id, inst_id, data, created_at)| orch8_types::checkpoint::Checkpoint {
                 id,
-                instance_id: InstanceId(inst_id),
+                instance_id: InstanceId::from_uuid(inst_id),
                 checkpoint_data: data,
                 created_at,
             },
@@ -77,7 +77,7 @@ pub(super) async fn prune(
             SELECT id FROM checkpoints WHERE instance_id = $1 ORDER BY created_at DESC LIMIT $2
           )",
     )
-    .bind(instance_id.0)
+    .bind(instance_id.into_uuid())
     .bind(i64::from(keep))
     .execute(&store.pool)
     .await?;

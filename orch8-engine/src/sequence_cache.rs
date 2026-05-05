@@ -175,13 +175,13 @@ mod tests {
     fn mk_seq(name: &str, version: i32) -> SequenceDefinition {
         SequenceDefinition {
             id: SequenceId::new(),
-            tenant_id: TenantId("t".into()),
-            namespace: Namespace("ns".into()),
+            tenant_id: TenantId::unchecked("t"),
+            namespace: Namespace::new("ns"),
             name: name.into(),
             version,
             deprecated: false,
             blocks: vec![BlockDefinition::Step(Box::new(StepDef {
-                id: BlockId("s1".into()),
+                id: BlockId::new("s1"),
                 handler: "noop".into(),
                 params: json!({}),
                 delay: None,
@@ -262,8 +262,8 @@ mod tests {
         let got = cache
             .get_by_name(
                 &storage,
-                &TenantId("t".into()),
-                &Namespace("ns".into()),
+                &TenantId::unchecked("t"),
+                &Namespace::new("ns"),
                 "missing",
                 None,
             )

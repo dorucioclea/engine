@@ -21,7 +21,7 @@ use orch8_types::sequence::{BlockDefinition, CancellationScopeDef, SequenceDefin
 
 fn mk_step(id: &str) -> BlockDefinition {
     BlockDefinition::Step(Box::new(StepDef {
-        id: BlockId(id.into()),
+        id: BlockId::new(id),
         handler: "builtin.noop".into(),
         params: serde_json::Value::Null,
         delay: None,
@@ -52,8 +52,8 @@ async fn setup(
 
     let seq = SequenceDefinition {
         id: SequenceId::new(),
-        tenant_id: TenantId("t".into()),
-        namespace: Namespace("ns".into()),
+        tenant_id: TenantId::unchecked("t"),
+        namespace: Namespace::new("ns"),
         name: "cs-cov".into(),
         version: 1,
         deprecated: false,
@@ -67,8 +67,8 @@ async fn setup(
     let instance = TaskInstance {
         id: InstanceId::new(),
         sequence_id: seq.id,
-        tenant_id: TenantId("t".into()),
-        namespace: Namespace("ns".into()),
+        tenant_id: TenantId::unchecked("t"),
+        namespace: Namespace::new("ns"),
         state: InstanceState::Running,
         next_fire_at: None,
         priority: Priority::Normal,
@@ -110,7 +110,7 @@ fn node_by_block<'a>(
     block_id: &str,
 ) -> &'a orch8_types::execution::ExecutionNode {
     tree.iter()
-        .find(|n| n.block_id.0 == block_id)
+        .find(|n| n.block_id.as_str() == block_id)
         .expect("block in tree")
 }
 
@@ -130,7 +130,7 @@ async fn refresh(
 #[tokio::test]
 async fn children_are_activated_one_at_a_time() {
     let scope = CancellationScopeDef {
-        id: BlockId("cs".into()),
+        id: BlockId::new("cs"),
         blocks: vec![mk_step("a"), mk_step("b"), mk_step("c")],
     };
     let (storage, instance, tree) = setup(scope.clone()).await;
@@ -151,7 +151,7 @@ async fn children_are_activated_one_at_a_time() {
 #[tokio::test]
 async fn internal_child_failure_fails_the_scope() {
     let scope = CancellationScopeDef {
-        id: BlockId("cs".into()),
+        id: BlockId::new("cs"),
         blocks: vec![mk_step("a")],
     };
     let (storage, instance, tree) = setup(scope.clone()).await;
@@ -181,7 +181,7 @@ async fn internal_child_failure_fails_the_scope() {
 #[tokio::test]
 async fn scope_completes_when_all_children_succeed() {
     let scope = CancellationScopeDef {
-        id: BlockId("cs".into()),
+        id: BlockId::new("cs"),
         blocks: vec![mk_step("a"), mk_step("b")],
     };
     let (storage, instance, tree) = setup(scope.clone()).await;
@@ -222,7 +222,7 @@ async fn scope_completes_when_all_children_succeed() {
 #[tokio::test]
 async fn scope_waits_on_running_child_without_touching_state() {
     let scope = CancellationScopeDef {
-        id: BlockId("cs".into()),
+        id: BlockId::new("cs"),
         blocks: vec![mk_step("a"), mk_step("b")],
     };
     let (storage, instance, tree) = setup(scope.clone()).await;
@@ -252,11 +252,11 @@ async fn scope_waits_on_running_child_without_touching_state() {
 #[tokio::test]
 async fn nested_scope_activates_independently() {
     let inner = CancellationScopeDef {
-        id: BlockId("inner".into()),
+        id: BlockId::new("inner"),
         blocks: vec![mk_step("inner_a")],
     };
     let outer = CancellationScopeDef {
-        id: BlockId("outer".into()),
+        id: BlockId::new("outer"),
         blocks: vec![BlockDefinition::CancellationScope(Box::new(inner.clone()))],
     };
     let (storage, instance, tree) = setup(outer.clone()).await;
@@ -265,7 +265,7 @@ async fn nested_scope_activates_independently() {
     // Tick 1 on outer: activate inner.
     let outer_node = tree
         .iter()
-        .find(|n| n.block_id == BlockId("outer".into()))
+        .find(|n| n.block_id == BlockId::new("outer"))
         .unwrap()
         .clone();
     execute_cancellation_scope(&storage, &reg, &instance, &outer_node, &outer, &tree)
@@ -274,7 +274,7 @@ async fn nested_scope_activates_independently() {
     let tree = refresh(&storage, &instance).await;
     let inner_node = tree
         .iter()
-        .find(|n| n.block_id == BlockId("inner".into()))
+        .find(|n| n.block_id == BlockId::new("inner"))
         .unwrap()
         .clone();
     assert_eq!(inner_node.state, NodeState::Running);
@@ -291,7 +291,7 @@ async fn nested_scope_activates_independently() {
 #[tokio::test]
 async fn empty_scope_completes_immediately() {
     let scope = CancellationScopeDef {
-        id: BlockId("cs".into()),
+        id: BlockId::new("cs"),
         blocks: vec![],
     };
     let (storage, instance, tree) = setup(scope.clone()).await;
@@ -308,7 +308,7 @@ async fn empty_scope_completes_immediately() {
 #[tokio::test]
 async fn single_child_completion_completes_scope() {
     let scope = CancellationScopeDef {
-        id: BlockId("cs".into()),
+        id: BlockId::new("cs"),
         blocks: vec![mk_step("only")],
     };
     let (storage, instance, tree) = setup(scope.clone()).await;

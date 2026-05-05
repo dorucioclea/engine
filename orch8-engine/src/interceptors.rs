@@ -21,7 +21,7 @@ pub async fn emit_before_step(
     step_block_id: &BlockId,
 ) {
     if let Some(ref action) = interceptors.before_step {
-        let block_id = BlockId(format!("_interceptor:before:{}", step_block_id.0));
+        let block_id = BlockId::new(format!("_interceptor:before:{}", step_block_id.as_str()));
         save_interceptor_output(storage, instance_id, block_id, &action.params).await;
     }
 }
@@ -34,7 +34,7 @@ pub async fn emit_after_step(
     step_block_id: &BlockId,
 ) {
     if let Some(ref action) = interceptors.after_step {
-        let block_id = BlockId(format!("_interceptor:after:{}", step_block_id.0));
+        let block_id = BlockId::new(format!("_interceptor:after:{}", step_block_id.as_str()));
         save_interceptor_output(storage, instance_id, block_id, &action.params).await;
     }
 }
@@ -47,7 +47,7 @@ pub async fn emit_on_signal(
     signal_info: &serde_json::Value,
 ) {
     if let Some(ref action) = interceptors.on_signal {
-        let block_id = BlockId("_interceptor:on_signal".into());
+        let block_id = BlockId::new("_interceptor:on_signal");
         let mut output = action.params.clone();
         if let serde_json::Value::Object(ref mut map) = output {
             map.insert("_signal".into(), signal_info.clone());
@@ -68,7 +68,7 @@ pub async fn emit_on_complete(
     instance_id: InstanceId,
 ) {
     if let Some(ref action) = interceptors.on_complete {
-        let block_id = BlockId("_interceptor:on_complete".into());
+        let block_id = BlockId::new("_interceptor:on_complete");
         save_interceptor_output(storage, instance_id, block_id, &action.params).await;
     }
 }
@@ -80,7 +80,7 @@ pub async fn emit_on_failure(
     instance_id: InstanceId,
 ) {
     if let Some(ref action) = interceptors.on_failure {
-        let block_id = BlockId("_interceptor:on_failure".into());
+        let block_id = BlockId::new("_interceptor:on_failure");
         save_interceptor_output(storage, instance_id, block_id, &action.params).await;
     }
 }
@@ -99,14 +99,14 @@ async fn save_interceptor_output(
         output: output.clone(),
         output_ref: None,
         output_size: serde_json::to_vec(output)
-            .map_or(0, |v| i32::try_from(v.len()).unwrap_or(i32::MAX)),
+            .map_or(0, |v| u32::try_from(v.len()).unwrap_or(u32::MAX)),
         attempt: 0,
         created_at: Utc::now(),
     };
     if let Err(e) = storage.save_block_output(&bo).await {
         warn!(
             instance_id = %instance_id,
-            block_id = %block_id.0,
+            block_id = %block_id.as_str(),
             error = %e,
             "failed to save interceptor output"
         );
@@ -127,8 +127,8 @@ mod tests {
         let inst = TaskInstance {
             id,
             sequence_id: SequenceId::new(),
-            tenant_id: TenantId("t".into()),
-            namespace: Namespace("ns".into()),
+            tenant_id: TenantId::unchecked("t"),
+            namespace: Namespace::new("ns"),
             state: InstanceState::Running,
             next_fire_at: None,
             priority: Priority::Normal,
@@ -164,19 +164,19 @@ mod tests {
             ..Default::default()
         };
 
-        let step_id = BlockId("s1".into());
+        let step_id = BlockId::new("s1");
         emit_before_step(&storage, &interceptors, instance_id, &step_id).await;
         emit_after_step(&storage, &interceptors, instance_id, &step_id).await;
 
         let before = storage
-            .get_block_output(instance_id, &BlockId("_interceptor:before:s1".into()))
+            .get_block_output(instance_id, &BlockId::new("_interceptor:before:s1"))
             .await
             .unwrap();
         assert!(before.is_some());
         assert_eq!(before.unwrap().output["stage"], "pre");
 
         let after = storage
-            .get_block_output(instance_id, &BlockId("_interceptor:after:s1".into()))
+            .get_block_output(instance_id, &BlockId::new("_interceptor:after:s1"))
             .await
             .unwrap();
         assert!(after.is_some());
@@ -201,7 +201,7 @@ mod tests {
         emit_on_signal(&storage, &interceptors, instance_id, &signal_info).await;
 
         let out = storage
-            .get_block_output(instance_id, &BlockId("_interceptor:on_signal".into()))
+            .get_block_output(instance_id, &BlockId::new("_interceptor:on_signal"))
             .await
             .unwrap();
         assert!(out.is_some());
@@ -227,7 +227,7 @@ mod tests {
         emit_on_complete(&storage, &interceptors, instance_id).await;
 
         let out = storage
-            .get_block_output(instance_id, &BlockId("_interceptor:on_complete".into()))
+            .get_block_output(instance_id, &BlockId::new("_interceptor:on_complete"))
             .await
             .unwrap();
         assert!(out.is_some());
@@ -251,7 +251,7 @@ mod tests {
         emit_on_failure(&storage, &interceptors, instance_id).await;
 
         let out = storage
-            .get_block_output(instance_id, &BlockId("_interceptor:on_failure".into()))
+            .get_block_output(instance_id, &BlockId::new("_interceptor:on_failure"))
             .await
             .unwrap();
         assert!(out.is_some());
@@ -279,7 +279,7 @@ mod tests {
         emit_on_signal(&storage, &interceptors, instance_id, &signal_info).await;
 
         let out = storage
-            .get_block_output(instance_id, &BlockId("_interceptor:on_signal".into()))
+            .get_block_output(instance_id, &BlockId::new("_interceptor:on_signal"))
             .await
             .unwrap()
             .expect("interceptor output should be saved");
@@ -308,11 +308,11 @@ mod tests {
         emit_on_complete(&storage, &interceptors, instance_id).await;
 
         let out = storage
-            .get_block_output(instance_id, &BlockId("_interceptor:on_complete".into()))
+            .get_block_output(instance_id, &BlockId::new("_interceptor:on_complete"))
             .await
             .unwrap()
             .expect("interceptor output should be saved");
-        let expected = i32::try_from(serde_json::to_vec(&params).unwrap().len()).unwrap();
+        let expected = u32::try_from(serde_json::to_vec(&params).unwrap().len()).unwrap();
         assert_eq!(out.output_size, expected);
     }
 
@@ -338,17 +338,17 @@ mod tests {
                 &storage,
                 &interceptors,
                 instance_id,
-                &BlockId((*step).into()),
+                &BlockId::new(*step),
             )
             .await;
         }
 
         let a = storage
-            .get_block_output(instance_id, &BlockId("_interceptor:before:alpha".into()))
+            .get_block_output(instance_id, &BlockId::new("_interceptor:before:alpha"))
             .await
             .unwrap();
         let b = storage
-            .get_block_output(instance_id, &BlockId("_interceptor:before:beta".into()))
+            .get_block_output(instance_id, &BlockId::new("_interceptor:before:beta"))
             .await
             .unwrap();
         assert!(a.is_some() && b.is_some(), "both outputs should be saved");
@@ -372,17 +372,17 @@ mod tests {
             ..Default::default()
         };
 
-        let step_id = BlockId("s1".into());
+        let step_id = BlockId::new("s1");
         emit_before_step(&storage, &interceptors, instance_id, &step_id).await;
         emit_after_step(&storage, &interceptors, instance_id, &step_id).await;
 
         assert!(storage
-            .get_block_output(instance_id, &BlockId("_interceptor:before:s1".into()))
+            .get_block_output(instance_id, &BlockId::new("_interceptor:before:s1"))
             .await
             .unwrap()
             .is_none());
         let after = storage
-            .get_block_output(instance_id, &BlockId("_interceptor:after:s1".into()))
+            .get_block_output(instance_id, &BlockId::new("_interceptor:after:s1"))
             .await
             .unwrap();
         assert!(after.is_some());
@@ -396,7 +396,7 @@ mod tests {
         seed_instance(&storage, instance_id).await;
 
         let interceptors = InterceptorDef::default();
-        let step_id = BlockId("s1".into());
+        let step_id = BlockId::new("s1");
 
         emit_before_step(&storage, &interceptors, instance_id, &step_id).await;
         emit_after_step(&storage, &interceptors, instance_id, &step_id).await;
@@ -406,7 +406,7 @@ mod tests {
 
         // No outputs should exist.
         let before = storage
-            .get_block_output(instance_id, &BlockId("_interceptor:before:s1".into()))
+            .get_block_output(instance_id, &BlockId::new("_interceptor:before:s1"))
             .await
             .unwrap();
         assert!(before.is_none());
