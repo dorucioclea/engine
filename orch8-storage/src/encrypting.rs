@@ -69,12 +69,11 @@ impl EncryptingStorage {
         Ok(Cow::Owned(ctx))
     }
 
-    fn encrypt_context_mut(
-        &self,
-        context: &mut ExecutionContext,
-    ) -> Result<(), StorageError> {
+    fn encrypt_context_mut(&self, context: &mut ExecutionContext) -> Result<(), StorageError> {
         if !FieldEncryptor::is_encrypted(&context.data) {
-            context.data = self.encryptor.encrypt_value(&context.data)
+            context.data = self
+                .encryptor
+                .encrypt_value(&context.data)
                 .map_err(|e| StorageError::Query(format!("encryption: {e}")))?;
         }
         Ok(())
