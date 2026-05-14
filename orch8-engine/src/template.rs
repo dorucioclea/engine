@@ -2181,7 +2181,8 @@ mod tests {
         };
         let subscriber = tracing_subscriber::registry().with(layer);
         tracing::subscriber::with_default(subscriber, f);
-        Arc::try_unwrap(warnings).unwrap().into_inner().unwrap()
+        let guard = warnings.lock().unwrap();
+        guard.clone()
     }
 
     // -----------------------------------------------------------------------
