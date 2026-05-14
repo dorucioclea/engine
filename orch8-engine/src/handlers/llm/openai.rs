@@ -7,7 +7,7 @@ use super::common::{
     classify_api_error, classify_reqwest_error, is_json_object_format, merge_json_response_fields,
     retryable,
 };
-use super::http_client;
+use super::{http_client, openai_default_model};
 
 pub(super) async fn call_openai_compat(
     params: &Value,
@@ -20,7 +20,7 @@ pub(super) async fn call_openai_compat(
     let model = params
         .get("model")
         .and_then(Value::as_str)
-        .unwrap_or("gpt-4o");
+        .unwrap_or(openai_default_model());
 
     let messages = {
         let mut msgs = Vec::new();

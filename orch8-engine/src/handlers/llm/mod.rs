@@ -13,7 +13,7 @@
 //! | `base_url` | string | per-provider | Override API base URL |
 //! | `api_key` | string | — | API key (direct) |
 //! | `api_key_env` | string | — | Env var name containing API key |
-//! | `model` | string | per-provider | Model identifier |
+//! | `model` | string | per-provider | Model identifier (see env var overrides below) |
 //! | `messages` | array | `[]` | Chat messages (`{role, content}`) |
 //! | `system` | string | — | System prompt (Anthropic shorthand) |
 //! | `temperature` | number | — | Sampling temperature |
@@ -27,16 +27,26 @@
 //!
 //! | Name | Base URL | Format |
 //! |------|----------|--------|
-//! | `openai` | `api.openai.com/v1` | OpenAI |
-//! | `anthropic` | `api.anthropic.com/v1` | Anthropic |
-//! | `gemini` | `generativelanguage.googleapis.com/v1beta/openai` | OpenAI |
-//! | `deepseek` | `api.deepseek.com` | OpenAI |
-//! | `qwen` | `dashscope.aliyuncs.com/compatible-mode/v1` | OpenAI |
-//! | `perplexity` | `api.perplexity.ai` | OpenAI |
-//! | `groq` | `api.groq.com/openai/v1` | OpenAI |
-//! | `together` | `api.together.xyz/v1` | OpenAI |
-//! | `mistral` | `api.mistral.ai/v1` | OpenAI |
-//! | `openrouter` | `openrouter.ai/api/v1` | OpenAI |
+//! | `openai` | `api.openai.com/v1` | `OpenAI` |
+//! | `anthropic` | `api.anthropic.com/v1` | `Anthropic` |
+//! | `gemini` | `generativelanguage.googleapis.com/v1beta/openai` | `OpenAI` |
+//! | `deepseek` | `api.deepseek.com` | `OpenAI` |
+//! | `qwen` | `dashscope.aliyuncs.com/compatible-mode/v1` | `OpenAI` |
+//! | `perplexity` | `api.perplexity.ai` | `OpenAI` |
+//! | `groq` | `api.groq.com/openai/v1` | `OpenAI` |
+//! | `together` | `api.together.xyz/v1` | `OpenAI` |
+//! | `mistral` | `api.mistral.ai/v1` | `OpenAI` |
+//! | `openrouter` | `openrouter.ai/api/v1` | `OpenAI` |
+//!
+//! ## Default model env vars
+//!
+//! When no `model` is specified in step params, the handler reads from these
+//! env vars (checked once at first use):
+//!
+//! | Env var | Applies to | Fallback |
+//! |---------|-----------|----------|
+//! | `ORCH8_LLM_DEFAULT_MODEL_OPENAI` | All `OpenAI`-compatible providers | `gpt-4o` |
+//! | `ORCH8_LLM_DEFAULT_MODEL_ANTHROPIC` | `Anthropic` | `claude-sonnet-4-6` |
 
 mod anthropic;
 mod common;
@@ -47,8 +57,24 @@ use std::time::Duration;
 
 use serde_json::{json, Value};
 
-/// Default model for the Anthropic provider when no `model` param is supplied.
-pub(crate) const ANTHROPIC_DEFAULT_MODEL: &str = "claude-sonnet-4-20250514";
+/// Default model for the OpenAI-compatible provider. Override at runtime
+/// with `ORCH8_LLM_DEFAULT_MODEL_OPENAI`.
+pub(crate) fn openai_default_model() -> &'static str {
+    static MODEL: OnceLock<String> = OnceLock::new();
+    MODEL.get_or_init(|| {
+        std::env::var("ORCH8_LLM_DEFAULT_MODEL_OPENAI").unwrap_or_else(|_| "gpt-4o".to_string())
+    })
+}
+
+/// Default model for the Anthropic provider. Override at runtime
+/// with `ORCH8_LLM_DEFAULT_MODEL_ANTHROPIC`.
+pub(crate) fn anthropic_default_model() -> &'static str {
+    static MODEL: OnceLock<String> = OnceLock::new();
+    MODEL.get_or_init(|| {
+        std::env::var("ORCH8_LLM_DEFAULT_MODEL_ANTHROPIC")
+            .unwrap_or_else(|_| "claude-sonnet-4-6".to_string())
+    })
+}
 use tracing::warn;
 
 use orch8_types::error::StepError;
