@@ -46,6 +46,9 @@ use std::sync::OnceLock;
 use std::time::Duration;
 
 use serde_json::{json, Value};
+
+/// Default model for the Anthropic provider when no `model` param is supplied.
+pub(crate) const ANTHROPIC_DEFAULT_MODEL: &str = "claude-sonnet-4-20250514";
 use tracing::warn;
 
 use orch8_types::error::StepError;

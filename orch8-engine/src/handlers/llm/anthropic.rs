@@ -7,7 +7,7 @@ use super::common::{
     classify_api_error, classify_reqwest_error, extract_system_message, is_json_object_format,
     merge_json_response_fields, retryable,
 };
-use super::http_client;
+use super::{http_client, ANTHROPIC_DEFAULT_MODEL};
 
 pub(super) async fn call_anthropic(
     params: &Value,
@@ -19,7 +19,7 @@ pub(super) async fn call_anthropic(
     let model = params
         .get("model")
         .and_then(Value::as_str)
-        .unwrap_or("claude-sonnet-4-20250514");
+        .unwrap_or(ANTHROPIC_DEFAULT_MODEL);
 
     let messages_raw = params.get("messages").cloned().unwrap_or(json!([]));
     let (system_from_msgs, messages) = extract_system_message(&messages_raw);

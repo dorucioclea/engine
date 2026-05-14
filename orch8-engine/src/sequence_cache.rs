@@ -135,17 +135,17 @@ impl SequenceCache {
         let seq_view = self.by_id.get(&sequence_id).await;
         self.by_id.invalidate(&sequence_id).await;
         if let Some(seq) = seq_view {
+            let tid = seq.tenant_id.clone();
+            let ns = seq.namespace.clone();
             let arc_name: Arc<str> = Arc::from(seq.name.as_str());
             let name_key: ByNameKey = (
-                seq.tenant_id.clone(),
-                seq.namespace.clone(),
+                tid.clone(),
+                ns.clone(),
                 Arc::clone(&arc_name),
                 Some(seq.version),
             );
             self.by_name.invalidate(&name_key).await;
-            // Also clear the "latest version" alias the caller may have used.
-            let latest_key: ByNameKey =
-                (seq.tenant_id.clone(), seq.namespace.clone(), arc_name, None);
+            let latest_key: ByNameKey = (tid, ns, arc_name, None);
             self.by_name.invalidate(&latest_key).await;
         }
     }
