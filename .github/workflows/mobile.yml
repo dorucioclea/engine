@@ -55,6 +55,8 @@ jobs:
 
       - name: Build liborch8_mobile
         run: cargo build --profile mobile-release --target ${{ matrix.target }} -p orch8-mobile
+        env:
+          IPHONEOS_DEPLOYMENT_TARGET: "16.0"
 
       - name: Upload static library
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -201,6 +203,9 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
+      - uses: gradle/actions/setup-gradle@ac638b010cf58a27ee6c972d69a336cda53c0a02 # v4.5.0
+        with:
+          gradle-version: "8.9"
 
       - name: Download Android artifacts
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
@@ -220,8 +225,7 @@ jobs:
           cp ../../artifacts/liborch8_mobile-x86_64/liborch8_mobile.so orch8-mobile/src/main/jniLibs/x86_64/
           cp ../../artifacts/bindings/kotlin/io/orch8/mobile/orch8_mobile.kt orch8-mobile/src/main/java/io/orch8/mobile/
 
-          chmod +x gradlew
-          ./gradlew :orch8-mobile:assembleRelease
+          gradle :orch8-mobile:assembleRelease
 
       - name: Upload AAR
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
