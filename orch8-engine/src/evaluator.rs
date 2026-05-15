@@ -44,6 +44,64 @@ pub enum EvalOutcome {
     MoreWork { has_waiting_nodes: bool },
 }
 
+/// In-memory cache for the evaluation loop. Pre-loaded at the start and only
+/// refreshed from storage when a write operation invalidates the cached state.
+struct EvalContext {
+    tree: Vec<ExecutionNode>,
+    instance: TaskInstance,
+    /// When true, the tree must be re-read from storage before the next use.
+    tree_stale: bool,
+    /// When true, the instance must be re-read from storage before the next use.
+    instance_stale: bool,
+}
+
+impl EvalContext {
+    /// Refresh the execution tree from storage if stale.
+    async fn refresh_tree(
+        &mut self,
+        storage: &dyn StorageBackend,
+        instance_id: InstanceId,
+    ) -> Result<(), EngineError> {
+        if self.tree_stale {
+            self.tree = storage.get_execution_tree(instance_id).await?;
+            self.tree_stale = false;
+        }
+        Ok(())
+    }
+
+    /// Refresh the instance from storage if stale.
+    async fn refresh_instance(
+        &mut self,
+        storage: &dyn StorageBackend,
+        instance_id: InstanceId,
+    ) -> Result<(), EngineError> {
+        if self.instance_stale {
+            self.instance = storage
+                .get_instance(instance_id)
+                .await?
+                .ok_or_else(|| EngineError::NotFound(format!("instance {instance_id}")))?;
+            self.instance_stale = false;
+        }
+        Ok(())
+    }
+
+    /// Replace the cached tree with a pre-fetched snapshot and clear staleness.
+    fn set_tree(&mut self, tree: Vec<ExecutionNode>) {
+        self.tree = tree;
+        self.tree_stale = false;
+    }
+}
+
+/// Action returned by each evaluation phase to direct the main loop.
+enum IterAction {
+    /// Phase handled work — restart the loop from the top.
+    Continue,
+    /// Phase determined a terminal result — return immediately.
+    Return(EvalOutcome),
+    /// Phase had no actionable work — fall through to the next phase.
+    FallThrough,
+}
+
 /// Fetch any dynamically injected blocks and merge them with the sequence
 /// blocks.
 ///
@@ -248,265 +306,125 @@ pub async fn evaluate(
     let block_map: HashMap<&BlockId, &BlockDefinition> = flatten_blocks(&blocks);
 
     // Ensure the execution tree exists (creates on first call, adds new injected nodes).
-    ensure_execution_tree(storage.as_ref(), instance, &blocks).await?;
+    let initial_tree = ensure_execution_tree(storage.as_ref(), instance, &blocks).await?;
 
-    // Loop: each iteration dispatches one actionable node, then re-reads
-    // the tree to find more work. This lets parallel branches, try-catch
-    // phases, etc. all make progress within a single scheduler tick.
+    // Pre-load instance and tree into in-memory context to reduce DB round-trips.
+    // The context tracks staleness: after a storage write that may have mutated
+    // tree or instance state, the relevant flag is set so the next iteration
+    // re-reads only what changed.
+    let initial_instance = storage
+        .get_instance(instance.id)
+        .await?
+        .ok_or_else(|| EngineError::NotFound(format!("instance {}", instance.id)))?;
+
+    let mut ctx = EvalContext {
+        tree: initial_tree,
+        instance: initial_instance,
+        tree_stale: false,
+        instance_stale: false,
+    };
+
     let max_iterations = 200;
     let instance_id = instance.id;
-    // Carry Phase 3's `post_tree` forward so the top of the next iteration
-    // reuses it instead of re-reading the same rows from storage.
-    let mut prefetched_tree: Option<Vec<ExecutionNode>> = None;
-    // Cache the instance across iterations — only refetch from storage when
-    // a prior dispatch may have mutated context or state (Step, ForEach,
-    // TryCatch, or signal processing). Parallel/Race/Loop/Router dispatches
-    // only modify tree nodes and cannot change instance data.
-    let mut cached_instance: Option<TaskInstance> = None;
-    let mut instance_dirty = true;
+
     for _ in 0..max_iterations {
         let outputs_snapshot = OutputsSnapshot::new();
 
-        if instance_dirty || cached_instance.is_none() {
-            cached_instance = Some(
-                storage
-                    .get_instance(instance_id)
-                    .await?
-                    .ok_or_else(|| EngineError::NotFound(format!("instance {instance_id}")))?,
-            );
-            instance_dirty = false;
-        }
-        let instance = cached_instance.as_ref().unwrap();
+        // Refresh stale caches before this iteration.
+        ctx.refresh_instance(storage.as_ref(), instance_id).await?;
+        ctx.refresh_tree(storage.as_ref(), instance_id).await?;
 
-        // If a dispatch within this tick moved the instance out of Running
-        // (e.g. a retryable step failure re-scheduled it with backoff, a
-        // pause/cancel signal landed, or a human-input step parked it),
-        // stop iterating. The outer scheduler owns the next transition —
-        // looping here would hot-spin on nodes that are no longer eligible
-        // for execution under the new instance state.
-        if instance.state != InstanceState::Running {
+        // If a dispatch within this tick moved the instance out of Running,
+        // stop iterating. The outer scheduler owns the next transition.
+        if ctx.instance.state != InstanceState::Running {
             debug!(
-                instance_id = %instance.id,
-                state = %instance.state,
+                instance_id = %instance_id,
+                state = %ctx.instance.state,
                 "evaluate: instance no longer Running, exiting loop early"
             );
-            let tree_snapshot = storage.get_execution_tree(instance.id).await?;
             return Ok(EvalOutcome::MoreWork {
-                has_waiting_nodes: tree_snapshot.iter().any(|n| n.state == NodeState::Waiting),
+                has_waiting_nodes: ctx.tree.iter().any(|n| n.state == NodeState::Waiting),
             });
         }
-
-        // Re-fetch tree to see latest state after each dispatch, unless
-        // Phase 3 of the previous iteration already fetched a post-dispatch
-        // snapshot we can reuse verbatim.
-        let mut tree = match prefetched_tree.take() {
-            Some(t) => t,
-            None => storage.get_execution_tree(instance.id).await?,
-        };
 
         // SLA deadline check: fail any step nodes that have breached their deadline.
         let deadlines_breached =
-            check_sla_deadlines(storage, handlers, instance, &blocks, &tree).await?;
-        // Re-fetch tree only if deadlines were breached (state may have changed).
+            check_sla_deadlines(storage, handlers, &ctx.instance, &blocks, &ctx.tree).await?;
         if deadlines_breached {
-            tree = storage.get_execution_tree(instance.id).await?;
+            ctx.tree_stale = true;
+            ctx.refresh_tree(storage.as_ref(), instance_id).await?;
         }
-        let root_nodes: Vec<&ExecutionNode> =
-            tree.iter().filter(|n| n.parent_id.is_none()).collect();
 
-        // Termination: all root nodes done.
-        if root_nodes
-            .iter()
-            .all(|n| matches!(n.state, NodeState::Completed | NodeState::Skipped))
+        // Check termination conditions on root nodes.
+        if let Some(outcome) = check_termination(&ctx.tree) {
+            return Ok(outcome);
+        }
+
+        // Phase 1: activate the first Pending root node.
+        match phase_root_activation(
+            storage,
+            handlers,
+            &mut ctx,
+            instance_id,
+            &block_map,
+            sequence,
+            &outputs_snapshot,
+        )
+        .await?
         {
-            return Ok(EvalOutcome::Done {
-                any_failed: false,
-                any_cancelled: false,
-            });
+            IterAction::Continue => continue,
+            IterAction::Return(outcome) => return Ok(outcome),
+            IterAction::FallThrough => {}
         }
-        // Termination: any root node failed/cancelled.
-        if root_nodes
-            .iter()
-            .any(|n| matches!(n.state, NodeState::Failed | NodeState::Cancelled))
-        {
-            let any_failed = root_nodes.iter().any(|n| n.state == NodeState::Failed);
-            let any_cancelled = root_nodes.iter().any(|n| n.state == NodeState::Cancelled);
-            return Ok(EvalOutcome::Done {
-                any_failed,
-                any_cancelled,
-            });
-        }
-
-        // Phase 1: activate the first Pending root node, but only if all
-        // preceding roots are terminal. Root nodes execute sequentially —
-        // block N+1 must not start until block N completes.
-        let first_pending_idx = root_nodes
-            .iter()
-            .position(|n| n.state == NodeState::Pending);
-        if let Some(idx) = first_pending_idx {
-            // Only activate if all prior roots are done.
-            let all_prior_done = root_nodes[..idx].iter().all(|n| {
-                matches!(
-                    n.state,
-                    NodeState::Completed
-                        | NodeState::Failed
-                        | NodeState::Cancelled
-                        | NodeState::Skipped
-                )
-            });
-            if all_prior_done {
-                // Before activating new work, check if a cancel/pause signal
-                // arrived mid-tick (e.g. during a sleep inside a finally
-                // block). Process it now to avoid dispatching already-cancelled
-                // or already-paused work.
-                let pending_signals = storage.get_pending_signals(instance.id).await?;
-                let has_control_signal = pending_signals.iter().any(|s| {
-                    matches!(
-                        s.signal_type,
-                        orch8_types::signal::SignalType::Cancel
-                            | orch8_types::signal::SignalType::Pause
-                    )
-                });
-                if has_control_signal {
-                    let abort = crate::signals::process_signals_prefetched(
-                        storage.as_ref(),
-                        instance.id,
-                        instance.state,
-                        pending_signals,
-                        Some(sequence),
-                    )
-                    .await?;
-                    if abort {
-                        // Distinguish Pause from Cancel so the scheduler does
-                        // not transition a paused instance to Cancelled.
-                        let now_paused = storage
-                            .get_instance(instance.id)
-                            .await?
-                            .is_some_and(|i| i.state == InstanceState::Paused);
-                        return Ok(EvalOutcome::Done {
-                            any_failed: false,
-                            any_cancelled: !now_paused,
-                        });
-                    }
-                    instance_dirty = true;
-                    continue;
-                }
-                let node = root_nodes[idx];
-                if let Some(block) = block_map.get(&node.block_id).copied() {
-                    dispatch_block(
-                        storage,
-                        handlers,
-                        instance,
-                        node,
-                        block,
-                        &tree,
-                        sequence.interceptors.as_ref(),
-                        &outputs_snapshot,
-                    )
-                    .await?;
-                    instance_dirty = may_mutate_instance(block);
-                    continue;
-                }
-            }
-        }
-
-        let parent_map = build_parent_map(&tree);
-        let node_map: HashMap<_, _> = tree.iter().map(|n| (n.id, n)).collect();
 
         // Phase 2: execute Running step nodes (leaf work first).
-        if let Some((node, block)) =
-            find_running_step(&tree, &block_map, handlers, &parent_map, &node_map)
+        match phase_running_steps(
+            storage,
+            handlers,
+            &mut ctx,
+            &block_map,
+            sequence,
+            &outputs_snapshot,
+        )
+        .await?
         {
-            dispatch_block(
-                storage,
-                handlers,
-                instance,
-                node,
-                block,
-                &tree,
-                sequence.interceptors.as_ref(),
-                &outputs_snapshot,
-            )
-            .await?;
-            instance_dirty = true;
-            continue;
+            IterAction::Continue => continue,
+            IterAction::Return(outcome) => return Ok(outcome),
+            IterAction::FallThrough => {}
         }
 
-        // Phase 3: re-evaluate Running composite nodes (parents check child completion,
-        // activate next phases like catch/finally, dispatch pending children).
-        // Process deepest-first; if a composite produces no state change, try the
-        // next (shallower) composite before parking — a parent race may be able to
-        // complete even when a child try_catch inside it is stalled.
+        // Phase 3: re-evaluate Running composite nodes.
+        match phase_composite_reevaluation(
+            storage,
+            handlers,
+            &mut ctx,
+            instance_id,
+            &block_map,
+            sequence,
+            &outputs_snapshot,
+        )
+        .await?
         {
-            let composites = find_all_running_composites(&tree, &block_map, &parent_map);
-            if !composites.is_empty() {
-                // Snapshot node states before dispatching any composite. The
-                // `tree` vec is immutable within this iteration, so the
-                // snapshot is the same for all composites — compute it once.
-                let pre_states: Vec<(ExecutionNodeId, NodeState)> =
-                    tree.iter().map(|n| (n.id, n.state)).collect();
-
-                let mut early_restart = false;
-                for (node, block) in &composites {
-                    dispatch_block(
-                        storage,
-                        handlers,
-                        instance,
-                        node,
-                        block,
-                        &tree,
-                        sequence.interceptors.as_ref(),
-                        &outputs_snapshot,
-                    )
-                    .await?;
-                    if may_mutate_instance(block) {
-                        instance_dirty = true;
-                        let mid_tree = storage.get_execution_tree(instance_id).await?;
-                        let mid_states: Vec<(ExecutionNodeId, NodeState)> =
-                            mid_tree.iter().map(|n| (n.id, n.state)).collect();
-                        if pre_states != mid_states {
-                            prefetched_tree = Some(mid_tree);
-                            early_restart = true;
-                            break;
-                        }
-                    }
-                }
-                if early_restart {
-                    continue;
-                }
-
-                let post_tree = storage.get_execution_tree(instance_id).await?;
-                let post_states: Vec<(ExecutionNodeId, NodeState)> =
-                    post_tree.iter().map(|n| (n.id, n.state)).collect();
-                if pre_states != post_states {
-                    prefetched_tree = Some(post_tree);
-                    continue;
-                }
-                debug!(
-                    instance_id = %instance.id,
-                    "evaluate: all composites re-entry produced no state change; parking tick"
-                );
-                return Ok(EvalOutcome::MoreWork {
-                    has_waiting_nodes: post_tree.iter().any(|n| n.state == NodeState::Waiting),
-                });
-            }
+            IterAction::Continue => continue,
+            IterAction::Return(outcome) => return Ok(outcome),
+            IterAction::FallThrough => {}
         }
 
         // No actionable work this tick — either waiting for external work or stuck.
         if tracing::enabled!(tracing::Level::WARN) {
             warn!(
-                instance_id = %instance.id,
-                nodes = ?tree.iter().map(|n| format!("{}:{}:{:?}", n.block_id, n.block_type, n.state)).collect::<Vec<_>>(),
+                instance_id = %instance_id,
+                nodes = ?ctx.tree.iter().map(|n| format!("{}:{}:{:?}", n.block_id, n.block_type, n.state)).collect::<Vec<_>>(),
                 "evaluate: no actionable work"
             );
         } else {
             warn!(
-                instance_id = %instance.id,
+                instance_id = %instance_id,
                 "evaluate: no actionable work"
             );
         }
         return Ok(EvalOutcome::MoreWork {
-            has_waiting_nodes: tree.iter().any(|n| n.state == NodeState::Waiting),
+            has_waiting_nodes: ctx.tree.iter().any(|n| n.state == NodeState::Waiting),
         });
     }
 
@@ -523,6 +441,252 @@ pub async fn evaluate(
     })
 }
 
+/// Check if root nodes indicate the instance is done (all completed/skipped,
+/// or any failed/cancelled).
+fn check_termination(tree: &[ExecutionNode]) -> Option<EvalOutcome> {
+    let root_nodes: Vec<&ExecutionNode> = tree.iter().filter(|n| n.parent_id.is_none()).collect();
+
+    // Termination: all root nodes done.
+    if root_nodes
+        .iter()
+        .all(|n| matches!(n.state, NodeState::Completed | NodeState::Skipped))
+    {
+        return Some(EvalOutcome::Done {
+            any_failed: false,
+            any_cancelled: false,
+        });
+    }
+    // Termination: any root node failed/cancelled.
+    if root_nodes
+        .iter()
+        .any(|n| matches!(n.state, NodeState::Failed | NodeState::Cancelled))
+    {
+        let any_failed = root_nodes.iter().any(|n| n.state == NodeState::Failed);
+        let any_cancelled = root_nodes.iter().any(|n| n.state == NodeState::Cancelled);
+        return Some(EvalOutcome::Done {
+            any_failed,
+            any_cancelled,
+        });
+    }
+
+    None
+}
+
+/// Phase 1: activate the first Pending root node, but only if all preceding
+/// roots are terminal. Root nodes execute sequentially — block N+1 must not
+/// start until block N completes.
+async fn phase_root_activation(
+    storage: &Arc<dyn StorageBackend>,
+    handlers: &HandlerRegistry,
+    ctx: &mut EvalContext,
+    instance_id: InstanceId,
+    block_map: &HashMap<&BlockId, &BlockDefinition>,
+    sequence: &SequenceDefinition,
+    outputs_snapshot: &OutputsSnapshot,
+) -> Result<IterAction, EngineError> {
+    let root_nodes: Vec<&ExecutionNode> =
+        ctx.tree.iter().filter(|n| n.parent_id.is_none()).collect();
+
+    let first_pending_idx = root_nodes
+        .iter()
+        .position(|n| n.state == NodeState::Pending);
+    let Some(idx) = first_pending_idx else {
+        return Ok(IterAction::FallThrough);
+    };
+
+    // Only activate if all prior roots are done.
+    let all_prior_done = root_nodes[..idx].iter().all(|n| {
+        matches!(
+            n.state,
+            NodeState::Completed | NodeState::Failed | NodeState::Cancelled | NodeState::Skipped
+        )
+    });
+    if !all_prior_done {
+        return Ok(IterAction::FallThrough);
+    }
+
+    // Before activating new work, check if a cancel/pause signal arrived
+    // mid-tick. Process it now to avoid dispatching already-cancelled or
+    // already-paused work.
+    let pending_signals = storage.get_pending_signals(instance_id).await?;
+    let has_control_signal = pending_signals.iter().any(|s| {
+        matches!(
+            s.signal_type,
+            orch8_types::signal::SignalType::Cancel | orch8_types::signal::SignalType::Pause
+        )
+    });
+    if has_control_signal {
+        let abort = crate::signals::process_signals_prefetched(
+            storage.as_ref(),
+            instance_id,
+            ctx.instance.state,
+            pending_signals,
+            Some(sequence),
+        )
+        .await?;
+        if abort {
+            // Distinguish Pause from Cancel so the scheduler does not
+            // transition a paused instance to Cancelled.
+            let now_paused = storage
+                .get_instance(instance_id)
+                .await?
+                .is_some_and(|i| i.state == InstanceState::Paused);
+            return Ok(IterAction::Return(EvalOutcome::Done {
+                any_failed: false,
+                any_cancelled: !now_paused,
+            }));
+        }
+        ctx.instance_stale = true;
+        ctx.tree_stale = true;
+        return Ok(IterAction::Continue);
+    }
+
+    let node = root_nodes[idx];
+    if let Some(block) = block_map.get(&node.block_id).copied() {
+        dispatch_block(
+            storage,
+            handlers,
+            &ctx.instance,
+            node,
+            block,
+            &ctx.tree,
+            sequence.interceptors.as_ref(),
+            outputs_snapshot,
+        )
+        .await?;
+        ctx.tree_stale = true;
+        if may_mutate_instance(block) {
+            ctx.instance_stale = true;
+        }
+        return Ok(IterAction::Continue);
+    }
+
+    Ok(IterAction::FallThrough)
+}
+
+/// Phase 2: execute Running step nodes (leaf work first).
+///
+/// Builds parent/node maps internally to avoid borrow conflicts with the
+/// mutable `EvalContext`.
+async fn phase_running_steps(
+    storage: &Arc<dyn StorageBackend>,
+    handlers: &HandlerRegistry,
+    ctx: &mut EvalContext,
+    block_map: &HashMap<&BlockId, &BlockDefinition>,
+    sequence: &SequenceDefinition,
+    outputs_snapshot: &OutputsSnapshot,
+) -> Result<IterAction, EngineError> {
+    let parent_map = build_parent_map(&ctx.tree);
+    let node_map: HashMap<_, _> = ctx.tree.iter().map(|n| (n.id, n)).collect();
+
+    // Find the running step; extract the index so we can drop the borrows
+    // into ctx.tree before dispatching.
+    let found_idx = find_running_step_index(&ctx.tree, block_map, handlers, &parent_map, &node_map);
+    let Some(idx) = found_idx else {
+        return Ok(IterAction::FallThrough);
+    };
+
+    // Look up node and block by index — these are short-lived borrows that
+    // end before we mutate ctx below.
+    let node = &ctx.tree[idx];
+    let Some(block) = block_map.get(&node.block_id).copied() else {
+        return Ok(IterAction::FallThrough);
+    };
+
+    dispatch_block(
+        storage,
+        handlers,
+        &ctx.instance,
+        node,
+        block,
+        &ctx.tree,
+        sequence.interceptors.as_ref(),
+        outputs_snapshot,
+    )
+    .await?;
+    ctx.tree_stale = true;
+    ctx.instance_stale = true;
+    Ok(IterAction::Continue)
+}
+
+/// Phase 3: re-evaluate Running composite nodes (parents check child
+/// completion, activate next phases like catch/finally, dispatch pending
+/// children). Process deepest-first; if a composite produces no state change,
+/// try the next (shallower) composite before parking.
+///
+/// Builds parent map internally to avoid borrow conflicts with the mutable
+/// `EvalContext`.
+async fn phase_composite_reevaluation(
+    storage: &Arc<dyn StorageBackend>,
+    handlers: &HandlerRegistry,
+    ctx: &mut EvalContext,
+    instance_id: InstanceId,
+    block_map: &HashMap<&BlockId, &BlockDefinition>,
+    sequence: &SequenceDefinition,
+    outputs_snapshot: &OutputsSnapshot,
+) -> Result<IterAction, EngineError> {
+    let parent_map = build_parent_map(&ctx.tree);
+
+    // Collect composite indices (into ctx.tree) so we can drop the borrows.
+    let composite_indices = find_all_running_composite_indices(&ctx.tree, block_map, &parent_map);
+    if composite_indices.is_empty() {
+        return Ok(IterAction::FallThrough);
+    }
+
+    // Snapshot node states before dispatching any composite.
+    let pre_states: Vec<(ExecutionNodeId, NodeState)> =
+        ctx.tree.iter().map(|n| (n.id, n.state)).collect();
+
+    let mut early_restart = false;
+    for idx in &composite_indices {
+        let node = &ctx.tree[*idx];
+        let Some(block) = block_map.get(&node.block_id).copied() else {
+            continue;
+        };
+
+        dispatch_block(
+            storage,
+            handlers,
+            &ctx.instance,
+            node,
+            block,
+            &ctx.tree,
+            sequence.interceptors.as_ref(),
+            outputs_snapshot,
+        )
+        .await?;
+        if may_mutate_instance(block) {
+            ctx.instance_stale = true;
+            let mid_tree = storage.get_execution_tree(instance_id).await?;
+            let mid_states: Vec<(ExecutionNodeId, NodeState)> =
+                mid_tree.iter().map(|n| (n.id, n.state)).collect();
+            if pre_states != mid_states {
+                ctx.set_tree(mid_tree);
+                early_restart = true;
+                break;
+            }
+        }
+    }
+    if early_restart {
+        return Ok(IterAction::Continue);
+    }
+
+    let post_tree = storage.get_execution_tree(instance_id).await?;
+    let post_states: Vec<(ExecutionNodeId, NodeState)> =
+        post_tree.iter().map(|n| (n.id, n.state)).collect();
+    if pre_states != post_states {
+        ctx.set_tree(post_tree);
+        return Ok(IterAction::Continue);
+    }
+    debug!(
+        instance_id = %instance_id,
+        "evaluate: all composites re-entry produced no state change; parking tick"
+    );
+    Ok(IterAction::Return(EvalOutcome::MoreWork {
+        has_waiting_nodes: post_tree.iter().any(|n| n.state == NodeState::Waiting),
+    }))
+}
+
 fn may_mutate_instance(block: &BlockDefinition) -> bool {
     matches!(
         block,
@@ -533,33 +697,67 @@ fn may_mutate_instance(block: &BlockDefinition) -> bool {
     )
 }
 
-/// Return all Running composite nodes, deepest first, for iterative evaluation.
-fn find_all_running_composites<'a>(
-    tree: &'a [ExecutionNode],
-    block_map: &HashMap<&BlockId, &'a BlockDefinition>,
+/// Return indices (into `tree`) of all Running composite nodes, deepest first.
+fn find_all_running_composite_indices(
+    tree: &[ExecutionNode],
+    block_map: &HashMap<&BlockId, &BlockDefinition>,
     parent_map: &ParentMap,
-) -> Vec<(&'a ExecutionNode, &'a BlockDefinition)> {
-    let mut composites: Vec<(&ExecutionNode, &BlockDefinition)> = tree
+) -> Vec<usize> {
+    let mut composites: Vec<(usize, usize)> = tree
         .iter()
-        .filter(|n| {
+        .enumerate()
+        .filter(|(_, n)| {
             n.state == NodeState::Running
                 || (n.state == NodeState::Waiting
                     && n.block_type == orch8_types::execution::BlockType::SubSequence)
         })
-        .filter_map(|n| {
+        .filter(|(_, n)| {
             block_map
                 .get(&n.block_id)
                 .copied()
-                .filter(|b| !matches!(b, BlockDefinition::Step(_)))
-                .map(|b| (n, b))
+                .is_some_and(|b| !matches!(b, BlockDefinition::Step(_)))
         })
+        .map(|(i, n)| (i, count_ancestors(parent_map, n.id)))
         .collect();
-    // Sort deepest first (most ancestors → processed first).
-    composites.sort_by_key(|(b, _)| std::cmp::Reverse(count_ancestors(parent_map, b.id)));
-    composites
+    // Sort deepest first (most ancestors first).
+    composites.sort_by_key(|(_, depth)| std::cmp::Reverse(*depth));
+    composites.into_iter().map(|(i, _)| i).collect()
+}
+
+/// Find the index (into `tree`) of the first Running step node that can be
+/// executed. Returns an index rather than a reference to avoid holding a
+/// borrow into the tree across mutable operations.
+fn find_running_step_index(
+    tree: &[ExecutionNode],
+    block_map: &HashMap<&BlockId, &BlockDefinition>,
+    handlers: &HandlerRegistry,
+    parent_map: &ParentMap,
+    node_map: &HashMap<ExecutionNodeId, &ExecutionNode>,
+) -> Option<usize> {
+    for (i, node) in tree.iter().enumerate() {
+        if node.state != NodeState::Running {
+            continue;
+        }
+        if let Some(BlockDefinition::Step(step_def)) = block_map.get(&node.block_id).copied() {
+            if is_inside_decided_race(tree, block_map, node, parent_map, node_map) {
+                continue;
+            }
+            if handlers.contains(&step_def.handler)
+                && has_racing_composite_sibling(tree, block_map, node, parent_map, node_map)
+            {
+                continue;
+            }
+            return Some(i);
+        }
+    }
+    None
 }
 
 /// Find a Running step node that can be executed.
+///
+/// Kept for use in unit tests; the main evaluation loop uses
+/// [`find_running_step_index`] which returns an index to avoid borrow conflicts.
+#[cfg(test)]
 fn find_running_step<'a>(
     tree: &'a [ExecutionNode],
     block_map: &HashMap<&BlockId, &'a BlockDefinition>,
@@ -578,15 +776,7 @@ fn find_running_step<'a>(
                     continue;
                 }
                 // Defer *in-process* steps that race against a composite sibling
-                // branch that hasn't finished yet. Processing a blocking handler
-                // (e.g. sleep) inline would starve the composite branch. Let
-                // Phase 3 advance the composite first; once it completes, the
-                // race is decided and this step is either skipped (race lost) or
-                // dispatched next iteration.
-                //
-                // External worker steps (unregistered handlers) are NOT deferred
-                // because they dispatch asynchronously and return immediately —
-                // they don't block the evaluator.
+                // branch that hasn't finished yet.
                 if handlers.contains(&step_def.handler)
                     && has_racing_composite_sibling(tree, block_map, node, parent_map, node_map)
                 {
@@ -615,13 +805,10 @@ fn is_inside_decided_race(
         if let Some(parent_node) = node_map.get(parent_id).copied() {
             if let Some(parent_block) = block_map.get(&parent_node.block_id).copied() {
                 if matches!(parent_block, BlockDefinition::Race(_)) {
-                    // `current_id` is the direct child of the race through
-                    // which our original node descends. Find its branch index.
                     let my_branch = node_map
                         .get(&current_id)
                         .copied()
                         .and_then(|n| n.branch_index);
-                    // Check if a sibling branch's direct child already completed.
                     let sibling_completed =
                         children_of(tree, *parent_id, None).into_iter().any(|c| {
                             c.branch_index != my_branch && matches!(c.state, NodeState::Completed)
@@ -658,7 +845,6 @@ fn has_racing_composite_sibling(
                         .get(&current_id)
                         .copied()
                         .and_then(|n| n.branch_index);
-                    // Check if a sibling branch's root is a Running composite.
                     let sibling_composite_running =
                         children_of(tree, *parent_id, None).into_iter().any(|c| {
                             c.branch_index != my_branch

@@ -16,13 +16,13 @@ use serde_json::json;
 
 use orch8_storage::encrypting::EncryptingStorage;
 use orch8_storage::sqlite::SqliteStorage;
-use orch8_storage::StorageBackend;
+use orch8_storage::{AdminStore, InstanceStore, SequenceStore, StorageBackend};
 use orch8_types::context::{ExecutionContext, RuntimeContext};
 use orch8_types::encryption::FieldEncryptor;
 use orch8_types::filter::{InstanceFilter, Pagination};
 use orch8_types::ids::{InstanceId, Namespace, SequenceId, TenantId};
 use orch8_types::instance::{InstanceState, Priority, TaskInstance};
-use orch8_types::sequence::SequenceDefinition;
+use orch8_types::sequence::{SequenceDefinition, SequenceStatus};
 
 const TEST_KEY: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 const ALT_KEY: &str = "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210";
@@ -63,6 +63,7 @@ async fn seed_sequence(storage: &dyn StorageBackend, seq_id: SequenceId, tenant:
         name: "s".into(),
         version: 1,
         deprecated: false,
+        status: SequenceStatus::default(),
         blocks: vec![],
         interceptors: None,
         created_at: Utc::now(),
@@ -650,6 +651,7 @@ async fn delegated_sequence_crud_passes_through_encryption_layer() {
         name: "delegated-test".into(),
         version: 1,
         deprecated: false,
+        status: SequenceStatus::default(),
         blocks: vec![],
         interceptors: None,
         created_at: chrono::Utc::now(),

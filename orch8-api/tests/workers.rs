@@ -1,7 +1,7 @@
 //! E2E tests for the Workers API.
 
 use orch8_api::test_harness::spawn_test_server;
-use orch8_storage::StorageBackend;
+use orch8_storage::WorkerStore;
 use reqwest::StatusCode;
 use serde_json::json;
 use uuid::Uuid;

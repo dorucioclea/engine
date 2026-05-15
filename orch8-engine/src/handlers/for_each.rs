@@ -411,10 +411,14 @@ mod tests {
     use orch8_types::context::ExecutionContext;
     use serde_json::json;
 
-    use orch8_storage::sqlite::SqliteStorage;
+    use orch8_storage::{
+        sqlite::SqliteStorage, ExecutionTreeStore, InstanceStore, OutputStore, SequenceStore,
+        WorkerStore,
+    };
     use orch8_types::context::RuntimeContext;
     use orch8_types::ids::{InstanceId, Namespace, SequenceId, TenantId};
     use orch8_types::instance::{InstanceState, Priority};
+    use orch8_types::sequence::SequenceStatus;
 
     async fn mk_resolve_ctx(
         data: serde_json::Value,
@@ -429,6 +433,7 @@ mod tests {
             name: "test".into(),
             version: 1,
             deprecated: false,
+            status: SequenceStatus::default(),
             blocks: vec![],
             interceptors: None,
             created_at: now,
@@ -585,7 +590,7 @@ mod tests {
     }
 
     async fn seed_instance(s: &SqliteStorage, inst_id: InstanceId, ctx: serde_json::Value) {
-        use orch8_types::sequence::{BlockDefinition, SequenceDefinition, StepDef};
+        use orch8_types::sequence::{BlockDefinition, SequenceDefinition, SequenceStatus, StepDef};
         let now = chrono::Utc::now();
         let seq = SequenceDefinition {
             id: SequenceId::new(),
@@ -594,6 +599,7 @@ mod tests {
             name: "test".into(),
             version: 1,
             deprecated: false,
+            status: SequenceStatus::default(),
             blocks: vec![BlockDefinition::Step(Box::new(StepDef {
                 id: BlockId::new("noop"),
                 handler: "noop".into(),

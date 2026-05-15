@@ -1,5 +1,5 @@
 use orch8_api::test_harness::spawn_test_server;
-use orch8_storage::StorageBackend;
+use orch8_storage::AdminStore;
 
 #[tokio::test]
 async fn rollback_policy_crud() {

@@ -44,8 +44,6 @@ use orch8_types::sequence::SequenceDefinition;
 use orch8_types::signal::Signal;
 use orch8_types::worker::WorkerTask;
 
-use crate::StorageBackend;
-
 pub struct PostgresStorage {
     pub(crate) pool: PgPool,
 }
@@ -115,10 +113,12 @@ impl PostgresStorage {
     }
 }
 
-#[async_trait]
-impl StorageBackend for PostgresStorage {
-    // === Sequences ===
+// ============================================================================
+// Sub-trait 1: SequenceStore
+// ============================================================================
 
+#[async_trait]
+impl crate::SequenceStore for PostgresStorage {
     async fn create_sequence(&self, seq: &SequenceDefinition) -> Result<(), StorageError> {
         sequences::create(self, seq).await
     }
@@ -163,12 +163,25 @@ impl StorageBackend for PostgresStorage {
         sequences::deprecate(self, id).await
     }
 
+    async fn update_sequence_status(
+        &self,
+        id: SequenceId,
+        status: &str,
+    ) -> Result<(), StorageError> {
+        sequences::update_status(self, id, status).await
+    }
+
     async fn delete_sequence(&self, id: SequenceId) -> Result<(), StorageError> {
         sequences::delete(self, id).await
     }
+}
 
-    // === Task Instances ===
+// ============================================================================
+// Sub-trait 2: InstanceStore
+// ============================================================================
 
+#[async_trait]
+impl crate::InstanceStore for PostgresStorage {
     async fn create_instance(&self, instance: &TaskInstance) -> Result<(), StorageError> {
         instances::create(self, instance).await
     }
@@ -331,8 +344,115 @@ impl StorageBackend for PostgresStorage {
         instances::bulk_reschedule(self, filter, offset_secs).await
     }
 
-    // === Execution Tree ===
+    async fn find_by_idempotency_key(
+        &self,
+        tenant_id: &TenantId,
+        idempotency_key: &str,
+    ) -> Result<Option<TaskInstance>, StorageError> {
+        misc::find_by_idempotency_key(self, tenant_id, idempotency_key).await
+    }
 
+    async fn count_running_by_concurrency_key(
+        &self,
+        concurrency_key: &str,
+    ) -> Result<i64, StorageError> {
+        misc::count_running_by_concurrency_key(self, concurrency_key).await
+    }
+
+    async fn count_running_by_concurrency_keys(
+        &self,
+        concurrency_keys: &[String],
+    ) -> Result<std::collections::HashMap<String, i64>, StorageError> {
+        misc::count_running_by_concurrency_keys(self, concurrency_keys).await
+    }
+
+    async fn concurrency_position(
+        &self,
+        instance_id: InstanceId,
+        concurrency_key: &str,
+    ) -> Result<i64, StorageError> {
+        misc::concurrency_position(self, instance_id, concurrency_key).await
+    }
+
+    async fn recover_stale_instances(
+        &self,
+        stale_threshold: Duration,
+    ) -> Result<u64, StorageError> {
+        misc::recover_stale_instances(self, stale_threshold).await
+    }
+
+    async fn get_child_instances(
+        &self,
+        parent_instance_id: InstanceId,
+    ) -> Result<Vec<TaskInstance>, StorageError> {
+        misc::get_child_instances(self, parent_instance_id).await
+    }
+
+    async fn inject_blocks(
+        &self,
+        instance_id: InstanceId,
+        blocks_json: &serde_json::Value,
+    ) -> Result<(), StorageError> {
+        misc::inject_blocks(self, instance_id, blocks_json).await
+    }
+
+    async fn inject_blocks_at_position(
+        &self,
+        instance_id: InstanceId,
+        new_blocks_json: &serde_json::Value,
+        position: Option<usize>,
+    ) -> Result<serde_json::Value, StorageError> {
+        misc::inject_blocks_at_position(self, instance_id, new_blocks_json, position).await
+    }
+
+    async fn get_injected_blocks(
+        &self,
+        instance_id: InstanceId,
+    ) -> Result<Option<serde_json::Value>, StorageError> {
+        misc::get_injected_blocks(self, instance_id).await
+    }
+
+    async fn record_or_get_emit_dedupe(
+        &self,
+        scope: &crate::DedupeScope,
+        key: &str,
+        candidate_child: InstanceId,
+    ) -> Result<crate::EmitDedupeOutcome, StorageError> {
+        misc::record_or_get_emit_dedupe(self, scope, key, candidate_child).await
+    }
+
+    async fn create_instance_with_dedupe(
+        &self,
+        scope: &crate::DedupeScope,
+        key: &str,
+        instance: &TaskInstance,
+    ) -> Result<crate::EmitDedupeOutcome, StorageError> {
+        misc::create_instance_with_dedupe(self, scope, key, instance).await
+    }
+
+    async fn delete_expired_emit_event_dedupe(
+        &self,
+        older_than: chrono::DateTime<chrono::Utc>,
+        limit: u32,
+    ) -> Result<u64, StorageError> {
+        misc::delete_expired_emit_event_dedupe(self, older_than, limit).await
+    }
+
+    async fn batch_save_externalized_state(
+        &self,
+        instance_id: InstanceId,
+        entries: &[(String, serde_json::Value)],
+    ) -> Result<(), StorageError> {
+        externalized::batch_save(self, instance_id, entries).await
+    }
+}
+
+// ============================================================================
+// Sub-trait 3: ExecutionTreeStore
+// ============================================================================
+
+#[async_trait]
+impl crate::ExecutionTreeStore for PostgresStorage {
     async fn create_execution_node(&self, node: &ExecutionNode) -> Result<(), StorageError> {
         execution_tree::create_node(self, node).await
     }
@@ -381,9 +501,14 @@ impl StorageBackend for PostgresStorage {
     async fn delete_execution_tree(&self, instance_id: InstanceId) -> Result<(), StorageError> {
         execution_tree::delete_tree(self, instance_id).await
     }
+}
 
-    // === Block Outputs ===
+// ============================================================================
+// Sub-trait 4: OutputStore
+// ============================================================================
 
+#[async_trait]
+impl crate::OutputStore for PostgresStorage {
     async fn save_block_output(&self, output: &BlockOutput) -> Result<(), StorageError> {
         outputs::save(self, output).await
     }
@@ -532,24 +657,14 @@ impl StorageBackend for PostgresStorage {
     async fn delete_block_output_by_id(&self, id: Uuid) -> Result<(), StorageError> {
         outputs::delete_by_id(self, id).await
     }
+}
 
-    // === Rate Limits ===
+// ============================================================================
+// Sub-trait 5: SignalStore
+// ============================================================================
 
-    async fn check_rate_limit(
-        &self,
-        tenant_id: &TenantId,
-        resource_key: &ResourceKey,
-        now: DateTime<Utc>,
-    ) -> Result<RateLimitCheck, StorageError> {
-        rate_limits::check_rate_limit(self, tenant_id, resource_key, now).await
-    }
-
-    async fn upsert_rate_limit(&self, limit: &RateLimit) -> Result<(), StorageError> {
-        rate_limits::upsert_rate_limit(self, limit).await
-    }
-
-    // === Signals ===
-
+#[async_trait]
+impl crate::SignalStore for PostgresStorage {
     async fn enqueue_signal(&self, signal: &Signal) -> Result<(), StorageError> {
         signals::enqueue(self, signal).await
     }
@@ -586,94 +701,14 @@ impl StorageBackend for PostgresStorage {
     ) -> Result<Vec<(InstanceId, InstanceState)>, StorageError> {
         signals::get_signalled_instance_ids(self, limit).await
     }
+}
 
-    // === Idempotency ===
+// ============================================================================
+// Sub-trait 6: WorkerStore
+// ============================================================================
 
-    async fn find_by_idempotency_key(
-        &self,
-        tenant_id: &TenantId,
-        idempotency_key: &str,
-    ) -> Result<Option<TaskInstance>, StorageError> {
-        misc::find_by_idempotency_key(self, tenant_id, idempotency_key).await
-    }
-
-    // === Concurrency ===
-
-    async fn count_running_by_concurrency_key(
-        &self,
-        concurrency_key: &str,
-    ) -> Result<i64, StorageError> {
-        misc::count_running_by_concurrency_key(self, concurrency_key).await
-    }
-
-    async fn count_running_by_concurrency_keys(
-        &self,
-        concurrency_keys: &[String],
-    ) -> Result<std::collections::HashMap<String, i64>, StorageError> {
-        misc::count_running_by_concurrency_keys(self, concurrency_keys).await
-    }
-
-    async fn concurrency_position(
-        &self,
-        instance_id: InstanceId,
-        concurrency_key: &str,
-    ) -> Result<i64, StorageError> {
-        misc::concurrency_position(self, instance_id, concurrency_key).await
-    }
-
-    // === Recovery ===
-
-    async fn recover_stale_instances(
-        &self,
-        stale_threshold: Duration,
-    ) -> Result<u64, StorageError> {
-        misc::recover_stale_instances(self, stale_threshold).await
-    }
-
-    // === Cron Schedules ===
-
-    async fn create_cron_schedule(&self, schedule: &CronSchedule) -> Result<(), StorageError> {
-        cron::create(self, schedule).await
-    }
-
-    async fn get_cron_schedule(&self, id: Uuid) -> Result<Option<CronSchedule>, StorageError> {
-        cron::get(self, id).await
-    }
-
-    async fn list_cron_schedules(
-        &self,
-        tenant_id: Option<&TenantId>,
-        limit: u32,
-    ) -> Result<Vec<CronSchedule>, StorageError> {
-        cron::list(self, tenant_id, limit).await
-    }
-
-    async fn update_cron_schedule(&self, schedule: &CronSchedule) -> Result<(), StorageError> {
-        cron::update(self, schedule).await
-    }
-
-    async fn delete_cron_schedule(&self, id: Uuid) -> Result<(), StorageError> {
-        cron::delete(self, id).await
-    }
-
-    async fn claim_due_cron_schedules(
-        &self,
-        now: DateTime<Utc>,
-    ) -> Result<Vec<CronSchedule>, StorageError> {
-        cron::claim_due(self, now).await
-    }
-
-    async fn update_cron_fire_times(
-        &self,
-        id: Uuid,
-        last_triggered_at: DateTime<Utc>,
-        next_fire_at: DateTime<Utc>,
-    ) -> Result<(), StorageError> {
-        cron::update_fire_times(self, id, last_triggered_at, next_fire_at).await
-    }
-
-    // === Worker Tasks ===
-
+#[async_trait]
+impl crate::WorkerStore for PostgresStorage {
     async fn create_worker_task(&self, task: &WorkerTask) -> Result<(), StorageError> {
         workers::create(self, task).await
     }
@@ -785,174 +820,102 @@ impl StorageBackend for PostgresStorage {
         workers::stats(self, tenant_id).await
     }
 
-    // === Resource Pools ===
-
-    async fn create_resource_pool(
+    async fn claim_worker_tasks_from_queue(
         &self,
-        pool: &orch8_types::pool::ResourcePool,
+        queue_name: &str,
+        handler_name: &str,
+        worker_id: &str,
+        limit: u32,
+    ) -> Result<Vec<WorkerTask>, StorageError> {
+        misc::claim_worker_tasks_from_queue(self, queue_name, handler_name, worker_id, limit).await
+    }
+
+    async fn claim_worker_tasks_from_queue_for_tenant(
+        &self,
+        queue_name: &str,
+        handler_name: &str,
+        worker_id: &str,
+        tenant_id: &orch8_types::TenantId,
+        limit: u32,
+    ) -> Result<Vec<WorkerTask>, StorageError> {
+        misc::claim_worker_tasks_from_queue_for_tenant(
+            self,
+            queue_name,
+            handler_name,
+            worker_id,
+            tenant_id,
+            limit,
+        )
+        .await
+    }
+}
+
+// ============================================================================
+// Sub-trait 7: SchedulingStore
+// ============================================================================
+
+#[async_trait]
+impl crate::SchedulingStore for PostgresStorage {
+    async fn create_cron_schedule(&self, schedule: &CronSchedule) -> Result<(), StorageError> {
+        cron::create(self, schedule).await
+    }
+
+    async fn get_cron_schedule(&self, id: Uuid) -> Result<Option<CronSchedule>, StorageError> {
+        cron::get(self, id).await
+    }
+
+    async fn list_cron_schedules(
+        &self,
+        tenant_id: Option<&TenantId>,
+        limit: u32,
+    ) -> Result<Vec<CronSchedule>, StorageError> {
+        cron::list(self, tenant_id, limit).await
+    }
+
+    async fn update_cron_schedule(&self, schedule: &CronSchedule) -> Result<(), StorageError> {
+        cron::update(self, schedule).await
+    }
+
+    async fn delete_cron_schedule(&self, id: Uuid) -> Result<(), StorageError> {
+        cron::delete(self, id).await
+    }
+
+    async fn claim_due_cron_schedules(
+        &self,
+        now: DateTime<Utc>,
+    ) -> Result<Vec<CronSchedule>, StorageError> {
+        cron::claim_due(self, now).await
+    }
+
+    async fn update_cron_fire_times(
+        &self,
+        id: Uuid,
+        last_triggered_at: DateTime<Utc>,
+        next_fire_at: DateTime<Utc>,
     ) -> Result<(), StorageError> {
-        pools::create(self, pool).await
+        cron::update_fire_times(self, id, last_triggered_at, next_fire_at).await
     }
 
-    async fn get_resource_pool(
-        &self,
-        id: uuid::Uuid,
-    ) -> Result<Option<orch8_types::pool::ResourcePool>, StorageError> {
-        pools::get(self, id).await
-    }
-
-    async fn list_resource_pools(
+    async fn check_rate_limit(
         &self,
         tenant_id: &TenantId,
-    ) -> Result<Vec<orch8_types::pool::ResourcePool>, StorageError> {
-        pools::list(self, tenant_id).await
+        resource_key: &ResourceKey,
+        now: DateTime<Utc>,
+    ) -> Result<RateLimitCheck, StorageError> {
+        rate_limits::check_rate_limit(self, tenant_id, resource_key, now).await
     }
 
-    async fn update_pool_round_robin_index(
-        &self,
-        pool_id: uuid::Uuid,
-        index: u32,
-    ) -> Result<(), StorageError> {
-        pools::update_round_robin(self, pool_id, index).await
+    async fn upsert_rate_limit(&self, limit: &RateLimit) -> Result<(), StorageError> {
+        rate_limits::upsert_rate_limit(self, limit).await
     }
+}
 
-    async fn delete_resource_pool(&self, id: uuid::Uuid) -> Result<(), StorageError> {
-        pools::delete(self, id).await
-    }
+// ============================================================================
+// Sub-trait 8: AdminStore
+// ============================================================================
 
-    async fn add_pool_resource(
-        &self,
-        resource: &orch8_types::pool::PoolResource,
-    ) -> Result<(), StorageError> {
-        pools::add_resource(self, resource).await
-    }
-
-    async fn list_pool_resources(
-        &self,
-        pool_id: uuid::Uuid,
-    ) -> Result<Vec<orch8_types::pool::PoolResource>, StorageError> {
-        pools::list_resources(self, pool_id).await
-    }
-
-    async fn update_pool_resource(
-        &self,
-        resource: &orch8_types::pool::PoolResource,
-    ) -> Result<(), StorageError> {
-        pools::update_resource(self, resource).await
-    }
-
-    async fn delete_pool_resource(&self, id: uuid::Uuid) -> Result<(), StorageError> {
-        pools::delete_resource(self, id).await
-    }
-
-    async fn increment_resource_usage(
-        &self,
-        resource_id: uuid::Uuid,
-        today: chrono::NaiveDate,
-    ) -> Result<(), StorageError> {
-        pools::increment_usage(self, resource_id, today).await
-    }
-
-    // === Checkpoints ===
-
-    async fn save_checkpoint(
-        &self,
-        checkpoint: &orch8_types::checkpoint::Checkpoint,
-    ) -> Result<(), StorageError> {
-        checkpoints::save(self, checkpoint).await
-    }
-
-    async fn get_latest_checkpoint(
-        &self,
-        instance_id: InstanceId,
-    ) -> Result<Option<orch8_types::checkpoint::Checkpoint>, StorageError> {
-        checkpoints::get_latest(self, instance_id).await
-    }
-
-    async fn list_checkpoints(
-        &self,
-        instance_id: InstanceId,
-        limit: u32,
-    ) -> Result<Vec<orch8_types::checkpoint::Checkpoint>, StorageError> {
-        checkpoints::list(self, instance_id, limit).await
-    }
-
-    async fn prune_checkpoints(
-        &self,
-        instance_id: InstanceId,
-        keep: u32,
-    ) -> Result<u64, StorageError> {
-        checkpoints::prune(self, instance_id, keep).await
-    }
-
-    // === Externalized State ===
-
-    async fn save_externalized_state(
-        &self,
-        instance_id: InstanceId,
-        ref_key: &str,
-        payload: &serde_json::Value,
-    ) -> Result<(), StorageError> {
-        externalized::save(self, instance_id, ref_key, payload).await
-    }
-
-    async fn batch_save_externalized_state(
-        &self,
-        instance_id: InstanceId,
-        entries: &[(String, serde_json::Value)],
-    ) -> Result<(), StorageError> {
-        externalized::batch_save(self, instance_id, entries).await
-    }
-
-    async fn get_externalized_state(
-        &self,
-        ref_key: &str,
-    ) -> Result<Option<serde_json::Value>, StorageError> {
-        externalized::get(self, ref_key).await
-    }
-
-    async fn batch_get_externalized_state(
-        &self,
-        ref_keys: &[String],
-    ) -> Result<std::collections::HashMap<String, serde_json::Value>, StorageError> {
-        externalized::batch_get(self, ref_keys).await
-    }
-
-    async fn delete_externalized_state(&self, ref_key: &str) -> Result<(), StorageError> {
-        externalized::delete(self, ref_key).await
-    }
-
-    async fn delete_expired_externalized_state(&self, limit: u32) -> Result<u64, StorageError> {
-        externalized::delete_expired(self, limit).await
-    }
-
-    // === Audit Log ===
-
-    async fn append_audit_log(
-        &self,
-        entry: &orch8_types::audit::AuditLogEntry,
-    ) -> Result<(), StorageError> {
-        audit::append(self, entry).await
-    }
-
-    async fn list_audit_log(
-        &self,
-        instance_id: InstanceId,
-        limit: u32,
-    ) -> Result<Vec<orch8_types::audit::AuditLogEntry>, StorageError> {
-        audit::list_by_instance(self, instance_id, limit).await
-    }
-
-    async fn list_audit_log_by_tenant(
-        &self,
-        tenant_id: &TenantId,
-        limit: u32,
-    ) -> Result<Vec<orch8_types::audit::AuditLogEntry>, StorageError> {
-        audit::list_by_tenant(self, tenant_id, limit).await
-    }
-
-    // === Sessions ===
-
+#[async_trait]
+impl crate::AdminStore for PostgresStorage {
     async fn create_session(
         &self,
         session: &orch8_types::session::Session,
@@ -998,110 +961,6 @@ impl StorageBackend for PostgresStorage {
         sessions::list_instances(self, session_id).await
     }
 
-    // === Sub-Sequences ===
-
-    async fn get_child_instances(
-        &self,
-        parent_instance_id: InstanceId,
-    ) -> Result<Vec<TaskInstance>, StorageError> {
-        misc::get_child_instances(self, parent_instance_id).await
-    }
-
-    // === Task Queue Routing ===
-
-    async fn claim_worker_tasks_from_queue(
-        &self,
-        queue_name: &str,
-        handler_name: &str,
-        worker_id: &str,
-        limit: u32,
-    ) -> Result<Vec<WorkerTask>, StorageError> {
-        misc::claim_worker_tasks_from_queue(self, queue_name, handler_name, worker_id, limit).await
-    }
-
-    async fn claim_worker_tasks_from_queue_for_tenant(
-        &self,
-        queue_name: &str,
-        handler_name: &str,
-        worker_id: &str,
-        tenant_id: &orch8_types::TenantId,
-        limit: u32,
-    ) -> Result<Vec<WorkerTask>, StorageError> {
-        misc::claim_worker_tasks_from_queue_for_tenant(
-            self,
-            queue_name,
-            handler_name,
-            worker_id,
-            tenant_id,
-            limit,
-        )
-        .await
-    }
-
-    // === Dynamic Step Injection ===
-
-    async fn inject_blocks(
-        &self,
-        instance_id: InstanceId,
-        blocks_json: &serde_json::Value,
-    ) -> Result<(), StorageError> {
-        misc::inject_blocks(self, instance_id, blocks_json).await
-    }
-
-    async fn inject_blocks_at_position(
-        &self,
-        instance_id: InstanceId,
-        new_blocks_json: &serde_json::Value,
-        position: Option<usize>,
-    ) -> Result<serde_json::Value, StorageError> {
-        misc::inject_blocks_at_position(self, instance_id, new_blocks_json, position).await
-    }
-
-    async fn get_injected_blocks(
-        &self,
-        instance_id: InstanceId,
-    ) -> Result<Option<serde_json::Value>, StorageError> {
-        misc::get_injected_blocks(self, instance_id).await
-    }
-
-    // === Cluster ===
-
-    async fn register_node(
-        &self,
-        node: &orch8_types::cluster::ClusterNode,
-    ) -> Result<(), StorageError> {
-        cluster::register(self, node).await
-    }
-
-    async fn heartbeat_node(&self, node_id: Uuid) -> Result<(), StorageError> {
-        cluster::heartbeat(self, node_id).await
-    }
-
-    async fn drain_node(&self, node_id: Uuid) -> Result<(), StorageError> {
-        cluster::drain(self, node_id).await
-    }
-
-    async fn deregister_node(&self, node_id: Uuid) -> Result<(), StorageError> {
-        cluster::deregister(self, node_id).await
-    }
-
-    async fn list_nodes(&self) -> Result<Vec<orch8_types::cluster::ClusterNode>, StorageError> {
-        cluster::list(self).await
-    }
-
-    async fn should_drain(&self, node_id: Uuid) -> Result<bool, StorageError> {
-        cluster::should_drain(self, node_id).await
-    }
-
-    async fn reap_stale_nodes(
-        &self,
-        stale_threshold: std::time::Duration,
-    ) -> Result<u64, StorageError> {
-        cluster::reap_stale(self, stale_threshold).await
-    }
-
-    // === Plugins ===
-
     async fn create_plugin(
         &self,
         plugin: &orch8_types::plugin::PluginDef,
@@ -1133,8 +992,6 @@ impl StorageBackend for PostgresStorage {
     async fn delete_plugin(&self, name: &str) -> Result<(), StorageError> {
         plugins::delete(self, name).await
     }
-
-    // === Triggers ===
 
     async fn create_trigger(
         &self,
@@ -1168,8 +1025,6 @@ impl StorageBackend for PostgresStorage {
     async fn delete_trigger(&self, slug: &str) -> Result<(), StorageError> {
         triggers::delete(self, slug).await
     }
-
-    // === Credentials ===
 
     async fn create_credential(
         &self,
@@ -1211,35 +1066,39 @@ impl StorageBackend for PostgresStorage {
         credentials::list_due_for_refresh(self, threshold).await
     }
 
-    // === Emit Event Dedupe ===
-
-    async fn record_or_get_emit_dedupe(
+    async fn register_node(
         &self,
-        scope: &crate::DedupeScope,
-        key: &str,
-        candidate_child: InstanceId,
-    ) -> Result<crate::EmitDedupeOutcome, StorageError> {
-        misc::record_or_get_emit_dedupe(self, scope, key, candidate_child).await
+        node: &orch8_types::cluster::ClusterNode,
+    ) -> Result<(), StorageError> {
+        cluster::register(self, node).await
     }
 
-    async fn create_instance_with_dedupe(
-        &self,
-        scope: &crate::DedupeScope,
-        key: &str,
-        instance: &TaskInstance,
-    ) -> Result<crate::EmitDedupeOutcome, StorageError> {
-        misc::create_instance_with_dedupe(self, scope, key, instance).await
+    async fn heartbeat_node(&self, node_id: Uuid) -> Result<(), StorageError> {
+        cluster::heartbeat(self, node_id).await
     }
 
-    async fn delete_expired_emit_event_dedupe(
+    async fn drain_node(&self, node_id: Uuid) -> Result<(), StorageError> {
+        cluster::drain(self, node_id).await
+    }
+
+    async fn deregister_node(&self, node_id: Uuid) -> Result<(), StorageError> {
+        cluster::deregister(self, node_id).await
+    }
+
+    async fn list_nodes(&self) -> Result<Vec<orch8_types::cluster::ClusterNode>, StorageError> {
+        cluster::list(self).await
+    }
+
+    async fn should_drain(&self, node_id: Uuid) -> Result<bool, StorageError> {
+        cluster::should_drain(self, node_id).await
+    }
+
+    async fn reap_stale_nodes(
         &self,
-        older_than: chrono::DateTime<chrono::Utc>,
-        limit: u32,
+        stale_threshold: std::time::Duration,
     ) -> Result<u64, StorageError> {
-        misc::delete_expired_emit_event_dedupe(self, older_than, limit).await
+        cluster::reap_stale(self, stale_threshold).await
     }
-
-    // === Circuit Breakers ===
 
     async fn upsert_circuit_breaker(
         &self,
@@ -1262,48 +1121,315 @@ impl StorageBackend for PostgresStorage {
         circuit_breakers::delete(self, tenant_id, handler).await
     }
 
-    // === Instance KV State ===
-
-    async fn set_instance_kv(
+    async fn append_audit_log(
         &self,
-        instance_id: InstanceId,
-        key: &str,
-        value: &serde_json::Value,
+        entry: &orch8_types::audit::AuditLogEntry,
     ) -> Result<(), StorageError> {
-        self.set_instance_kv_impl(instance_id, key, value).await
+        audit::append(self, entry).await
     }
 
-    async fn get_instance_kv(
+    async fn list_audit_log(
         &self,
         instance_id: InstanceId,
-        key: &str,
-    ) -> Result<Option<serde_json::Value>, StorageError> {
-        self.get_instance_kv_impl(instance_id, key).await
+        limit: u32,
+    ) -> Result<Vec<orch8_types::audit::AuditLogEntry>, StorageError> {
+        audit::list_by_instance(self, instance_id, limit).await
     }
 
-    async fn get_all_instance_kv(
+    async fn list_audit_log_by_tenant(
         &self,
-        instance_id: InstanceId,
-    ) -> Result<std::collections::HashMap<String, serde_json::Value>, StorageError> {
-        self.get_all_instance_kv_impl(instance_id).await
+        tenant_id: &TenantId,
+        limit: u32,
+    ) -> Result<Vec<orch8_types::audit::AuditLogEntry>, StorageError> {
+        audit::list_by_tenant(self, tenant_id, limit).await
     }
 
-    async fn delete_instance_kv(
+    async fn create_rollback_policy(
         &self,
-        instance_id: InstanceId,
-        key: &str,
+        tenant_id: &str,
+        sequence_name: &str,
+        error_rate_threshold: f64,
+        time_window_secs: i32,
+        _cooldown_secs: Option<i32>,
+        _confirmation_window_secs: Option<i32>,
+        _webhook_url: Option<&str>,
     ) -> Result<(), StorageError> {
-        self.delete_instance_kv_impl(instance_id, key).await
+        sqlx::query(
+            r"INSERT INTO rollback_policies (tenant_id, sequence_name, error_rate_threshold, time_window_secs)
+             VALUES ($1, $2, $3, $4)
+             ON CONFLICT (tenant_id, sequence_name) DO UPDATE SET
+               error_rate_threshold = EXCLUDED.error_rate_threshold,
+               time_window_secs = EXCLUDED.time_window_secs,
+               enabled = 1,
+               updated_at = NOW()"
+        )
+        .bind(tenant_id)
+        .bind(sequence_name)
+        .bind(error_rate_threshold)
+        .bind(time_window_secs)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
     }
 
-    // === Health ===
+    async fn get_rollback_policy(
+        &self,
+        tenant_id: &str,
+        sequence_name: &str,
+    ) -> Result<Option<orch8_types::rollback::RollbackPolicy>, StorageError> {
+        let row: Option<(i64, String, String, f64, i32, bool, i32, i32, Option<String>, DateTime<Utc>, DateTime<Utc>)> = sqlx::query_as(
+            "SELECT id, tenant_id, sequence_name, error_rate_threshold, time_window_secs, enabled, COALESCE(cooldown_secs, 3600), COALESCE(confirmation_window_secs, 60), webhook_url, created_at, updated_at FROM rollback_policies WHERE tenant_id = $1 AND sequence_name = $2"
+        )
+        .bind(tenant_id)
+        .bind(sequence_name)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(
+            |(
+                id,
+                tenant_id,
+                sequence_name,
+                error_rate_threshold,
+                time_window_secs,
+                enabled,
+                cooldown_secs,
+                confirmation_window_secs,
+                webhook_url,
+                created_at,
+                updated_at,
+            )| {
+                orch8_types::rollback::RollbackPolicy {
+                    id,
+                    tenant_id,
+                    sequence_name,
+                    error_rate_threshold,
+                    time_window_secs,
+                    enabled,
+                    cooldown_secs,
+                    confirmation_window_secs,
+                    webhook_url,
+                    created_at,
+                    updated_at,
+                }
+            },
+        ))
+    }
+
+    async fn list_rollback_policies(
+        &self,
+        tenant_id: Option<&str>,
+        limit: u32,
+    ) -> Result<Vec<orch8_types::rollback::RollbackPolicy>, StorageError> {
+        let rows: Vec<(
+            i64,
+            String,
+            String,
+            f64,
+            i32,
+            bool,
+            i32,
+            i32,
+            Option<String>,
+            DateTime<Utc>,
+            DateTime<Utc>,
+        )> = if let Some(t) = tenant_id {
+            sqlx::query_as(
+                "SELECT id, tenant_id, sequence_name, error_rate_threshold, time_window_secs, enabled, COALESCE(cooldown_secs, 3600), COALESCE(confirmation_window_secs, 60), webhook_url, created_at, updated_at FROM rollback_policies WHERE tenant_id = $1 LIMIT $2"
+            )
+            .bind(t)
+            .bind(i64::from(limit))
+            .fetch_all(&self.pool)
+            .await?
+        } else {
+            sqlx::query_as(
+                "SELECT id, tenant_id, sequence_name, error_rate_threshold, time_window_secs, enabled, COALESCE(cooldown_secs, 3600), COALESCE(confirmation_window_secs, 60), webhook_url, created_at, updated_at FROM rollback_policies LIMIT $1"
+            )
+            .bind(i64::from(limit))
+            .fetch_all(&self.pool)
+            .await?
+        };
+        Ok(rows
+            .into_iter()
+            .map(
+                |(
+                    id,
+                    tenant_id,
+                    sequence_name,
+                    error_rate_threshold,
+                    time_window_secs,
+                    enabled,
+                    cooldown_secs,
+                    confirmation_window_secs,
+                    webhook_url,
+                    created_at,
+                    updated_at,
+                )| {
+                    orch8_types::rollback::RollbackPolicy {
+                        id,
+                        tenant_id,
+                        sequence_name,
+                        error_rate_threshold,
+                        time_window_secs,
+                        enabled,
+                        cooldown_secs,
+                        confirmation_window_secs,
+                        webhook_url,
+                        created_at,
+                        updated_at,
+                    }
+                },
+            )
+            .collect())
+    }
+
+    async fn delete_rollback_policy(
+        &self,
+        tenant_id: &str,
+        sequence_name: &str,
+    ) -> Result<(), StorageError> {
+        sqlx::query("DELETE FROM rollback_policies WHERE tenant_id = $1 AND sequence_name = $2")
+            .bind(tenant_id)
+            .bind(sequence_name)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    async fn record_rollback(
+        &self,
+        tenant_id: &str,
+        sequence_name: &str,
+        error_rate: f64,
+        threshold: f64,
+        reason: &str,
+    ) -> Result<(), StorageError> {
+        sqlx::query(
+            "INSERT INTO rollback_history (tenant_id, sequence_name, error_rate, threshold, reason) VALUES ($1, $2, $3, $4, $5)"
+        )
+        .bind(tenant_id)
+        .bind(sequence_name)
+        .bind(error_rate)
+        .bind(threshold)
+        .bind(reason)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    async fn query_error_rate(
+        &self,
+        tenant_id: &str,
+        sequence_name: &str,
+        window_secs: i64,
+    ) -> Result<Option<f64>, StorageError> {
+        let start = Utc::now() - chrono::Duration::seconds(window_secs);
+        let row: Option<(i64, i64)> = sqlx::query_as(
+            r"SELECT
+               COUNT(*) FILTER (WHERE event_type = 'InstanceFailed') as failed,
+               COUNT(*) as total
+             FROM telemetry_mobile_events
+             WHERE tenant_id = $1
+               AND payload->>'sequence_name' = $2
+               AND created_at >= $3",
+        )
+        .bind(tenant_id)
+        .bind(sequence_name)
+        .bind(start)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.and_then(|(failed, total)| {
+            if total > 0 {
+                #[allow(clippy::cast_precision_loss)]
+                Some(failed as f64 / total as f64)
+            } else {
+                None
+            }
+        }))
+    }
+
+    async fn list_rollback_history(
+        &self,
+        tenant_id: Option<&str>,
+        sequence_name: Option<&str>,
+        limit: u32,
+    ) -> Result<Vec<orch8_types::rollback::RollbackHistory>, StorageError> {
+        use std::fmt::Write;
+        let mut query = String::from(
+            "SELECT id, tenant_id, sequence_name, triggered_at, error_rate, threshold, previous_manifest_version, reason, alert_sent FROM rollback_history WHERE 1=1"
+        );
+        let mut param_idx = 1u32;
+        if tenant_id.is_some() {
+            write!(query, " AND tenant_id = ${param_idx}").unwrap();
+            param_idx += 1;
+        }
+        if sequence_name.is_some() {
+            write!(query, " AND sequence_name = ${param_idx}").unwrap();
+            param_idx += 1;
+        }
+        write!(query, " ORDER BY triggered_at DESC LIMIT ${param_idx}").unwrap();
+
+        let mut q = sqlx::query_as(&query);
+        if let Some(t) = tenant_id {
+            q = q.bind(t);
+        }
+        if let Some(s) = sequence_name {
+            q = q.bind(s);
+        }
+        q = q.bind(i64::from(limit));
+
+        let rows: Vec<(
+            i64,
+            String,
+            String,
+            DateTime<Utc>,
+            f64,
+            f64,
+            Option<String>,
+            String,
+            bool,
+        )> = q.fetch_all(&self.pool).await?;
+
+        Ok(rows
+            .into_iter()
+            .map(
+                |(
+                    id,
+                    tenant_id,
+                    sequence_name,
+                    triggered_at,
+                    error_rate,
+                    threshold,
+                    previous_manifest_version,
+                    reason,
+                    alert_sent,
+                )| {
+                    orch8_types::rollback::RollbackHistory {
+                        id,
+                        tenant_id,
+                        sequence_name,
+                        triggered_at,
+                        error_rate,
+                        threshold,
+                        previous_manifest_version,
+                        reason,
+                        alert_sent,
+                    }
+                },
+            )
+            .collect())
+    }
 
     async fn ping(&self) -> Result<(), StorageError> {
         misc::ping(self).await
     }
+}
 
-    // === Telemetry ===
+// ============================================================================
+// Sub-trait 9: TelemetryStore
+// ============================================================================
 
+#[async_trait]
+impl crate::TelemetryStore for PostgresStorage {
     async fn ingest_telemetry_event(
         &self,
         event_type: &str,
@@ -1344,7 +1470,7 @@ impl StorageBackend for PostgresStorage {
             return Ok(0);
         }
         let mut total = 0u64;
-        // Postgres limit: 65535 params. 9 params per row → batch ≤ ~7000.
+        // Postgres limit: 65535 params. 9 params per row -> batch <= ~7000.
         for chunk in events.chunks(7000) {
             let mut qb: sqlx::QueryBuilder<'_, sqlx::Postgres> = sqlx::QueryBuilder::new(
                 "INSERT INTO telemetry_mobile_events (event_type, payload, device_id, os_name, os_version, app_version, sdk_version, tenant_id, created_at) ",
@@ -1495,261 +1621,178 @@ impl StorageBackend for PostgresStorage {
         .await?;
         Ok(result.rows_affected())
     }
+}
 
-    async fn create_rollback_policy(
+// ============================================================================
+// Sub-trait 10: ResourceStore
+// ============================================================================
+
+#[async_trait]
+impl crate::ResourceStore for PostgresStorage {
+    async fn set_instance_kv(
         &self,
-        tenant_id: &str,
-        sequence_name: &str,
-        error_rate_threshold: f64,
-        time_window_secs: i32,
+        instance_id: InstanceId,
+        key: &str,
+        value: &serde_json::Value,
     ) -> Result<(), StorageError> {
-        sqlx::query(
-            r"INSERT INTO rollback_policies (tenant_id, sequence_name, error_rate_threshold, time_window_secs)
-             VALUES ($1, $2, $3, $4)
-             ON CONFLICT (tenant_id, sequence_name) DO UPDATE SET
-               error_rate_threshold = EXCLUDED.error_rate_threshold,
-               time_window_secs = EXCLUDED.time_window_secs,
-               enabled = 1,
-               updated_at = NOW()"
-        )
-        .bind(tenant_id)
-        .bind(sequence_name)
-        .bind(error_rate_threshold)
-        .bind(time_window_secs)
-        .execute(&self.pool)
-        .await?;
-        Ok(())
+        self.set_instance_kv_impl(instance_id, key, value).await
     }
 
-    async fn get_rollback_policy(
+    async fn get_instance_kv(
         &self,
-        tenant_id: &str,
-        sequence_name: &str,
-    ) -> Result<Option<orch8_types::rollback::RollbackPolicy>, StorageError> {
-        let row: Option<(i64, String, String, f64, i32, bool, DateTime<Utc>, DateTime<Utc>)> = sqlx::query_as(
-            "SELECT id, tenant_id, sequence_name, error_rate_threshold, time_window_secs, enabled, created_at, updated_at FROM rollback_policies WHERE tenant_id = $1 AND sequence_name = $2"
-        )
-        .bind(tenant_id)
-        .bind(sequence_name)
-        .fetch_optional(&self.pool)
-        .await?;
-        Ok(row.map(
-            |(
-                id,
-                tenant_id,
-                sequence_name,
-                error_rate_threshold,
-                time_window_secs,
-                enabled,
-                created_at,
-                updated_at,
-            )| {
-                orch8_types::rollback::RollbackPolicy {
-                    id,
-                    tenant_id,
-                    sequence_name,
-                    error_rate_threshold,
-                    time_window_secs,
-                    enabled,
-                    created_at,
-                    updated_at,
-                }
-            },
-        ))
+        instance_id: InstanceId,
+        key: &str,
+    ) -> Result<Option<serde_json::Value>, StorageError> {
+        self.get_instance_kv_impl(instance_id, key).await
     }
 
-    async fn list_rollback_policies(
+    async fn get_all_instance_kv(
         &self,
-        tenant_id: Option<&str>,
+        instance_id: InstanceId,
+    ) -> Result<std::collections::HashMap<String, serde_json::Value>, StorageError> {
+        self.get_all_instance_kv_impl(instance_id).await
+    }
+
+    async fn delete_instance_kv(
+        &self,
+        instance_id: InstanceId,
+        key: &str,
+    ) -> Result<(), StorageError> {
+        self.delete_instance_kv_impl(instance_id, key).await
+    }
+
+    async fn save_externalized_state(
+        &self,
+        instance_id: InstanceId,
+        ref_key: &str,
+        payload: &serde_json::Value,
+    ) -> Result<(), StorageError> {
+        externalized::save(self, instance_id, ref_key, payload).await
+    }
+
+    async fn batch_save_externalized_state(
+        &self,
+        instance_id: InstanceId,
+        entries: &[(String, serde_json::Value)],
+    ) -> Result<(), StorageError> {
+        externalized::batch_save(self, instance_id, entries).await
+    }
+
+    async fn get_externalized_state(
+        &self,
+        ref_key: &str,
+    ) -> Result<Option<serde_json::Value>, StorageError> {
+        externalized::get(self, ref_key).await
+    }
+
+    async fn batch_get_externalized_state(
+        &self,
+        ref_keys: &[String],
+    ) -> Result<std::collections::HashMap<String, serde_json::Value>, StorageError> {
+        externalized::batch_get(self, ref_keys).await
+    }
+
+    async fn delete_externalized_state(&self, ref_key: &str) -> Result<(), StorageError> {
+        externalized::delete(self, ref_key).await
+    }
+
+    async fn delete_expired_externalized_state(&self, limit: u32) -> Result<u64, StorageError> {
+        externalized::delete_expired(self, limit).await
+    }
+
+    async fn create_resource_pool(
+        &self,
+        pool: &orch8_types::pool::ResourcePool,
+    ) -> Result<(), StorageError> {
+        pools::create(self, pool).await
+    }
+
+    async fn get_resource_pool(
+        &self,
+        id: uuid::Uuid,
+    ) -> Result<Option<orch8_types::pool::ResourcePool>, StorageError> {
+        pools::get(self, id).await
+    }
+
+    async fn list_resource_pools(
+        &self,
+        tenant_id: &TenantId,
+    ) -> Result<Vec<orch8_types::pool::ResourcePool>, StorageError> {
+        pools::list(self, tenant_id).await
+    }
+
+    async fn update_pool_round_robin_index(
+        &self,
+        pool_id: uuid::Uuid,
+        index: u32,
+    ) -> Result<(), StorageError> {
+        pools::update_round_robin(self, pool_id, index).await
+    }
+
+    async fn delete_resource_pool(&self, id: uuid::Uuid) -> Result<(), StorageError> {
+        pools::delete(self, id).await
+    }
+
+    async fn add_pool_resource(
+        &self,
+        resource: &orch8_types::pool::PoolResource,
+    ) -> Result<(), StorageError> {
+        pools::add_resource(self, resource).await
+    }
+
+    async fn list_pool_resources(
+        &self,
+        pool_id: uuid::Uuid,
+    ) -> Result<Vec<orch8_types::pool::PoolResource>, StorageError> {
+        pools::list_resources(self, pool_id).await
+    }
+
+    async fn update_pool_resource(
+        &self,
+        resource: &orch8_types::pool::PoolResource,
+    ) -> Result<(), StorageError> {
+        pools::update_resource(self, resource).await
+    }
+
+    async fn delete_pool_resource(&self, id: uuid::Uuid) -> Result<(), StorageError> {
+        pools::delete_resource(self, id).await
+    }
+
+    async fn increment_resource_usage(
+        &self,
+        resource_id: uuid::Uuid,
+        today: chrono::NaiveDate,
+    ) -> Result<(), StorageError> {
+        pools::increment_usage(self, resource_id, today).await
+    }
+
+    async fn save_checkpoint(
+        &self,
+        checkpoint: &orch8_types::checkpoint::Checkpoint,
+    ) -> Result<(), StorageError> {
+        checkpoints::save(self, checkpoint).await
+    }
+
+    async fn get_latest_checkpoint(
+        &self,
+        instance_id: InstanceId,
+    ) -> Result<Option<orch8_types::checkpoint::Checkpoint>, StorageError> {
+        checkpoints::get_latest(self, instance_id).await
+    }
+
+    async fn list_checkpoints(
+        &self,
+        instance_id: InstanceId,
         limit: u32,
-    ) -> Result<Vec<orch8_types::rollback::RollbackPolicy>, StorageError> {
-        let rows: Vec<(
-            i64,
-            String,
-            String,
-            f64,
-            i32,
-            bool,
-            DateTime<Utc>,
-            DateTime<Utc>,
-        )> = if let Some(t) = tenant_id {
-            sqlx::query_as(
-                "SELECT id, tenant_id, sequence_name, error_rate_threshold, time_window_secs, enabled, created_at, updated_at FROM rollback_policies WHERE tenant_id = $1 LIMIT $2"
-            )
-            .bind(t)
-            .bind(i64::from(limit))
-            .fetch_all(&self.pool)
-            .await?
-        } else {
-            sqlx::query_as(
-                "SELECT id, tenant_id, sequence_name, error_rate_threshold, time_window_secs, enabled, created_at, updated_at FROM rollback_policies LIMIT $1"
-            )
-            .bind(i64::from(limit))
-            .fetch_all(&self.pool)
-            .await?
-        };
-        Ok(rows
-            .into_iter()
-            .map(
-                |(
-                    id,
-                    tenant_id,
-                    sequence_name,
-                    error_rate_threshold,
-                    time_window_secs,
-                    enabled,
-                    created_at,
-                    updated_at,
-                )| {
-                    orch8_types::rollback::RollbackPolicy {
-                        id,
-                        tenant_id,
-                        sequence_name,
-                        error_rate_threshold,
-                        time_window_secs,
-                        enabled,
-                        created_at,
-                        updated_at,
-                    }
-                },
-            )
-            .collect())
+    ) -> Result<Vec<orch8_types::checkpoint::Checkpoint>, StorageError> {
+        checkpoints::list(self, instance_id, limit).await
     }
 
-    async fn delete_rollback_policy(
+    async fn prune_checkpoints(
         &self,
-        tenant_id: &str,
-        sequence_name: &str,
-    ) -> Result<(), StorageError> {
-        sqlx::query("DELETE FROM rollback_policies WHERE tenant_id = $1 AND sequence_name = $2")
-            .bind(tenant_id)
-            .bind(sequence_name)
-            .execute(&self.pool)
-            .await?;
-        Ok(())
-    }
-
-    async fn record_rollback(
-        &self,
-        tenant_id: &str,
-        sequence_name: &str,
-        error_rate: f64,
-        threshold: f64,
-        reason: &str,
-    ) -> Result<(), StorageError> {
-        sqlx::query(
-            "INSERT INTO rollback_history (tenant_id, sequence_name, error_rate, threshold, reason) VALUES ($1, $2, $3, $4, $5)"
-        )
-        .bind(tenant_id)
-        .bind(sequence_name)
-        .bind(error_rate)
-        .bind(threshold)
-        .bind(reason)
-        .execute(&self.pool)
-        .await?;
-        Ok(())
-    }
-
-    async fn query_error_rate(
-        &self,
-        tenant_id: &str,
-        sequence_name: &str,
-        window_secs: i64,
-    ) -> Result<Option<f64>, StorageError> {
-        let start = Utc::now() - chrono::Duration::seconds(window_secs);
-        let row: Option<(i64, i64)> = sqlx::query_as(
-            r"SELECT
-               COUNT(*) FILTER (WHERE event_type = 'InstanceFailed') as failed,
-               COUNT(*) as total
-             FROM telemetry_mobile_events
-             WHERE tenant_id = $1
-               AND payload->>'sequence_name' = $2
-               AND created_at >= $3",
-        )
-        .bind(tenant_id)
-        .bind(sequence_name)
-        .bind(start)
-        .fetch_optional(&self.pool)
-        .await?;
-        Ok(row.and_then(|(failed, total)| {
-            if total > 0 {
-                #[allow(clippy::cast_precision_loss)]
-                Some(failed as f64 / total as f64)
-            } else {
-                None
-            }
-        }))
-    }
-
-    async fn list_rollback_history(
-        &self,
-        tenant_id: Option<&str>,
-        sequence_name: Option<&str>,
-        limit: u32,
-    ) -> Result<Vec<orch8_types::rollback::RollbackHistory>, StorageError> {
-        use std::fmt::Write;
-        let mut query = String::from(
-            "SELECT id, tenant_id, sequence_name, triggered_at, error_rate, threshold, previous_manifest_version, reason, alert_sent FROM rollback_history WHERE 1=1"
-        );
-        let mut param_idx = 1u32;
-        if tenant_id.is_some() {
-            write!(query, " AND tenant_id = ${param_idx}").unwrap();
-            param_idx += 1;
-        }
-        if sequence_name.is_some() {
-            write!(query, " AND sequence_name = ${param_idx}").unwrap();
-            param_idx += 1;
-        }
-        write!(query, " ORDER BY triggered_at DESC LIMIT ${param_idx}").unwrap();
-
-        let mut q = sqlx::query_as(&query);
-        if let Some(t) = tenant_id {
-            q = q.bind(t);
-        }
-        if let Some(s) = sequence_name {
-            q = q.bind(s);
-        }
-        q = q.bind(i64::from(limit));
-
-        let rows: Vec<(
-            i64,
-            String,
-            String,
-            DateTime<Utc>,
-            f64,
-            f64,
-            Option<String>,
-            String,
-            bool,
-        )> = q.fetch_all(&self.pool).await?;
-
-        Ok(rows
-            .into_iter()
-            .map(
-                |(
-                    id,
-                    tenant_id,
-                    sequence_name,
-                    triggered_at,
-                    error_rate,
-                    threshold,
-                    previous_manifest_version,
-                    reason,
-                    alert_sent,
-                )| {
-                    orch8_types::rollback::RollbackHistory {
-                        id,
-                        tenant_id,
-                        sequence_name,
-                        triggered_at,
-                        error_rate,
-                        threshold,
-                        previous_manifest_version,
-                        reason,
-                        alert_sent,
-                    }
-                },
-            )
-            .collect())
+        instance_id: InstanceId,
+        keep: u32,
+    ) -> Result<u64, StorageError> {
+        checkpoints::prune(self, instance_id, keep).await
     }
 }

@@ -8,7 +8,10 @@ use serde_json::json;
 use uuid::Uuid;
 
 use orch8_storage::sqlite::SqliteStorage;
-use orch8_storage::StorageBackend;
+use orch8_storage::{
+    AdminStore, ExecutionTreeStore, InstanceStore, OutputStore, ResourceStore, SchedulingStore,
+    SequenceStore, SignalStore, WorkerStore,
+};
 use orch8_types::audit::AuditLogEntry;
 use orch8_types::checkpoint::Checkpoint;
 use orch8_types::cluster::{ClusterNode, NodeStatus};
@@ -73,6 +76,7 @@ fn make_sequence(tenant: &str) -> SequenceDefinition {
         }))],
         interceptors: None,
         created_at: Utc::now(),
+        status: orch8_types::sequence::SequenceStatus::Production,
     }
 }
 
@@ -1062,7 +1066,7 @@ async fn batch_save_externalized_state_persists_all_entries() {
         ("bs_c".to_string(), json!([1, 2, 3])),
     ];
 
-    s.batch_save_externalized_state(inst_id, &entries)
+    InstanceStore::batch_save_externalized_state(&s, inst_id, &entries)
         .await
         .unwrap();
 
@@ -1077,7 +1081,7 @@ async fn batch_save_externalized_state_persists_all_entries() {
 #[tokio::test]
 async fn batch_save_externalized_state_empty_input_is_noop() {
     let s = store().await;
-    s.batch_save_externalized_state(InstanceId::new(), &[])
+    InstanceStore::batch_save_externalized_state(&s, InstanceId::new(), &[])
         .await
         .unwrap();
 }
@@ -1089,14 +1093,22 @@ async fn batch_save_externalized_state_upserts_existing_keys() {
     seed_instance(&s, inst_id).await;
 
     // Seed.
-    s.batch_save_externalized_state(inst_id, &[("bs_up".to_string(), json!({"v": 1}))])
-        .await
-        .unwrap();
+    InstanceStore::batch_save_externalized_state(
+        &s,
+        inst_id,
+        &[("bs_up".to_string(), json!({"v": 1}))],
+    )
+    .await
+    .unwrap();
 
     // Re-save with a different value — ON CONFLICT DO UPDATE path.
-    s.batch_save_externalized_state(inst_id, &[("bs_up".to_string(), json!({"v": 2}))])
-        .await
-        .unwrap();
+    InstanceStore::batch_save_externalized_state(
+        &s,
+        inst_id,
+        &[("bs_up".to_string(), json!({"v": 2}))],
+    )
+    .await
+    .unwrap();
 
     assert_eq!(
         s.get_externalized_state("bs_up").await.unwrap(),

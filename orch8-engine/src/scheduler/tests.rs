@@ -314,7 +314,7 @@ async fn scheduler_execute_step_block_resolves_params_for_external_worker() {
 // Scheduler core helpers (TEST_PLAN.md #198-212).
 // ------------------------------------------------------------------
 
-use orch8_types::sequence::{BlockDefinition, DelaySpec, SequenceDefinition};
+use orch8_types::sequence::{BlockDefinition, DelaySpec, SequenceDefinition, SequenceStatus};
 
 fn mk_sequence(blocks: Vec<BlockDefinition>) -> SequenceDefinition {
     SequenceDefinition {
@@ -324,6 +324,7 @@ fn mk_sequence(blocks: Vec<BlockDefinition>) -> SequenceDefinition {
         name: "cache-test".into(),
         version: 1,
         deprecated: false,
+        status: SequenceStatus::default(),
         blocks,
         interceptors: None,
         created_at: Utc::now(),

@@ -424,6 +424,7 @@ async fn promote_sequence_works() {
         "name": "seq-to-promote",
         "version": 1,
         "deprecated": false,
+        "status": "staging",
         "blocks": [{ "type": "step", "id": "s1", "handler": "noop", "params": {}, "cancellable": true }],
         "created_at": chrono::Utc::now().to_rfc3339()
     });

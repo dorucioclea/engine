@@ -450,9 +450,9 @@ async fn run_file_watch_listener(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use orch8_storage::sqlite::SqliteStorage;
+    use orch8_storage::{sqlite::SqliteStorage, InstanceStore, SequenceStore};
     use orch8_types::ids::SequenceId;
-    use orch8_types::sequence::SequenceDefinition;
+    use orch8_types::sequence::{SequenceDefinition, SequenceStatus};
 
     fn mk_trigger(slug: &str, seq_name: &str, tt: TriggerType) -> TriggerDef {
         let now = chrono::Utc::now();
@@ -480,6 +480,7 @@ mod tests {
             name: name.into(),
             version: 1,
             deprecated: false,
+            status: SequenceStatus::default(),
             blocks: vec![],
             interceptors: None,
             created_at: chrono::Utc::now(),
@@ -652,6 +653,7 @@ mod tests {
             name: "multi".into(),
             version,
             deprecated: false,
+            status: SequenceStatus::default(),
             blocks: vec![],
             interceptors: None,
             created_at: now,
@@ -727,6 +729,7 @@ mod tests {
                 name: "seq".into(),
                 version: 1,
                 deprecated: false,
+                status: SequenceStatus::default(),
                 blocks: vec![],
                 interceptors: None,
                 created_at: chrono::Utc::now(),

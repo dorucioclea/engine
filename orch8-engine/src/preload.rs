@@ -129,7 +129,7 @@ pub async fn preload_externalized_markers(
 #[cfg(test)]
 mod tests {
     use chrono::Utc;
-    use orch8_storage::StorageBackend;
+    use orch8_storage::{ResourceStore, StorageBackend};
     use orch8_types::context::ExecutionContext;
     use orch8_types::ids::{InstanceId, Namespace, SequenceId, TenantId};
     use orch8_types::instance::{InstanceState, Priority, TaskInstance};

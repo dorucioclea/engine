@@ -162,9 +162,9 @@ impl SequenceCache {
 mod tests {
     use chrono::Utc;
     use orch8_storage::sqlite::SqliteStorage;
-    use orch8_storage::StorageBackend;
+    use orch8_storage::SequenceStore;
     use orch8_types::ids::{BlockId, Namespace, SequenceId, TenantId};
-    use orch8_types::sequence::{BlockDefinition, SequenceDefinition, StepDef};
+    use orch8_types::sequence::{BlockDefinition, SequenceDefinition, SequenceStatus, StepDef};
     use serde_json::json;
 
     use super::*;
@@ -177,6 +177,7 @@ mod tests {
             name: name.into(),
             version,
             deprecated: false,
+            status: SequenceStatus::default(),
             blocks: vec![BlockDefinition::Step(Box::new(StepDef {
                 id: BlockId::new("s1"),
                 handler: "noop".into(),

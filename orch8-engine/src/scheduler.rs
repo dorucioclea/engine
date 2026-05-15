@@ -1,9 +1,11 @@
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
 use chrono::Utc;
 use tokio::sync::Semaphore;
+use tokio::task::JoinHandle;
 use tokio::time::interval;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
@@ -38,6 +40,32 @@ pub struct TickOnceResult {
     pub has_pending_work: bool,
 }
 
+/// Thread-safe counters shared between the caller and spawned per-instance
+/// tasks so `tick_once` can report accurate `instances_advanced` /
+/// `steps_executed` values.
+pub(crate) struct TickCounters {
+    instances_advanced: AtomicU32,
+    steps_executed: AtomicU32,
+}
+
+/// Bundles the static configuration parameters that remain constant for the
+/// lifetime of a single tick. This replaces the long parameter lists on
+/// `process_tick` and `process_instance`, making the call sites easier to
+/// read and extend.
+pub(crate) struct TickContext<'a> {
+    pub storage: &'a Arc<dyn StorageBackend>,
+    pub handlers: &'a Arc<HandlerRegistry>,
+    pub semaphore: &'a Arc<Semaphore>,
+    pub cancel: &'a CancellationToken,
+    pub sequence_cache: &'a Arc<SequenceCache>,
+    pub webhook_config: &'a Arc<WebhookConfig>,
+    pub max_steps_per_instance: u32,
+    pub batch_size: u32,
+    pub max_per_tenant: u32,
+    pub externalize_threshold: u32,
+    pub counters: Option<Arc<TickCounters>>,
+}
+
 /// Execute a single scheduling pass: claim due instances, process them, handle
 /// signals, and return a summary. This is the mobile/embedded entry point —
 /// the caller controls tick cadence rather than the engine running its own loop.
@@ -51,19 +79,34 @@ pub async fn tick_once(
 ) -> Result<TickOnceResult, EngineError> {
     let webhook_config = Arc::new(config.webhooks.clone());
 
-    process_tick(
+    let counters = Arc::new(TickCounters {
+        instances_advanced: AtomicU32::new(0),
+        steps_executed: AtomicU32::new(0),
+    });
+
+    let ctx = TickContext {
         storage,
         handlers,
         semaphore,
-        config.batch_size,
-        config.max_instances_per_tenant,
-        &webhook_config,
-        sequence_cache,
-        config.externalize_output_threshold,
-        config.max_steps_per_instance,
         cancel,
-    )
-    .await?;
+        sequence_cache,
+        webhook_config: &webhook_config,
+        max_steps_per_instance: config.max_steps_per_instance,
+        batch_size: config.batch_size,
+        max_per_tenant: config.max_instances_per_tenant,
+        externalize_threshold: config.externalize_output_threshold,
+        counters: Some(Arc::clone(&counters)),
+    };
+
+    let join_handles = process_tick(&ctx).await?;
+
+    // Await all spawned instance tasks so the counters are fully populated
+    // before we read them.
+    for handle in join_handles {
+        // Errors here (task panic / cancellation) are already handled inside
+        // the spawned task — we only need to ensure they finish.
+        let _ = handle.await;
+    }
 
     process_signalled_instances(storage, config.batch_size).await?;
 
@@ -88,8 +131,8 @@ pub async fn tick_once(
         > 0;
 
     Ok(TickOnceResult {
-        instances_advanced: 0,
-        steps_executed: 0,
+        instances_advanced: counters.instances_advanced.load(Ordering::Relaxed),
+        steps_executed: counters.steps_executed.load(Ordering::Relaxed),
         has_pending_work: has_pending,
     })
 }
@@ -151,19 +194,30 @@ pub async fn run_tick_loop(
                 return Ok(());
             }
             _ = ticker.tick() => {
-                if let Err(e) = process_tick(
-                    &storage,
-                    &handlers,
-                    &semaphore,
+                let ctx = TickContext {
+                    storage: &storage,
+                    handlers: &handlers,
+                    semaphore: &semaphore,
+                    cancel: &cancel,
+                    sequence_cache: &sequence_cache,
+                    webhook_config: &webhook_config,
+                    max_steps_per_instance: config.max_steps_per_instance,
                     batch_size,
-                    config.max_instances_per_tenant,
-                    &webhook_config,
-                    &sequence_cache,
+                    max_per_tenant: config.max_instances_per_tenant,
                     externalize_threshold,
-                    config.max_steps_per_instance,
-                    &cancel,
-                ).await {
-                    error!(error = %e, "tick processing failed");
+                    // The tick loop does not need per-tick counters — pass None.
+                    counters: None,
+                };
+                match process_tick(&ctx).await {
+                    Ok(_join_handles) => {
+                        // Fire-and-forget: spawned tasks release semaphore
+                        // permits on completion. We intentionally drop the
+                        // handles here — `wait_for_drain` at shutdown is the
+                        // only place that needs to await them.
+                    }
+                    Err(e) => {
+                        error!(error = %e, "tick processing failed");
+                    }
                 }
                 // Process signals for paused/waiting instances that won't be
                 // picked up by claim_due_instances (which only claims
@@ -205,35 +259,31 @@ async fn wait_for_drain(semaphore: &Semaphore, max_permits: usize) {
 }
 
 /// Process a single tick: claim due instances and spawn processing tasks.
-#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
-#[tracing::instrument(skip_all, fields(batch_size = batch_size, claimed = tracing::field::Empty))]
-async fn process_tick(
-    storage: &Arc<dyn StorageBackend>,
-    handlers: &Arc<HandlerRegistry>,
-    semaphore: &Arc<Semaphore>,
-    batch_size: u32,
-    max_per_tenant: u32,
-    webhook_config: &Arc<WebhookConfig>,
-    sequence_cache: &Arc<SequenceCache>,
-    externalize_threshold: u32,
-    max_steps_per_instance: u32,
-    cancel: &CancellationToken,
-) -> Result<(), EngineError> {
+///
+/// When `counters` is `Some`, each spawned task will atomically increment the
+/// shared counters upon completion. The returned `Vec<JoinHandle>` allows the
+/// caller to await all tasks before reading the counters (used by `tick_once`).
+/// When `counters` is `None` (continuous tick loop), the caller may drop the
+/// handles — tasks are fire-and-forget.
+#[allow(clippy::too_many_lines)]
+#[tracing::instrument(skip_all, fields(batch_size = ctx.batch_size, claimed = tracing::field::Empty))]
+async fn process_tick(ctx: &TickContext<'_>) -> Result<Vec<JoinHandle<()>>, EngineError> {
     let _tick_timer = crate::metrics::Timer::start(crate::metrics::TICK_DURATION);
 
-    let available = semaphore.available_permits();
+    let available = ctx.semaphore.available_permits();
     if available == 0 {
-        return Ok(());
+        return Ok(Vec::new());
     }
-    let fetch_limit = std::cmp::min(batch_size, u32::try_from(available).unwrap_or(u32::MAX));
+    let fetch_limit = std::cmp::min(ctx.batch_size, u32::try_from(available).unwrap_or(u32::MAX));
 
     let now = Utc::now();
-    let instances = storage
-        .claim_due_instances(now, fetch_limit, max_per_tenant)
+    let instances = ctx
+        .storage
+        .claim_due_instances(now, fetch_limit, ctx.max_per_tenant)
         .await?;
 
     if instances.is_empty() {
-        return Ok(());
+        return Ok(Vec::new());
     }
 
     // Enforce concurrency limits BEFORE spawning tasks. `claim_due_instances`
@@ -241,7 +291,7 @@ async fn process_tick(
     // instances share a concurrency_key, more than `max_concurrency` may be
     // Running simultaneously. We put the excess back to Scheduled here,
     // synchronously, so the observable Running count never exceeds the limit.
-    let mut instances = enforce_concurrency_limits(storage, instances).await?;
+    let mut instances = enforce_concurrency_limits(ctx.storage, instances).await?;
 
     let count = instances.len();
     tracing::Span::current().record("claimed", count);
@@ -253,13 +303,13 @@ async fn process_tick(
     let instance_ids: Vec<InstanceId> = instances.iter().map(|i| i.id).collect();
     let (signals_map, completed_map) = tokio::try_join!(
         async {
-            storage
+            ctx.storage
                 .get_pending_signals_batch(&instance_ids)
                 .await
                 .map_err(EngineError::from)
         },
         async {
-            storage
+            ctx.storage
                 .get_completed_block_ids_batch(&instance_ids)
                 .await
                 .map_err(EngineError::from)
@@ -270,38 +320,48 @@ async fn process_tick(
     // instance in one batched fetch. This removes the per-step N+1 that
     // would otherwise occur inside `resolve_markers`. Storage errors are
     // non-fatal: the per-step resolver remains the correctness fallback.
-    crate::preload::preload_externalized_markers(storage.as_ref(), &mut instances).await;
+    crate::preload::preload_externalized_markers(ctx.storage.as_ref(), &mut instances).await;
 
     // Wrap in Arc so we can share cheaply across spawned tasks.
     let prefetched = Arc::new(build_prefetch_map(signals_map, completed_map));
+
+    let mut join_handles = Vec::with_capacity(instances.len());
 
     for instance in instances {
         // Reserve the permit synchronously BEFORE spawning so fast ticks
         // cannot claim more rows than available concurrency slots. The permit
         // is moved into the spawned task and released when processing completes.
-        let Ok(permit) = semaphore.clone().try_acquire_owned() else {
+        let Ok(permit) = ctx.semaphore.clone().try_acquire_owned() else {
             // All permits taken — defer this instance back to Scheduled so
             // a future tick picks it up.
             debug!(
                 instance_id = %instance.id,
                 "no semaphore permit available, deferring instance"
             );
-            let _ = storage
+            let _ = ctx
+                .storage
                 .update_instance_state(instance.id, InstanceState::Scheduled, Some(Utc::now()))
                 .await;
             continue;
         };
 
-        let storage = Arc::clone(storage);
-        let handlers = Arc::clone(handlers);
-        let webhooks = Arc::clone(webhook_config);
-        let seq_cache = Arc::clone(sequence_cache);
+        let storage = Arc::clone(ctx.storage);
+        let handlers = Arc::clone(ctx.handlers);
+        let webhooks = Arc::clone(ctx.webhook_config);
+        let seq_cache = Arc::clone(ctx.sequence_cache);
         let prefetched = Arc::clone(&prefetched);
-        let cancel = cancel.clone();
+        let cancel = ctx.cancel.clone();
+        let counters = ctx.counters.clone();
+        let externalize_threshold = ctx.externalize_threshold;
+        let max_steps_per_instance = ctx.max_steps_per_instance;
 
         crate::metrics::inc(crate::metrics::INSTANCES_CLAIMED);
 
-        tokio::spawn(async move {
+        // Capture the initial step count before spawning so we can compute
+        // the delta after the task completes.
+        let initial_steps = instance.context.runtime.total_steps_executed;
+
+        let handle = tokio::spawn(async move {
             // Permit was acquired before spawn — hold it for the duration.
             let _permit = permit;
 
@@ -379,10 +439,31 @@ async fn process_tick(
                     }
                 }
             }
+
+            // Update tick counters if the caller requested them.
+            if let Some(ref ctr) = counters {
+                ctr.instances_advanced.fetch_add(1, Ordering::Relaxed);
+
+                // Compute the number of steps executed by reading the final
+                // `total_steps_executed` from storage and subtracting the
+                // snapshot taken before processing.
+                let final_steps = storage
+                    .get_instance(instance_id)
+                    .await
+                    .ok()
+                    .flatten()
+                    .map_or(initial_steps, |i| i.context.runtime.total_steps_executed);
+                let delta = final_steps.saturating_sub(initial_steps);
+                if delta > 0 {
+                    ctr.steps_executed.fetch_add(delta, Ordering::Relaxed);
+                }
+            }
         });
+
+        join_handles.push(handle);
     }
 
-    Ok(())
+    Ok(join_handles)
 }
 
 /// Enforce per-concurrency-key limits on a batch of freshly claimed (Running)
@@ -653,7 +734,7 @@ async fn process_waiting_deadlines(
 }
 
 /// SLA deadline check variant for instances in `Waiting` state.
-/// Mirrors `check_step_deadline` but transitions from `Waiting` instead of `Running`.
+/// Delegates to the shared `handle_deadline_breach` with `from_state = Waiting`.
 async fn check_step_deadline_waiting(
     storage: &Arc<dyn StorageBackend>,
     handlers: &HandlerRegistry,
@@ -662,6 +743,33 @@ async fn check_step_deadline_waiting(
     _webhook_config: &WebhookConfig,
     _cancel: &CancellationToken,
     prev_output: Option<&orch8_types::output::BlockOutput>,
+) -> Result<bool, EngineError> {
+    handle_deadline_breach(
+        storage,
+        handlers,
+        instance,
+        step_def,
+        prev_output,
+        InstanceState::Waiting,
+    )
+    .await
+}
+
+/// Shared SLA deadline-breach handler parameterized on the originating state.
+///
+/// Both the fast-path `check_step_deadline` (Running instances) and the
+/// waiting-deadline sweep (`check_step_deadline_waiting`) contain identical
+/// logic: compute elapsed time since the step's baseline, invoke the
+/// escalation handler if configured, record a breach output, and fail the
+/// instance. The only difference is the `from_state` passed to
+/// `transition_instance`. This function captures that shared logic.
+pub(crate) async fn handle_deadline_breach(
+    storage: &Arc<dyn StorageBackend>,
+    handlers: &HandlerRegistry,
+    instance: &orch8_types::instance::TaskInstance,
+    step_def: &orch8_types::sequence::StepDef,
+    prev_output: Option<&orch8_types::output::BlockOutput>,
+    from_state: InstanceState,
 ) -> Result<bool, EngineError> {
     let Some(deadline) = step_def.deadline else {
         return Ok(false);
@@ -678,12 +786,25 @@ async fn check_step_deadline_waiting(
     }
 
     let instance_id = instance.id;
+    let state_label = match from_state {
+        InstanceState::Running => "fast path",
+        InstanceState::Waiting => "waiting instance",
+        other => {
+            // Defensive: log the unexpected state but proceed with the breach.
+            warn!(
+                instance_id = %instance_id,
+                from_state = %other,
+                "handle_deadline_breach called with unexpected from_state"
+            );
+            "unknown"
+        }
+    };
     warn!(
         instance_id = %instance_id,
         block_id = %step_def.id,
         deadline_ms = u64::try_from(deadline.as_millis()).unwrap_or(u64::MAX),
         elapsed_ms = elapsed.num_milliseconds(),
-        "SLA deadline breached (waiting instance)"
+        "SLA deadline breached ({state_label})"
     );
 
     // Invoke escalation handler if configured.
@@ -743,14 +864,14 @@ async fn check_step_deadline_waiting(
         storage.as_ref(),
         instance_id,
         Some(&instance.tenant_id),
-        InstanceState::Waiting,
+        from_state,
         InstanceState::Failed,
         None,
     )
     .await?;
     crate::metrics::inc(crate::metrics::INSTANCES_FAILED);
 
-    // Wake parent: SLA deadline breach on a waiting child → terminal Failed.
+    // Wake parent: SLA deadline breach → terminal Failed.
     wake_parent_if_child(storage.as_ref(), instance).await;
 
     Ok(true)
@@ -866,7 +987,7 @@ async fn process_instance(
     let blocks = crate::evaluator::merged_blocks(storage.as_ref(), instance.id, &sequence).await?;
 
     // Fast path SLA deadline check for all steps BEFORE concurrency checks.
-    // Batch-fetch any previous block outputs so the loop is N queries → 1 query.
+    // Batch-fetch any previous block outputs so the loop is N queries -> 1 query.
     let deadline_keys: Vec<(InstanceId, BlockId)> = blocks
         .iter()
         .filter_map(|b| match b {
@@ -1090,7 +1211,7 @@ async fn process_instance(
 }
 
 /// If this instance has a `parent_instance_id`, transition the parent from
-/// `Waiting` → `Scheduled` so it is picked up on the next tick and can observe
+/// `Waiting` -> `Scheduled` so it is picked up on the next tick and can observe
 /// the child's terminal state.
 ///
 /// Uses a CAS (conditional update) so a concurrent cancel/fail cannot be
@@ -1215,7 +1336,7 @@ async fn process_instance_tree(
                     }
                     debug!(
                         instance_id = %instance_id,
-                        "concurrent writer moved instance before Running→Waiting transition"
+                        "concurrent writer moved instance before Running->Waiting transition"
                     );
                 }
             } else if let Err(e) = crate::lifecycle::transition_instance(
@@ -1234,7 +1355,7 @@ async fn process_instance_tree(
                 debug!(
                     instance_id = %instance_id,
                     current = %current,
-                    "concurrent writer moved instance before tree→Scheduled transition"
+                    "concurrent writer moved instance before tree->Scheduled transition"
                 );
             }
         }
@@ -1256,7 +1377,7 @@ async fn process_instance_tree(
                 debug!(
                     instance_id = %instance_id,
                     current = %current,
-                    "instance already moved by signal or concurrent writer — skipping terminal transition"
+                    "instance already moved by signal or concurrent writer -- skipping terminal transition"
                 );
                 return Ok(());
             }

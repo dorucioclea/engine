@@ -6,6 +6,7 @@ use axum::routing::{delete, get, post};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 
+use crate::auth::{scoped_tenant_id, OptionalTenant};
 use crate::error::ApiError;
 use crate::AppState;
 
@@ -25,6 +26,9 @@ pub struct CreatePolicyRequest {
     pub sequence_name: String,
     pub error_rate_threshold: f64,
     pub time_window_secs: i32,
+    pub cooldown_secs: Option<i32>,
+    pub confirmation_window_secs: Option<i32>,
+    pub webhook_url: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -35,6 +39,9 @@ pub struct PolicyResponse {
     pub error_rate_threshold: f64,
     pub time_window_secs: i32,
     pub enabled: bool,
+    pub cooldown_secs: i32,
+    pub confirmation_window_secs: i32,
+    pub webhook_url: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -48,6 +55,9 @@ impl From<orch8_types::rollback::RollbackPolicy> for PolicyResponse {
             error_rate_threshold: p.error_rate_threshold,
             time_window_secs: p.time_window_secs,
             enabled: p.enabled,
+            cooldown_secs: p.cooldown_secs,
+            confirmation_window_secs: p.confirmation_window_secs,
+            webhook_url: p.webhook_url,
             created_at: p.created_at.to_rfc3339(),
             updated_at: p.updated_at.to_rfc3339(),
         }
@@ -58,6 +68,7 @@ impl From<orch8_types::rollback::RollbackPolicy> for PolicyResponse {
 
 pub(crate) async fn create_policy(
     State(state): State<AppState>,
+    tenant_ctx: OptionalTenant,
     Json(req): Json<CreatePolicyRequest>,
 ) -> Result<(StatusCode, Json<PolicyResponse>), ApiError> {
     if req.sequence_name.is_empty() {
@@ -76,7 +87,26 @@ pub(crate) async fn create_policy(
         ));
     }
 
-    let tenant = req.tenant_id.unwrap_or_else(|| "default".to_string());
+    if let Some(ref url) = req.webhook_url {
+        let parsed = url::Url::parse(url)
+            .map_err(|_| ApiError::InvalidArgument("webhook_url is not a valid URL".into()))?;
+        match parsed.scheme() {
+            "http" | "https" => {}
+            _ => {
+                return Err(ApiError::InvalidArgument(
+                    "webhook_url must use http or https scheme".into(),
+                ))
+            }
+        }
+        if parsed.host_str().is_none() {
+            return Err(ApiError::InvalidArgument(
+                "webhook_url must have a host".into(),
+            ));
+        }
+    }
+
+    let tenant = scoped_tenant_id(&tenant_ctx, req.tenant_id.as_deref())
+        .map_or_else(|| "default".to_string(), |t| t.as_str().to_string());
 
     state
         .storage
@@ -85,6 +115,9 @@ pub(crate) async fn create_policy(
             &req.sequence_name,
             req.error_rate_threshold,
             req.time_window_secs,
+            req.cooldown_secs,
+            req.confirmation_window_secs,
+            req.webhook_url.as_deref(),
         )
         .await
         .map_err(|e| ApiError::Internal(format!("DB error: {e}")))?;
@@ -101,13 +134,12 @@ pub(crate) async fn create_policy(
 
 pub(crate) async fn get_policy(
     State(state): State<AppState>,
+    tenant_ctx: OptionalTenant,
     axum::extract::Path(sequence_name): axum::extract::Path<String>,
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<PolicyResponse>, ApiError> {
-    let tenant = params
-        .get("tenant_id")
-        .cloned()
-        .unwrap_or_else(|| "default".to_string());
+    let tenant = scoped_tenant_id(&tenant_ctx, params.get("tenant_id").map(String::as_str))
+        .map_or_else(|| "default".to_string(), |t| t.as_str().to_string());
 
     let policy = state
         .storage
@@ -121,9 +153,11 @@ pub(crate) async fn get_policy(
 
 pub(crate) async fn list_policies(
     State(state): State<AppState>,
+    tenant_ctx: OptionalTenant,
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<Vec<PolicyResponse>>, ApiError> {
-    let tenant = params.get("tenant_id").map(String::as_str);
+    let tenant = scoped_tenant_id(&tenant_ctx, params.get("tenant_id").map(String::as_str));
+    let tenant = tenant.as_ref().map(orch8_types::ids::TenantId::as_str);
 
     let policies = state
         .storage
@@ -138,13 +172,12 @@ pub(crate) async fn list_policies(
 
 pub(crate) async fn delete_policy(
     State(state): State<AppState>,
+    tenant_ctx: OptionalTenant,
     axum::extract::Path(sequence_name): axum::extract::Path<String>,
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Result<StatusCode, ApiError> {
-    let tenant = params
-        .get("tenant_id")
-        .cloned()
-        .unwrap_or_else(|| "default".to_string());
+    let tenant = scoped_tenant_id(&tenant_ctx, params.get("tenant_id").map(String::as_str))
+        .map_or_else(|| "default".to_string(), |t| t.as_str().to_string());
 
     state
         .storage

@@ -4,11 +4,11 @@ use std::sync::Arc;
 
 use orch8_storage::encrypting::EncryptingStorage;
 use orch8_storage::sqlite::SqliteStorage;
-use orch8_storage::StorageBackend;
+use orch8_storage::{InstanceStore, SequenceStore, StorageBackend};
 use orch8_types::encryption::FieldEncryptor;
 use orch8_types::ids::{InstanceId, Namespace, SequenceId, TenantId};
 use orch8_types::instance::{InstanceState, Priority, TaskInstance};
-use orch8_types::sequence::{BlockDefinition, SequenceDefinition, StepDef};
+use orch8_types::sequence::{BlockDefinition, SequenceDefinition, SequenceStatus, StepDef};
 
 const TEST_KEY: &str = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f";
 const TEST_KEY_2: &str = "ffeeffeeffeeffeeffeeffeeffeeffeeffeeffeeffeeffeeffeeffeeffeeffee";
@@ -21,6 +21,7 @@ fn make_sequence() -> SequenceDefinition {
         name: "enc_seq".into(),
         version: 1,
         deprecated: false,
+        status: SequenceStatus::default(),
         blocks: vec![BlockDefinition::Step(Box::new(StepDef {
             id: orch8_types::ids::BlockId::new("s1"),
             handler: "noop".into(),

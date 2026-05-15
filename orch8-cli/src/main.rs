@@ -88,6 +88,14 @@ enum Commands {
         #[arg(default_value = ".")]
         dir: String,
     },
+    /// Run database migrations against Postgres. Use this in CI/CD pipelines
+    /// or init containers instead of the server's built-in `run_migrations` flag
+    /// so that rolling deployments are safe.
+    Migrate {
+        /// Database URL (overrides `ORCH8_DATABASE_URL`).
+        #[arg(long, env = "ORCH8_DATABASE_URL")]
+        database_url: String,
+    },
     /// Generate shell completions.
     Completions {
         /// Shell to generate completions for.
@@ -214,6 +222,17 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
+    // Handle migrate before building the HTTP client — it does not need one.
+    if let Commands::Migrate { database_url } = cli.command {
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(1)
+            .connect(&database_url)
+            .await?;
+        sqlx::migrate!("../migrations").run(&pool).await?;
+        println!("Migrations applied successfully");
+        return Ok(());
+    }
+
     let client = build_client(cli.api_key.as_deref(), cli.tenant_id.as_deref())?;
     let base = cli.url.trim_end_matches('/');
 
@@ -232,7 +251,7 @@ async fn main() -> Result<()> {
         Commands::Checkpoint(cmd) => commands::checkpoint::run(&client, base, cmd, format).await?,
         Commands::Config(cmd) => commands::config::run(cmd)?,
         Commands::Init { dir } => commands::init::run(&dir)?,
-        Commands::Completions { .. } => unreachable!(),
+        Commands::Migrate { .. } | Commands::Completions { .. } => unreachable!(),
     }
 
     Ok(())
@@ -357,5 +376,19 @@ mod tests {
         use clap::Parser;
         let cli = Cli::try_parse_from(["orch8", "completions", "bash"]);
         assert!(cli.is_ok());
+    }
+
+    #[test]
+    fn cli_parses_migrate_command() {
+        use clap::Parser;
+        let cli = Cli::try_parse_from([
+            "orch8",
+            "migrate",
+            "--database-url",
+            "postgres://localhost/db",
+        ]);
+        assert!(cli.is_ok());
+        let cli = cli.unwrap();
+        assert!(matches!(cli.command, Commands::Migrate { .. }));
     }
 }

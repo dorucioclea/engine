@@ -143,7 +143,9 @@ mod tests {
     use crate::expression::evaluate_condition;
     use crate::externalized;
     use chrono::Utc;
-    use orch8_storage::{sqlite::SqliteStorage, StorageBackend};
+    use orch8_storage::{
+        sqlite::SqliteStorage, ExecutionTreeStore, InstanceStore, OutputStore, ResourceStore,
+    };
     use orch8_types::context::ExecutionContext;
     use orch8_types::ids::{BlockId, InstanceId, Namespace, SequenceId, TenantId};
     use orch8_types::instance::{InstanceState, Priority, TaskInstance};

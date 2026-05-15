@@ -71,6 +71,7 @@ fn engine_lifecycle() {
         environment: "production".to_string(),
         root_public_key: String::new(),
         sdk_version: "0.4.0".to_string(),
+        memory_budget_bytes: 0,
     };
 
     let engine = orch8_mobile::MobileEngine::new(db_path, config).unwrap();

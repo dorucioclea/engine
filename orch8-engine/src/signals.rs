@@ -376,10 +376,11 @@ fn is_descendant_of_any(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use orch8_storage::sqlite::SqliteStorage;
+    use orch8_storage::{sqlite::SqliteStorage, ExecutionTreeStore, InstanceStore, SignalStore};
     use orch8_types::context::{ExecutionContext, RuntimeContext};
     use orch8_types::ids::{Namespace, SequenceId, TenantId};
     use orch8_types::instance::{Priority, TaskInstance};
+    use orch8_types::sequence::SequenceStatus;
     use orch8_types::signal::SignalType;
     use serde_json::json;
 
@@ -866,6 +867,7 @@ mod tests {
             name: "seq".into(),
             version: 1,
             deprecated: false,
+            status: SequenceStatus::default(),
             blocks,
             interceptors: None,
             created_at: Utc::now(),

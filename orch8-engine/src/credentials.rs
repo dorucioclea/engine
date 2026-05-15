@@ -311,6 +311,7 @@ async fn refresh_credential(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use orch8_storage::AdminStore;
 
     #[test]
     fn resolve_string_ignores_non_reference() {

@@ -24,6 +24,7 @@ pub(super) struct SequenceRow {
     pub definition: serde_json::Value,
     pub version: i32,
     pub deprecated: bool,
+    pub status: String,
     pub created_at: DateTime<Utc>,
 }
 
@@ -55,6 +56,7 @@ impl SequenceRow {
             name: self.name,
             version: self.version,
             deprecated: self.deprecated,
+            status: self.status.parse().unwrap_or_default(),
             blocks,
             interceptors,
             created_at: self.created_at,

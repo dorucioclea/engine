@@ -39,6 +39,7 @@ pub async fn recover_stale_instances(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use orch8_storage::{InstanceStore, SequenceStore};
 
     #[tokio::test]
     async fn noop_when_no_instances_exist() {
@@ -65,7 +66,7 @@ mod tests {
         use orch8_types::context::ExecutionContext;
         use orch8_types::ids::{InstanceId, Namespace, SequenceId, TenantId};
         use orch8_types::instance::{InstanceState, Priority, TaskInstance};
-        use orch8_types::sequence::{BlockDefinition, SequenceDefinition, StepDef};
+        use orch8_types::sequence::{BlockDefinition, SequenceDefinition, SequenceStatus, StepDef};
         use serde_json::json;
 
         let storage = orch8_storage::sqlite::SqliteStorage::in_memory()
@@ -79,6 +80,7 @@ mod tests {
             name: "rec".into(),
             version: 1,
             deprecated: false,
+            status: SequenceStatus::default(),
             blocks: vec![BlockDefinition::Step(Box::new(StepDef {
                 id: orch8_types::ids::BlockId::new("s1"),
                 handler: "noop".into(),
@@ -137,7 +139,7 @@ mod tests {
         use orch8_types::context::ExecutionContext;
         use orch8_types::ids::{InstanceId, Namespace, SequenceId, TenantId};
         use orch8_types::instance::{InstanceState, Priority, TaskInstance};
-        use orch8_types::sequence::{BlockDefinition, SequenceDefinition, StepDef};
+        use orch8_types::sequence::{BlockDefinition, SequenceDefinition, SequenceStatus, StepDef};
         use serde_json::json;
 
         let storage = orch8_storage::sqlite::SqliteStorage::in_memory()
@@ -151,6 +153,7 @@ mod tests {
             name: "fresh".into(),
             version: 1,
             deprecated: false,
+            status: SequenceStatus::default(),
             blocks: vec![BlockDefinition::Step(Box::new(StepDef {
                 id: orch8_types::ids::BlockId::new("s1"),
                 handler: "noop".into(),

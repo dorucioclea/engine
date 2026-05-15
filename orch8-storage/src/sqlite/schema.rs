@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS sequences (
     name TEXT NOT NULL,
     version INTEGER NOT NULL,
     deprecated INTEGER NOT NULL DEFAULT 0 CHECK(deprecated IN (0, 1)),
+    status TEXT NOT NULL DEFAULT 'production',
     blocks TEXT NOT NULL,
     interceptors TEXT,
     created_at TEXT NOT NULL
@@ -349,6 +350,9 @@ CREATE TABLE IF NOT EXISTS rollback_policies (
     error_rate_threshold REAL NOT NULL DEFAULT 0.05,
     time_window_secs INTEGER NOT NULL DEFAULT 300,
     enabled INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN (0, 1)),
+    cooldown_secs INTEGER NOT NULL DEFAULT 3600,
+    confirmation_window_secs INTEGER NOT NULL DEFAULT 60,
+    webhook_url TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now')),
     UNIQUE(tenant_id, sequence_name)
@@ -376,4 +380,4 @@ CREATE INDEX IF NOT EXISTS idx_rollback_history_triggered ON rollback_history(tr
 /// Current bundled schema version. Bump when the `SCHEMA` string above is
 /// edited in a non-idempotent way (e.g. adding a new column whose default
 /// matters for code that reads the column).
-pub(super) const SCHEMA_VERSION: i64 = 4;
+pub(super) const SCHEMA_VERSION: i64 = 5;

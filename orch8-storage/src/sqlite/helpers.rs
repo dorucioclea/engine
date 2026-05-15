@@ -114,6 +114,7 @@ pub(super) fn row_to_sequence(
         name: row.get::<String, _>("name"),
         version: row.get::<i32, _>("version"),
         deprecated: row.get::<i32, _>("deprecated") != 0,
+        status: row.get::<String, _>("status").parse().unwrap_or_default(),
         blocks: parse_json(row.get::<&str, _>("blocks"))?,
         interceptors: row
             .get::<Option<String>, _>("interceptors")

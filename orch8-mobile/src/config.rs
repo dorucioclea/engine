@@ -30,6 +30,10 @@ pub struct MobileEngineConfig {
     pub root_public_key: String,
     /// Mobile SDK version string, used for `min_sdk_version` checks during sync.
     pub sdk_version: String,
+    /// Maximum memory budget in bytes (0 = unlimited). When process RSS exceeds
+    /// this limit, tick execution is skipped until memory drops below the threshold.
+    /// Default: 0 (unlimited).
+    pub memory_budget_bytes: u64,
 }
 
 impl Default for MobileEngineConfig {
@@ -49,6 +53,7 @@ impl Default for MobileEngineConfig {
             environment: "production".to_string(),
             root_public_key: String::new(),
             sdk_version: env!("CARGO_PKG_VERSION").to_string(),
+            memory_budget_bytes: 0,
         }
     }
 }
@@ -88,6 +93,7 @@ mod tests {
         assert!(config.telemetry_enabled);
         assert_eq!(config.environment, "production");
         assert!(config.root_public_key.is_empty());
+        assert_eq!(config.memory_budget_bytes, 0);
     }
 
     #[test]

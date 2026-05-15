@@ -1,7 +1,7 @@
 //! Unit tests for the evaluator module.
 
 use super::*;
-use orch8_types::sequence::StepDef;
+use orch8_types::sequence::{SequenceStatus, StepDef};
 
 #[test]
 fn find_block_in_flat_list() {
@@ -562,7 +562,7 @@ fn find_running_step_prefers_step_over_composite() {
 // ------------------------------------------------------------------
 
 use chrono::Utc;
-use orch8_storage::sqlite::SqliteStorage;
+use orch8_storage::{sqlite::SqliteStorage, ExecutionTreeStore, InstanceStore};
 use orch8_types::ids::{Namespace, SequenceId, TenantId};
 use orch8_types::instance::{InstanceState, Priority, TaskInstance};
 
@@ -741,6 +741,7 @@ async fn merged_blocks_no_injection_borrows() {
         name: "test".into(),
         version: 1,
         deprecated: false,
+        status: SequenceStatus::default(),
         blocks: vec![mk_step("a"), mk_step("b")],
         interceptors: None,
         created_at: Utc::now(),
@@ -764,6 +765,7 @@ async fn merged_blocks_with_injection_owns() {
         name: "test".into(),
         version: 1,
         deprecated: false,
+        status: SequenceStatus::default(),
         blocks: vec![mk_step("a")],
         interceptors: None,
         created_at: Utc::now(),
@@ -791,6 +793,7 @@ async fn merged_blocks_empty_injection_still_borrows() {
         name: "test".into(),
         version: 1,
         deprecated: false,
+        status: SequenceStatus::default(),
         blocks: vec![mk_step("a")],
         interceptors: None,
         created_at: Utc::now(),

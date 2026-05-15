@@ -15,7 +15,7 @@ pub(super) async fn create(
         .map(serde_json::to_string)
         .transpose()?;
     sqlx::query(
-        "INSERT INTO sequences (id, tenant_id, namespace, name, version, deprecated, blocks, interceptors, created_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)"
+        "INSERT INTO sequences (id, tenant_id, namespace, name, version, deprecated, status, blocks, interceptors, created_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)"
     )
     .bind(seq.id.into_uuid().to_string())
     .bind(seq.tenant_id.as_str())
@@ -23,6 +23,7 @@ pub(super) async fn create(
     .bind(&seq.name)
     .bind(seq.version)
     .bind(seq.deprecated as i32)
+    .bind(seq.status.to_string())
     .bind(&blocks)
     .bind(&interceptors)
     .bind(ts(seq.created_at))
@@ -100,6 +101,19 @@ pub(super) async fn list_all(
 pub(super) async fn deprecate(storage: &SqliteStorage, id: SequenceId) -> Result<(), StorageError> {
     sqlx::query("UPDATE sequences SET deprecated=1 WHERE id=?1")
         .bind(id.to_string())
+        .execute(&storage.pool)
+        .await?;
+    Ok(())
+}
+
+pub(super) async fn update_status(
+    storage: &SqliteStorage,
+    id: SequenceId,
+    status: &str,
+) -> Result<(), StorageError> {
+    sqlx::query("UPDATE sequences SET status=?2 WHERE id=?1")
+        .bind(id.to_string())
+        .bind(status)
         .execute(&storage.pool)
         .await?;
     Ok(())

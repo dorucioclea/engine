@@ -1,0 +1,226 @@
+name: Mobile
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "orch8-mobile/**"
+      - "orch8-engine/**"
+      - "orch8-storage/**"
+      - "orch8-types/**"
+      - ".github/workflows/mobile.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "orch8-mobile/**"
+      - "orch8-engine/**"
+      - "orch8-storage/**"
+      - "orch8-types/**"
+      - ".github/workflows/mobile.yml"
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  SQLX_OFFLINE: true
+  CARGO_INCREMENTAL: "0"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # -- iOS builds ----------------------------------------------------------
+  ios:
+    name: iOS (${{ matrix.target }})
+    runs-on: macos-latest
+    timeout-minutes: 45
+    strategy:
+      matrix:
+        include:
+          - target: aarch64-apple-ios
+            label: device
+          - target: aarch64-apple-ios-sim
+            label: sim-arm64
+          - target: x86_64-apple-ios
+            label: sim-x64
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: dtolnay/rust-toolchain@b3b07ba8b418998c39fb20f53e18c1a97b10f1a2 # stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@9d47c6ad4b02e050fd481d890b2ea34778fd09d6 # v2.7.8
+        with:
+          key: ios-${{ matrix.target }}
+
+      - name: Build liborch8_mobile
+        run: cargo build --profile mobile-release --target ${{ matrix.target }} -p orch8-mobile
+
+      - name: Upload static library
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: liborch8_mobile-${{ matrix.label }}
+          path: target/${{ matrix.target }}/mobile-release/liborch8_mobile.a
+
+  # -- Android builds ------------------------------------------------------
+  android:
+    name: Android (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      matrix:
+        include:
+          - target: aarch64-linux-android
+            label: arm64-v8a
+          - target: armv7-linux-androideabi
+            label: armeabi-v7a
+          - target: x86_64-linux-android
+            label: x86_64
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: dtolnay/rust-toolchain@b3b07ba8b418998c39fb20f53e18c1a97b10f1a2 # stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@9d47c6ad4b02e050fd481d890b2ea34778fd09d6 # v2.7.8
+        with:
+          key: android-${{ matrix.target }}
+
+      - name: Set up Android NDK
+        uses: nttld/setup-ndk@ed92fe6cadad69be94a966a7ee3271275e62f779 # v1.6.0
+        id: setup-ndk
+        with:
+          ndk-version: r27c
+
+      - name: Configure NDK toolchain
+        run: |
+          NDK_PATH="${{ steps.setup-ndk.outputs.ndk-path }}"
+          TOOLCHAIN="${NDK_PATH}/toolchains/llvm/prebuilt/linux-x86_64"
+          echo "CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=${TOOLCHAIN}/bin/aarch64-linux-android24-clang" >> "$GITHUB_ENV"
+          echo "CARGO_TARGET_ARMV7_LINUX_ANDROIDEABI_LINKER=${TOOLCHAIN}/bin/armv7a-linux-androideabi24-clang" >> "$GITHUB_ENV"
+          echo "CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER=${TOOLCHAIN}/bin/x86_64-linux-android24-clang" >> "$GITHUB_ENV"
+          echo "CC_aarch64_linux_android=${TOOLCHAIN}/bin/aarch64-linux-android24-clang" >> "$GITHUB_ENV"
+          echo "CC_armv7_linux_androideabi=${TOOLCHAIN}/bin/armv7a-linux-androideabi24-clang" >> "$GITHUB_ENV"
+          echo "CC_x86_64_linux_android=${TOOLCHAIN}/bin/x86_64-linux-android24-clang" >> "$GITHUB_ENV"
+          echo "AR_aarch64_linux_android=${TOOLCHAIN}/bin/llvm-ar" >> "$GITHUB_ENV"
+          echo "AR_armv7_linux_androideabi=${TOOLCHAIN}/bin/llvm-ar" >> "$GITHUB_ENV"
+          echo "AR_x86_64_linux_android=${TOOLCHAIN}/bin/llvm-ar" >> "$GITHUB_ENV"
+
+      - name: Build liborch8_mobile
+        run: cargo build --profile mobile-release --target ${{ matrix.target }} -p orch8-mobile
+
+      - name: Upload shared library
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: liborch8_mobile-${{ matrix.label }}
+          path: target/${{ matrix.target }}/mobile-release/liborch8_mobile.so
+
+  # -- Generate bindings ---------------------------------------------------
+  bindings:
+    name: Generate bindings
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: dtolnay/rust-toolchain@b3b07ba8b418998c39fb20f53e18c1a97b10f1a2 # stable
+      - uses: Swatinem/rust-cache@9d47c6ad4b02e050fd481d890b2ea34778fd09d6 # v2.7.8
+
+      - name: Build library for binding generation
+        run: cargo build -p orch8-mobile
+
+      - name: Generate Swift bindings
+        run: |
+          cargo run -p orch8-mobile --features bindgen --bin uniffi-bindgen -- \
+            generate --library target/debug/liborch8_mobile.dylib \
+            --language swift --out-dir bindings/swift
+
+      - name: Generate Kotlin bindings
+        run: |
+          cargo run -p orch8-mobile --features bindgen --bin uniffi-bindgen -- \
+            generate --library target/debug/liborch8_mobile.dylib \
+            --language kotlin --out-dir bindings/kotlin
+
+      - name: Upload bindings
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: bindings
+          path: bindings/
+
+  # -- Package XCFramework -------------------------------------------------
+  xcframework:
+    name: XCFramework
+    runs-on: macos-latest
+    timeout-minutes: 20
+    needs: [ios, bindings]
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Download iOS artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          path: artifacts
+
+      - name: Build XCFramework
+        run: |
+          mkdir -p build/ios-device build/ios-sim-arm64 build/ios-sim-x64 build/headers
+
+          cp artifacts/liborch8_mobile-device/liborch8_mobile.a build/ios-device/
+          cp artifacts/liborch8_mobile-sim-arm64/liborch8_mobile.a build/ios-sim-arm64/
+          cp artifacts/liborch8_mobile-sim-x64/liborch8_mobile.a build/ios-sim-x64/
+
+          cp artifacts/bindings/swift/Orch8MobileFFI.h build/headers/
+          cp artifacts/bindings/swift/Orch8MobileFFI.modulemap build/headers/module.modulemap
+
+          lipo -create \
+            build/ios-sim-arm64/liborch8_mobile.a \
+            build/ios-sim-x64/liborch8_mobile.a \
+            -output build/liborch8_mobile-sim.a
+
+          xcodebuild -create-xcframework \
+            -library build/ios-device/liborch8_mobile.a -headers build/headers \
+            -library build/liborch8_mobile-sim.a -headers build/headers \
+            -output build/Orch8Mobile.xcframework
+
+      - name: Upload XCFramework
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: Orch8Mobile.xcframework
+          path: build/Orch8Mobile.xcframework
+
+  # -- Package Android AAR -------------------------------------------------
+  aar:
+    name: Android AAR
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: [android, bindings]
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4.8.0
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Download Android artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          path: artifacts
+
+      - name: Assemble AAR
+        working-directory: packages/android
+        run: |
+          mkdir -p orch8-mobile/src/main/jniLibs/arm64-v8a
+          mkdir -p orch8-mobile/src/main/jniLibs/armeabi-v7a
+          mkdir -p orch8-mobile/src/main/jniLibs/x86_64
+          mkdir -p orch8-mobile/src/main/java/io/orch8/mobile
+
+          cp ../../artifacts/liborch8_mobile-arm64-v8a/liborch8_mobile.so orch8-mobile/src/main/jniLibs/arm64-v8a/
+          cp ../../artifacts/liborch8_mobile-armeabi-v7a/liborch8_mobile.so orch8-mobile/src/main/jniLibs/armeabi-v7a/
+          cp ../../artifacts/liborch8_mobile-x86_64/liborch8_mobile.so orch8-mobile/src/main/jniLibs/x86_64/
+          cp ../../artifacts/bindings/kotlin/io/orch8/mobile/orch8_mobile.kt orch8-mobile/src/main/java/io/orch8/mobile/
+
+          chmod +x gradlew
+          ./gradlew :orch8-mobile:assembleRelease
+
+      - name: Upload AAR
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: orch8-mobile.aar
+          path: packages/android/orch8-mobile/build/outputs/aar/orch8-mobile-release.aar

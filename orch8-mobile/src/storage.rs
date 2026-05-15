@@ -185,6 +185,15 @@ impl MobileStorage {
             .await?;
         Ok(())
     }
+
+    /// List all dedup entries for hydration on engine startup.
+    pub async fn list_all_dedup(&self) -> Result<Vec<(String, String)>, StorageError> {
+        let rows: Vec<(String, String)> =
+            sqlx::query_as("SELECT dedup_key, instance_id FROM mobile_dedup")
+                .fetch_all(self.pool())
+                .await?;
+        Ok(rows)
+    }
 }
 
 /// A telemetry event stored in the local `SQLite` buffer.
@@ -299,6 +308,20 @@ mod tests {
 
         storage.remove_dedup("inst-1").await.unwrap();
         assert!(storage.get_dedup_instance("dk1").await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn dedup_list_all_returns_all_entries() {
+        let (storage, _dir) = setup().await;
+
+        storage.set_dedup("dk1", "inst-1").await.unwrap();
+        storage.set_dedup("dk2", "inst-2").await.unwrap();
+
+        let all = storage.list_all_dedup().await.unwrap();
+        assert_eq!(all.len(), 2);
+        let map: std::collections::HashMap<_, _> = all.into_iter().collect();
+        assert_eq!(map.get("dk1"), Some(&"inst-1".to_string()));
+        assert_eq!(map.get("dk2"), Some(&"inst-2".to_string()));
     }
 
     #[tokio::test]

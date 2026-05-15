@@ -538,7 +538,7 @@ pub async fn execute_step_node(
 mod tests {
     use super::*;
     use chrono::Utc;
-    use orch8_storage::sqlite::SqliteStorage;
+    use orch8_storage::{sqlite::SqliteStorage, InstanceStore, ResourceStore};
     use orch8_types::ids::{InstanceId, Namespace, SequenceId, TenantId};
     use orch8_types::instance::{InstanceState, Priority, TaskInstance};
 

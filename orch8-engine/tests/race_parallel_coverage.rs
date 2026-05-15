@@ -10,13 +10,14 @@ use orch8_engine::evaluator;
 use orch8_engine::handlers::parallel::execute_parallel;
 use orch8_engine::handlers::race::execute_race;
 use orch8_engine::handlers::HandlerRegistry;
-use orch8_storage::{sqlite::SqliteStorage, StorageBackend};
+use orch8_storage::{sqlite::SqliteStorage, ExecutionTreeStore, InstanceStore, SequenceStore};
 use orch8_types::context::{ExecutionContext, RuntimeContext};
 use orch8_types::execution::{BlockType, ExecutionNode, NodeState};
 use orch8_types::ids::{BlockId, InstanceId, Namespace, SequenceId, TenantId};
 use orch8_types::instance::{InstanceState, Priority, TaskInstance};
 use orch8_types::sequence::{
-    BlockDefinition, ParallelDef, RaceDef, RaceSemantics, SequenceDefinition, StepDef,
+    BlockDefinition, ParallelDef, RaceDef, RaceSemantics, SequenceDefinition, SequenceStatus,
+    StepDef,
 };
 
 fn mk_step(id: &str) -> BlockDefinition {
@@ -49,6 +50,7 @@ async fn setup(blocks: Vec<BlockDefinition>) -> (SqliteStorage, TaskInstance, Ve
         name: "rp-cov".into(),
         version: 1,
         deprecated: false,
+        status: SequenceStatus::default(),
         blocks: blocks.clone(),
         interceptors: None,
         created_at: Utc::now(),

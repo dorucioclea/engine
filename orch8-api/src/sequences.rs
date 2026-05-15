@@ -10,7 +10,7 @@ use uuid::Uuid;
 use orch8_types::filter::InstanceFilter;
 use orch8_types::ids::{InstanceId, SequenceId};
 use orch8_types::instance::InstanceState;
-use orch8_types::sequence::SequenceDefinition;
+use orch8_types::sequence::{SequenceDefinition, SequenceStatus};
 
 use crate::error::ApiError;
 use crate::AppState;
@@ -20,6 +20,7 @@ pub fn routes() -> Router<AppState> {
         .route("/sequences", post(create_sequence).get(list_sequences))
         .route("/sequences/{id}", get(get_sequence).delete(delete_sequence))
         .route("/sequences/{id}/deprecate", post(deprecate_sequence))
+        .route("/sequences/{id}/status", post(set_sequence_status))
         .route("/sequences/{name}/unpublish", post(unpublish_sequence))
         .route("/sequences/{name}/promote", post(promote_sequence))
         .route("/sequences/by-name", get(get_sequence_by_name))
@@ -421,6 +422,12 @@ pub(crate) async fn unpublish_sequence(
             .await
             .map_err(|e| ApiError::from_storage(e, "sequence"))?;
 
+        state
+            .storage
+            .update_sequence_status(seq.id, "unpublished")
+            .await
+            .map_err(|e| ApiError::from_storage(e, "sequence"))?;
+
         if req.delete {
             state
                 .storage
@@ -434,7 +441,7 @@ pub(crate) async fn unpublish_sequence(
 }
 
 /// Promote a sequence from staging to production.
-/// Copies the latest staging version to a new production version.
+/// Copies the latest version to a new production version.
 pub(crate) async fn promote_sequence(
     State(state): State<AppState>,
     tenant_ctx: crate::auth::OptionalTenant,
@@ -461,10 +468,18 @@ pub(crate) async fn promote_sequence(
         &format!("sequence {}", latest.id),
     )?;
 
-    // Create a new version with bumped version number.
+    if !latest.status.can_transition_to(SequenceStatus::Production) {
+        return Err(ApiError::InvalidArgument(format!(
+            "cannot promote sequence in '{}' status (must be staging)",
+            latest.status,
+        )));
+    }
+
+    // Create a new version with bumped version number and production status.
     let mut promoted = latest.clone();
     promoted.id = orch8_types::ids::SequenceId::new();
     promoted.version += 1;
+    promoted.status = SequenceStatus::Production;
     promoted.created_at = chrono::Utc::now();
 
     state
@@ -477,6 +492,53 @@ pub(crate) async fn promote_sequence(
         StatusCode::CREATED,
         Json(serde_json::json!({ "id": promoted.id, "version": promoted.version })),
     ))
+}
+
+/// Transition a sequence's lifecycle status.
+#[derive(Deserialize)]
+pub(crate) struct SetStatusRequest {
+    pub status: SequenceStatus,
+}
+
+pub(crate) async fn set_sequence_status(
+    State(state): State<AppState>,
+    tenant_ctx: crate::auth::OptionalTenant,
+    Path(id): Path<Uuid>,
+    Json(req): Json<SetStatusRequest>,
+) -> Result<StatusCode, ApiError> {
+    let seq = state
+        .storage
+        .get_sequence(SequenceId::from_uuid(id))
+        .await
+        .map_err(|e| ApiError::from_storage(e, "sequence"))?
+        .ok_or_else(|| ApiError::NotFound(format!("sequence {id}")))?;
+
+    crate::auth::enforce_tenant_access(&tenant_ctx, &seq.tenant_id, &format!("sequence {id}"))?;
+
+    if !seq.status.can_transition_to(req.status) {
+        return Err(ApiError::InvalidArgument(format!(
+            "invalid transition: {} → {} (allowed: {:?})",
+            seq.status,
+            req.status,
+            seq.status.valid_transitions(),
+        )));
+    }
+
+    state
+        .storage
+        .update_sequence_status(SequenceId::from_uuid(id), &req.status.to_string())
+        .await
+        .map_err(|e| ApiError::from_storage(e, "sequence"))?;
+
+    if req.status == SequenceStatus::Unpublished {
+        state
+            .storage
+            .deprecate_sequence(SequenceId::from_uuid(id))
+            .await
+            .map_err(|e| ApiError::from_storage(e, "sequence"))?;
+    }
+
+    Ok(StatusCode::NO_CONTENT)
 }
 
 #[cfg(test)]
@@ -651,5 +713,50 @@ mod tests {
         });
         let res = serde_json::from_value::<MigrateInstanceRequest>(raw);
         assert!(res.is_err());
+    }
+
+    // ─── SetStatusRequest ───
+
+    #[test]
+    fn set_status_request_deserializes() {
+        let raw = json!({ "status": "staging" });
+        let req: SetStatusRequest = serde_json::from_value(raw).unwrap();
+        assert_eq!(req.status, SequenceStatus::Staging);
+    }
+
+    #[test]
+    fn set_status_request_rejects_unknown() {
+        let raw = json!({ "status": "nonexistent" });
+        assert!(serde_json::from_value::<SetStatusRequest>(raw).is_err());
+    }
+
+    #[test]
+    fn set_status_request_all_variants() {
+        for (s, expected) in [
+            ("draft", SequenceStatus::Draft),
+            ("staging", SequenceStatus::Staging),
+            ("production", SequenceStatus::Production),
+            ("unpublished", SequenceStatus::Unpublished),
+        ] {
+            let raw = json!({ "status": s });
+            let req: SetStatusRequest = serde_json::from_value(raw).unwrap();
+            assert_eq!(req.status, expected);
+        }
+    }
+
+    // ─── UnpublishRequest ───
+
+    #[test]
+    fn unpublish_request_defaults_delete_false() {
+        let raw = json!({});
+        let req: UnpublishRequest = serde_json::from_value(raw).unwrap();
+        assert!(!req.delete);
+    }
+
+    #[test]
+    fn unpublish_request_delete_true() {
+        let raw = json!({ "delete": true });
+        let req: UnpublishRequest = serde_json::from_value(raw).unwrap();
+        assert!(req.delete);
     }
 }

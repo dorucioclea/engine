@@ -189,12 +189,14 @@ pub(crate) async fn handle_emit_event(ctx: StepContext) -> Result<Value, StepErr
 mod tests {
     use super::*;
     use chrono::Utc;
-    use orch8_storage::{sqlite::SqliteStorage, StorageBackend};
+    use orch8_storage::{
+        sqlite::SqliteStorage, AdminStore, InstanceStore, SequenceStore, StorageBackend,
+    };
     use orch8_types::{
         context::{ExecutionContext, RuntimeContext},
         ids::{BlockId, Namespace, SequenceId, TenantId},
         instance::{InstanceState, Priority, TaskInstance},
-        sequence::SequenceDefinition,
+        sequence::{SequenceDefinition, SequenceStatus},
         trigger::{TriggerDef, TriggerType},
     };
     use serde_json::json;
@@ -237,6 +239,7 @@ mod tests {
             name: name.into(),
             version: 1,
             deprecated: false,
+            status: SequenceStatus::default(),
             blocks: vec![],
             interceptors: None,
             created_at: Utc::now(),

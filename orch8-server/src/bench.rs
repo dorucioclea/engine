@@ -22,12 +22,12 @@ use tokio_util::sync::CancellationToken;
 use orch8_engine::handlers::HandlerRegistry;
 use orch8_engine::Engine;
 use orch8_storage::postgres::PostgresStorage;
-use orch8_storage::StorageBackend;
+use orch8_storage::{InstanceStore, SequenceStore, StorageBackend};
 use orch8_types::config::SchedulerConfig;
 use orch8_types::context::ExecutionContext;
 use orch8_types::ids::{BlockId, InstanceId, Namespace, SequenceId, TenantId};
 use orch8_types::instance::{InstanceState, Priority, TaskInstance};
-use orch8_types::sequence::{BlockDefinition, SequenceDefinition, StepDef};
+use orch8_types::sequence::{BlockDefinition, SequenceDefinition, SequenceStatus, StepDef};
 
 const DB_URL: &str = "postgres://orch8:orch8@localhost:5434/orch8";
 
@@ -61,6 +61,7 @@ fn make_sequence(tenant: &str, num_steps: usize) -> SequenceDefinition {
         name: format!("bench-seq-{}", uuid::Uuid::now_v7()),
         version: 1,
         deprecated: false,
+        status: SequenceStatus::default(),
         blocks,
         interceptors: None,
         created_at: Utc::now(),

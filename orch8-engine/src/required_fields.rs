@@ -145,7 +145,8 @@ mod tests {
     use chrono::Utc;
     use orch8_types::ids::{Namespace, SequenceId, TenantId};
     use orch8_types::sequence::{
-        AccessKeyword, ContextAccess, FieldAccess, ParallelDef, SequenceDefinition, StepDef,
+        AccessKeyword, ContextAccess, FieldAccess, ParallelDef, SequenceDefinition, SequenceStatus,
+        StepDef,
     };
 
     fn step_def(id: &str, access: Option<ContextAccess>) -> Box<StepDef> {
@@ -177,6 +178,7 @@ mod tests {
             name: "seq".into(),
             version: 1,
             deprecated: false,
+            status: SequenceStatus::default(),
             blocks,
             interceptors: None,
             created_at: Utc::now(),

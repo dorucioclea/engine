@@ -22,9 +22,20 @@ use crate::{build_router, AppState};
 /// A running test server. The listener is bound to `127.0.0.1:0` so tests
 /// can run concurrently without port collisions.
 pub struct TestServer {
+    /// Root URL of the server (e.g. `http://127.0.0.1:12345`).
+    /// Routes are available at both `{base_url}/...` (deprecated) and
+    /// `{base_url}/api/v1/...` (canonical).
     pub base_url: String,
     pub shutdown: CancellationToken,
     pub storage: Arc<orch8_storage::sqlite::SqliteStorage>,
+}
+
+impl TestServer {
+    /// Returns the canonical versioned base URL (`{base_url}/api/v1`).
+    /// New tests should prefer this over bare `base_url` paths.
+    pub fn v1_url(&self) -> String {
+        format!("{}{}", self.base_url, crate::API_V1_PREFIX)
+    }
 }
 
 impl Drop for TestServer {

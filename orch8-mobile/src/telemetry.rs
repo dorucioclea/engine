@@ -47,6 +47,7 @@ pub struct TelemetryManager {
     enabled: bool,
     device_ctx: std::sync::Mutex<DeviceContext>,
     http: reqwest::Client,
+    last_endpoint: std::sync::Mutex<Option<String>>,
 }
 
 #[allow(dead_code)]
@@ -61,6 +62,7 @@ impl TelemetryManager {
             enabled,
             device_ctx: std::sync::Mutex::new(device_ctx),
             http,
+            last_endpoint: std::sync::Mutex::new(None),
         }
     }
 
@@ -94,11 +96,17 @@ impl TelemetryManager {
                     message: e.to_string(),
                 })?;
         if count >= (u64::from(MAX_BUFFER_SIZE) * u64::from(AUTO_FLUSH_PCT) / 100) {
-            tracing::debug!(
+            tracing::info!(
                 count,
                 "telemetry buffer at {}% — auto-flush",
                 AUTO_FLUSH_PCT
             );
+            let endpoint = self.last_endpoint.lock().unwrap().clone();
+            if let Some(endpoint) = endpoint {
+                if let Err(e) = self.flush(&endpoint).await {
+                    tracing::warn!(error = %e, "auto-flush failed");
+                }
+            }
         }
 
         Ok(())
@@ -156,6 +164,7 @@ impl TelemetryManager {
             })?;
 
         if response.status().is_success() {
+            *self.last_endpoint.lock().unwrap() = Some(endpoint_url.to_string());
             let ids: Vec<i64> = events.iter().map(|e| e.id).collect();
             let deleted = self
                 .storage
@@ -319,5 +328,143 @@ mod tests {
         // enforce_capacity with 5/1000 should not drop anything.
         let dropped = mgr.enforce_capacity().await.unwrap();
         assert_eq!(dropped, 0);
+    }
+
+    #[tokio::test]
+    async fn flush_succeeds_and_deletes_events() {
+        let (mgr, storage, _dir) = setup().await;
+
+        // Seed 3 events.
+        for i in 0..3 {
+            let event = TelemetryEventRecord::new("TestEvent", &format!("{{\"i\":{i}}}"));
+            mgr.record(&event).await.unwrap();
+        }
+        assert_eq!(storage.count_telemetry_events().await.unwrap(), 3);
+
+        // Spin up a tiny HTTP server that accepts the batch.
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = tokio::spawn(async move {
+            use tokio::io::AsyncReadExt;
+            use tokio::io::AsyncWriteExt;
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut buf = vec![0u8; 4096];
+            let _n = socket.read(&mut buf).await.unwrap();
+            let response = "HTTP/1.1 202 Accepted\r\nContent-Length: 0\r\n\r\n";
+            socket.write_all(response.as_bytes()).await.unwrap();
+        });
+
+        let url = format!("http://127.0.0.1:{port}/telemetry");
+        let result = mgr.flush(&url).await.unwrap();
+        assert_eq!(result.sent, 3);
+
+        server.await.unwrap();
+
+        // Events should be deleted after successful flush.
+        let count = storage.count_telemetry_events().await.unwrap();
+        assert_eq!(count, 0);
+    }
+
+    #[tokio::test]
+    async fn flush_when_disabled_returns_zero() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.db").to_string_lossy().to_string();
+        let sqlite = Arc::new(
+            orch8_storage::sqlite::SqliteStorage::file_mobile(&path)
+                .await
+                .unwrap(),
+        );
+        let storage = Arc::new(MobileStorage::new(sqlite));
+        let mgr = TelemetryManager::new(
+            storage.clone(),
+            false,
+            DeviceContext {
+                device_id: "dev-1".to_string(),
+                os_name: "iOS".to_string(),
+                os_version: "17.0".to_string(),
+                app_version: "1.0.0".to_string(),
+                sdk_version: "0.4.0".to_string(),
+            },
+        );
+
+        let result = mgr.flush("http://127.0.0.1:1/telemetry").await.unwrap();
+        assert_eq!(result.sent, 0);
+        assert_eq!(result.dropped, 0);
+    }
+
+    #[tokio::test]
+    async fn flush_fails_when_server_returns_error() {
+        let (mgr, storage, _dir) = setup().await;
+
+        let event = TelemetryEventRecord::new("TestEvent", r#"{"x":1}"#);
+        mgr.record(&event).await.unwrap();
+        assert_eq!(storage.count_telemetry_events().await.unwrap(), 1);
+
+        // Spin up a tiny HTTP server that returns 500.
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = tokio::spawn(async move {
+            use tokio::io::AsyncReadExt;
+            use tokio::io::AsyncWriteExt;
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut buf = vec![0u8; 4096];
+            let _n = socket.read(&mut buf).await.unwrap();
+            let response = "HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\n\r\n";
+            socket.write_all(response.as_bytes()).await.unwrap();
+        });
+
+        let url = format!("http://127.0.0.1:{port}/telemetry");
+        let result = mgr.flush(&url).await;
+        assert!(result.is_err());
+
+        server.await.unwrap();
+
+        // Events should NOT be deleted after failed flush.
+        let count = storage.count_telemetry_events().await.unwrap();
+        assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn set_device_context_updates_context() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.db").to_string_lossy().to_string();
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let (mgr, _storage) = rt.block_on(async {
+            let sqlite = Arc::new(
+                orch8_storage::sqlite::SqliteStorage::file_mobile(&path)
+                    .await
+                    .unwrap(),
+            );
+            let storage = Arc::new(MobileStorage::new(sqlite));
+            let mgr = TelemetryManager::new(
+                storage.clone(),
+                true,
+                DeviceContext {
+                    device_id: "dev-1".to_string(),
+                    os_name: "iOS".to_string(),
+                    os_version: "17.0".to_string(),
+                    app_version: "1.0.0".to_string(),
+                    sdk_version: "0.4.0".to_string(),
+                },
+            );
+            (mgr, storage)
+        });
+
+        let new_ctx = DeviceContext {
+            device_id: "dev-2".to_string(),
+            os_name: "Android".to_string(),
+            os_version: "14.0".to_string(),
+            app_version: "2.0.0".to_string(),
+            sdk_version: "0.5.0".to_string(),
+        };
+        mgr.set_device_context(new_ctx.clone());
+
+        // Verify by flushing — the device context should appear in the batch.
+        // We can't easily inspect the private field, but we can verify the call
+        // doesn't panic and the setter accepts the value.
+        assert_eq!(mgr.device_ctx.lock().unwrap().device_id, "dev-2");
     }
 }

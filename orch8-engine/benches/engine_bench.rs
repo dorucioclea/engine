@@ -9,12 +9,14 @@ use serde_json::json;
 use tokio::runtime::Runtime;
 
 use orch8_storage::sqlite::SqliteStorage;
-use orch8_storage::StorageBackend;
+use orch8_storage::{
+    ExecutionTreeStore, InstanceStore, ResourceStore, SequenceStore, StorageBackend,
+};
 use orch8_types::context::ExecutionContext;
 use orch8_types::execution::{BlockType, ExecutionNode, NodeState};
 use orch8_types::ids::{BlockId, ExecutionNodeId, InstanceId, Namespace, SequenceId, TenantId};
 use orch8_types::instance::{InstanceState, Priority, TaskInstance};
-use orch8_types::sequence::{BlockDefinition, SequenceDefinition, StepDef};
+use orch8_types::sequence::{BlockDefinition, SequenceDefinition, SequenceStatus, StepDef};
 
 fn make_sequence() -> SequenceDefinition {
     SequenceDefinition {
@@ -24,6 +26,7 @@ fn make_sequence() -> SequenceDefinition {
         name: "bench_seq".into(),
         version: 1,
         deprecated: false,
+        status: SequenceStatus::default(),
         blocks: vec![BlockDefinition::Step(Box::new(StepDef {
             id: BlockId::new("s1"),
             handler: "noop".into(),
@@ -477,6 +480,7 @@ fn bench_evaluate_deep_tree(c: &mut Criterion) {
                     name: "parallel_seq".into(),
                     version: 1,
                     deprecated: false,
+                    status: SequenceStatus::default(),
                     blocks: vec![BlockDefinition::Parallel(Box::new(
                         orch8_types::sequence::ParallelDef {
                             id: BlockId::new("par1"),
@@ -579,6 +583,98 @@ fn bench_scheduler_tick(c: &mut Criterion) {
     });
 }
 
+fn bench_tick_once(c: &mut Criterion) {
+    let rt = Runtime::new().unwrap();
+
+    for count in [1, 10, 50, 100] {
+        c.bench_function(&format!("tick_once_{count}_instances"), |b| {
+            b.to_async(&rt).iter_batched(
+                || {
+                    let s = rt.block_on(SqliteStorage::in_memory()).unwrap();
+                    let seq = make_sequence();
+                    rt.block_on(s.create_sequence(&seq)).unwrap();
+                    let batch: Vec<TaskInstance> = (0..count)
+                        .map(|_| {
+                            let mut inst = make_instance(seq.id);
+                            inst.state = InstanceState::Scheduled;
+                            inst.next_fire_at = Some(Utc::now() - chrono::Duration::seconds(10));
+                            inst
+                        })
+                        .collect();
+                    rt.block_on(s.create_instances_batch(&batch)).unwrap();
+
+                    let config = orch8_types::config::SchedulerConfig {
+                        tick_interval_ms: 1000,
+                        batch_size: 200,
+                        max_concurrent_steps: 100,
+                        max_instances_per_tenant: 0,
+                        stale_instance_threshold_secs: 300,
+                        node_reaper_tick_secs: 60,
+                        node_reaper_stale_secs: 300,
+                        worker_reaper_tick_secs: 60,
+                        worker_reaper_stale_secs: 300,
+                        cron_tick_secs: 60,
+                        shutdown_grace_period_secs: 10,
+                        max_context_bytes: 0,
+                        externalization_mode: orch8_types::config::ExternalizationMode::Never,
+                        externalize_output_threshold: 0,
+                        ..orch8_types::config::SchedulerConfig::default()
+                    };
+                    let handlers = orch8_engine::handlers::HandlerRegistry::new();
+                    let cache = orch8_engine::sequence_cache::SequenceCache::new(
+                        64,
+                        std::time::Duration::from_secs(60),
+                    );
+                    let cancel = tokio_util::sync::CancellationToken::new();
+                    (s, config, handlers, cache, cancel)
+                },
+                |(s, config, handlers, cache, cancel)| async move {
+                    let storage: Arc<dyn StorageBackend> = Arc::new(s);
+                    let handlers = Arc::new(handlers);
+                    let semaphore = Arc::new(tokio::sync::Semaphore::new(
+                        config.max_concurrent_steps as usize,
+                    ));
+                    let cache = Arc::new(cache);
+                    let _ = orch8_engine::scheduler::tick_once(
+                        &storage, &handlers, &semaphore, &config, &cache, &cancel,
+                    )
+                    .await;
+                },
+                BatchSize::SmallInput,
+            );
+        });
+    }
+
+    c.bench_function("tick_once_empty", |b| {
+        b.to_async(&rt).iter_batched(
+            || {
+                let s = rt.block_on(SqliteStorage::in_memory()).unwrap();
+                let config = orch8_types::config::SchedulerConfig::default();
+                let handlers = orch8_engine::handlers::HandlerRegistry::new();
+                let cache = orch8_engine::sequence_cache::SequenceCache::new(
+                    64,
+                    std::time::Duration::from_secs(60),
+                );
+                let cancel = tokio_util::sync::CancellationToken::new();
+                (s, config, handlers, cache, cancel)
+            },
+            |(s, config, handlers, cache, cancel)| async move {
+                let storage: Arc<dyn StorageBackend> = Arc::new(s);
+                let handlers = Arc::new(handlers);
+                let semaphore = Arc::new(tokio::sync::Semaphore::new(
+                    config.max_concurrent_steps as usize,
+                ));
+                let cache = Arc::new(cache);
+                let _ = orch8_engine::scheduler::tick_once(
+                    &storage, &handlers, &semaphore, &config, &cache, &cancel,
+                )
+                .await;
+            },
+            BatchSize::SmallInput,
+        );
+    });
+}
+
 criterion_group!(
     benches,
     bench_expression_processing,
@@ -588,5 +684,6 @@ criterion_group!(
     bench_flatten_blocks,
     bench_evaluate_deep_tree,
     bench_scheduler_tick,
+    bench_tick_once,
 );
 criterion_main!(benches);

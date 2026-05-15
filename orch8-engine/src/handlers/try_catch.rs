@@ -124,7 +124,7 @@ pub async fn execute_try_catch(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use orch8_storage::sqlite::SqliteStorage;
+    use orch8_storage::{sqlite::SqliteStorage, ExecutionTreeStore, InstanceStore, SequenceStore};
     use orch8_types::context::{ExecutionContext, RuntimeContext};
     use orch8_types::execution::BlockType;
     use orch8_types::ids::{BlockId, ExecutionNodeId, InstanceId, Namespace, SequenceId, TenantId};
@@ -153,7 +153,7 @@ mod tests {
     }
 
     async fn seed_instance(s: &SqliteStorage, inst: InstanceId) {
-        use orch8_types::sequence::{BlockDefinition, SequenceDefinition, StepDef};
+        use orch8_types::sequence::{BlockDefinition, SequenceDefinition, SequenceStatus, StepDef};
         let now = chrono::Utc::now();
         let seq = SequenceDefinition {
             id: SequenceId::new(),
@@ -162,6 +162,7 @@ mod tests {
             name: "tc_test".into(),
             version: 1,
             deprecated: false,
+            status: SequenceStatus::default(),
             blocks: vec![BlockDefinition::Step(Box::new(StepDef {
                 id: BlockId::new("noop"),
                 handler: "noop".into(),

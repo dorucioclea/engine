@@ -47,22 +47,19 @@ pub struct TelemetryEvent {
 /// Outcome of a dedupe insert attempt for `emit_event`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EmitDedupeOutcome {
-    /// First call for (parent, key) — caller proceeds with `candidate_child`.
+    /// First call for (parent, key) -- caller proceeds with `candidate_child`.
     Inserted,
     /// Key already used; caller should reuse the existing child instance ID.
     AlreadyExists(orch8_types::ids::InstanceId),
 }
 
-/// The core storage abstraction.
-///
-/// Object-safe for `dyn StorageBackend` dispatch.
-/// Every method returns `Result<T, StorageError>`.
-/// Batch methods exist for hot paths.
+// ============================================================================
+// Sub-trait 1: SequenceStore
+// ============================================================================
+
 #[allow(clippy::too_many_arguments)]
 #[async_trait]
-pub trait StorageBackend: Send + Sync + 'static {
-    // === Sequences ===
-
+pub trait SequenceStore: Send + Sync + 'static {
     async fn create_sequence(&self, seq: &SequenceDefinition) -> Result<(), StorageError>;
 
     async fn get_sequence(
@@ -101,11 +98,37 @@ pub trait StorageBackend: Send + Sync + 'static {
     /// Mark a sequence version as deprecated.
     async fn deprecate_sequence(&self, id: SequenceId) -> Result<(), StorageError>;
 
+    /// Update the lifecycle status of a sequence.
+    async fn update_sequence_status(
+        &self,
+        id: SequenceId,
+        status: &str,
+    ) -> Result<(), StorageError> {
+        let _ = (id, status);
+        Ok(())
+    }
+
     /// Delete a sequence by ID.
     async fn delete_sequence(&self, id: SequenceId) -> Result<(), StorageError>;
 
-    // === Task Instances ===
+    // === Manifest advisory lock (Postgres only) ===
 
+    async fn acquire_manifest_lock(&self, _tenant_id: &str) -> Result<(), StorageError> {
+        Ok(())
+    }
+
+    async fn release_manifest_lock(&self, _tenant_id: &str) -> Result<(), StorageError> {
+        Ok(())
+    }
+}
+
+// ============================================================================
+// Sub-trait 2: InstanceStore
+// ============================================================================
+
+#[allow(clippy::too_many_arguments)]
+#[async_trait]
+pub trait InstanceStore: Send + Sync + 'static {
     async fn create_instance(&self, instance: &TaskInstance) -> Result<(), StorageError>;
 
     async fn create_instances_batch(&self, instances: &[TaskInstance])
@@ -204,7 +227,7 @@ pub trait StorageBackend: Send + Sync + 'static {
     /// the state had already moved (concurrent writer won the race).
     ///
     /// Default implementation falls through to `update_instance_state`
-    /// without the guard — production backends override with
+    /// without the guard -- production backends override with
     /// `WHERE id = $1 AND state = $expected`.
     async fn conditional_update_instance_state(
         &self,
@@ -279,7 +302,7 @@ pub trait StorageBackend: Send + Sync + 'static {
     /// failure can't leave dangling markers.
     ///
     /// When `threshold_bytes == 0` this is equivalent to
-    /// [`Self::update_instance_context`] — no field is ever large enough to
+    /// [`Self::update_instance_context`] -- no field is ever large enough to
     /// externalize. The scheduler uses this hook to enforce
     /// [`crate::externalizing`] semantics under the configured
     /// `ExternalizationMode`.
@@ -328,7 +351,7 @@ pub trait StorageBackend: Send + Sync + 'static {
 
     /// List instances currently in the Waiting state together with their execution trees.
     /// Only instances matching `filter.tenant_id` / `filter.namespace` are returned.
-    /// Ignores `filter.states` — this method always filters to Waiting.
+    /// Ignores `filter.states` -- this method always filters to Waiting.
     async fn list_waiting_with_trees(
         &self,
         filter: &InstanceFilter,
@@ -350,8 +373,182 @@ pub trait StorageBackend: Send + Sync + 'static {
         offset_secs: i64,
     ) -> Result<u64, StorageError>;
 
-    // === Execution Tree ===
+    // === Idempotency ===
 
+    /// Find an instance by tenant + idempotency key.
+    async fn find_by_idempotency_key(
+        &self,
+        tenant_id: &TenantId,
+        idempotency_key: &str,
+    ) -> Result<Option<TaskInstance>, StorageError>;
+
+    // === Concurrency ===
+
+    /// Count running instances with the given concurrency key.
+    ///
+    /// Default delegates to [] with a single key.
+    async fn count_running_by_concurrency_key(
+        &self,
+        concurrency_key: &str,
+    ) -> Result<i64, StorageError> {
+        let mut map = self
+            .count_running_by_concurrency_keys(&[concurrency_key.to_owned()])
+            .await?;
+        Ok(map.remove(concurrency_key).unwrap_or(0))
+    }
+
+    /// Batch count running instances for multiple concurrency keys.
+    /// Returns a map from key to count.
+    async fn count_running_by_concurrency_keys(
+        &self,
+        concurrency_keys: &[String],
+    ) -> Result<HashMap<String, i64>, StorageError>;
+
+    /// Returns the 1-based position of an instance among running instances
+    /// with the same concurrency key, ordered by ID.
+    /// Used to deterministically pick which instances proceed vs. defer.
+    async fn concurrency_position(
+        &self,
+        instance_id: InstanceId,
+        concurrency_key: &str,
+    ) -> Result<i64, StorageError>;
+
+    // === Recovery ===
+
+    /// Find all instances that were `Running` when the engine crashed
+    /// and reset them to `Scheduled` for re-execution.
+    async fn recover_stale_instances(&self, stale_threshold: Duration)
+        -> Result<u64, StorageError>;
+
+    // === Sub-Sequences ===
+
+    /// Get child instances of a parent.
+    async fn get_child_instances(
+        &self,
+        parent_instance_id: InstanceId,
+    ) -> Result<Vec<TaskInstance>, StorageError>;
+
+    // === Dynamic Step Injection ===
+
+    /// Append blocks to a running instance's sequence (stored as instance-level overrides).
+    async fn inject_blocks(
+        &self,
+        instance_id: InstanceId,
+        blocks_json: &serde_json::Value,
+    ) -> Result<(), StorageError>;
+
+    /// Atomically merge new blocks into an instance's existing injected-blocks
+    /// array at the given position, inside a single transaction.
+    ///
+    /// If `position` is `None`, `new_blocks_json` replaces any prior value
+    /// (equivalent to `inject_blocks`). If `position` is `Some(pos)`, the
+    /// current injected blocks are read, `new_blocks_json`'s entries are
+    /// inserted at `pos` (clamped to the current length), and the resulting
+    /// array is written back -- all within one transaction so two concurrent
+    /// calls cannot lose each other's writes.
+    ///
+    /// Returns the final injected-blocks array actually persisted.
+    async fn inject_blocks_at_position(
+        &self,
+        instance_id: InstanceId,
+        new_blocks_json: &serde_json::Value,
+        position: Option<usize>,
+    ) -> Result<serde_json::Value, StorageError>;
+
+    /// Get injected blocks for an instance.
+    async fn get_injected_blocks(
+        &self,
+        instance_id: InstanceId,
+    ) -> Result<Option<serde_json::Value>, StorageError>;
+
+    // === Emit Event Dedupe ===
+
+    /// Record a dedupe key for `emit_event`. If `(scope, key)` already exists,
+    /// returns the previously-recorded `child_instance_id` without modifying state.
+    ///
+    /// `scope` selects the dedupe namespace (see [`DedupeScope`]):
+    /// per-parent (retry idempotency) or per-tenant (tenant-wide at-most-once).
+    ///
+    /// Atomic per row. Every backend MUST implement this -- there is deliberately
+    /// no default impl so that a new backend cannot silently fall back to a
+    /// broken stub at runtime (see architectural finding #8).
+    ///
+    /// Prefer [`InstanceStore::create_instance_with_dedupe`] in production code
+    /// paths: this method only records the dedupe row, so a crash between the
+    /// dedupe insert and the child `create_instance` would leave an orphan row.
+    /// This primitive is retained for GC tests and tools that intentionally
+    /// manipulate dedupe state without creating a child.
+    async fn record_or_get_emit_dedupe(
+        &self,
+        scope: &DedupeScope,
+        key: &str,
+        candidate_child: orch8_types::ids::InstanceId,
+    ) -> Result<EmitDedupeOutcome, StorageError>;
+
+    /// Atomically record a dedupe row AND create the child `TaskInstance` in a
+    /// single transaction. Closes the orphan window described in architectural
+    /// finding #2: before this method existed, a crash between
+    /// [`InstanceStore::record_or_get_emit_dedupe`] and
+    /// [`InstanceStore::create_instance`] could leave a dedupe row pointing at
+    /// a non-existent child.
+    ///
+    /// Semantics:
+    /// - If `(scope, key)` is free: inserts the dedupe row AND the instance.
+    ///   Returns `Inserted`; `instance.id` is now present in `task_instances`.
+    /// - If `(scope, key)` already exists: returns `AlreadyExists(existing_id)`
+    ///   without creating the instance. The caller must NOT persist `instance`.
+    ///
+    /// Every backend MUST implement this -- no default impl (finding #8).
+    async fn create_instance_with_dedupe(
+        &self,
+        scope: &DedupeScope,
+        key: &str,
+        instance: &TaskInstance,
+    ) -> Result<EmitDedupeOutcome, StorageError>;
+
+    /// Delete up to `limit` `emit_event_dedupe` rows whose `created_at` is older
+    /// than `older_than`. Returns the number of rows actually deleted.
+    ///
+    /// This is the GC sweeper's storage primitive for dedupe TTL (default 30d).
+    /// Dedupe rows are idempotency records -- once the configured TTL has
+    /// elapsed a retry of the same `(parent, key)` can safely create a fresh
+    /// child, because callers should not depend on dedupe beyond the window.
+    ///
+    /// Limit is bounded per call so a large backlog doesn't starve writers in
+    /// a single long transaction -- same convention as
+    /// [`ResourceStore::delete_expired_externalized_state`].
+    ///
+    /// Every backend MUST implement this -- there is deliberately no default
+    /// impl so a missing implementation fails at compile time rather than
+    /// silently returning `Ok(0)` (see architectural finding #8).
+    async fn delete_expired_emit_event_dedupe(
+        &self,
+        older_than: chrono::DateTime<chrono::Utc>,
+        limit: u32,
+    ) -> Result<u64, StorageError>;
+
+    // The following methods are needed by the default impls above.
+    // They are defined in ResourceStore but must be available here for the
+    // default externalization logic. We use a helper method that sub-trait
+    // impls provide.
+
+    /// Save multiple externalized state entries. Required for default
+    /// `create_instance_externalized` / `update_instance_context_externalized`.
+    /// Implementors that also implement `ResourceStore` should delegate to
+    /// the same underlying implementation.
+    async fn batch_save_externalized_state(
+        &self,
+        instance_id: InstanceId,
+        entries: &[(String, serde_json::Value)],
+    ) -> Result<(), StorageError>;
+}
+
+// ============================================================================
+// Sub-trait 3: ExecutionTreeStore
+// ============================================================================
+
+#[async_trait]
+pub trait ExecutionTreeStore: Send + Sync + 'static {
     async fn create_execution_node(&self, node: &ExecutionNode) -> Result<(), StorageError>;
 
     async fn create_execution_nodes_batch(
@@ -395,9 +592,15 @@ pub trait StorageBackend: Send + Sync + 'static {
     /// Delete all execution tree nodes for an instance (used by retry to
     /// force the evaluator to rebuild the tree from scratch).
     async fn delete_execution_tree(&self, instance_id: InstanceId) -> Result<(), StorageError>;
+}
 
-    // === Block Outputs ===
+// ============================================================================
+// Sub-trait 4: OutputStore
+// ============================================================================
 
+#[allow(clippy::too_many_arguments)]
+#[async_trait]
+pub trait OutputStore: Send + Sync + 'static {
     async fn save_block_output(&self, output: &BlockOutput) -> Result<(), StorageError>;
 
     async fn get_block_output(
@@ -431,7 +634,7 @@ pub trait StorageBackend: Send + Sync + 'static {
     ) -> Result<Vec<BlockOutput>, StorageError>;
 
     /// Return just the block IDs that have outputs for this instance.
-    /// Lighter than `get_all_outputs` — avoids deserializing full output JSON.
+    /// Lighter than `get_all_outputs` -- avoids deserializing full output JSON.
     async fn get_completed_block_ids(
         &self,
         instance_id: InstanceId,
@@ -457,15 +660,15 @@ pub trait StorageBackend: Send + Sync + 'static {
     /// in a single transaction.
     ///
     /// Closes the crash-safety gap in external-worker completion where the
-    /// previous sequence (`update_instance_context` → `save_output_and_transition`)
+    /// previous sequence (`update_instance_context` -> `save_output_and_transition`)
     /// could leave an instance with merged context but no state transition
-    /// if the server crashed between the two calls, or — in the reversed
-    /// ordering — could let the scheduler advance on stale context.
+    /// if the server crashed between the two calls, or -- in the reversed
+    /// ordering -- could let the scheduler advance on stale context.
     ///
-    /// Every backend MUST implement this — no default impl so a missing
+    /// Every backend MUST implement this -- no default impl so a missing
     /// implementation fails at compile time rather than silently falling
     /// back to the non-atomic path (same convention as
-    /// [`Self::enqueue_signal_if_active`]).
+    /// [`SignalStore::enqueue_signal_if_active`]).
     async fn save_output_merge_context_and_transition(
         &self,
         output: &BlockOutput,
@@ -521,21 +724,21 @@ pub trait StorageBackend: Send + Sync + 'static {
     /// (`Loop`, `ForEach`) persist their iteration counter as a `BlockOutput`
     /// marker keyed by their own `block_id`. When an outer iteration boundary
     /// resets a descendant subtree back to `Pending`, the descendant's
-    /// previous-iteration marker must be purged too — otherwise the
+    /// previous-iteration marker must be purged too -- otherwise the
     /// next-tick `get_block_output` would return the stale counter and the
     /// top-of-handler cap guard would immediately complete the descendant
     /// without ever running its body.
     ///
     /// Step outputs are intentionally keyed by the step's own `block_id`,
     /// so they are NOT affected when a sibling composite's marker is
-    /// purged — callers should only invoke this method against composite
+    /// purged -- callers should only invoke this method against composite
     /// markers whose semantics are "internal iteration state".
     ///
-    /// Every backend MUST implement this — there is deliberately no default
+    /// Every backend MUST implement this -- there is deliberately no default
     /// impl so a missing implementation fails at compile time rather than
     /// silently no-oping (same convention as
-    /// [`Self::enqueue_signal_if_active`] and
-    /// [`Self::record_or_get_emit_dedupe`]).
+    /// [`SignalStore::enqueue_signal_if_active`] and
+    /// [`InstanceStore::record_or_get_emit_dedupe`]).
     async fn delete_block_outputs(
         &self,
         instance_id: InstanceId,
@@ -573,21 +776,14 @@ pub trait StorageBackend: Send + Sync + 'static {
     /// the real output is persisted the sentinel must be removed so output
     /// counts stay correct.
     async fn delete_block_output_by_id(&self, id: Uuid) -> Result<(), StorageError>;
+}
 
-    // === Rate Limits ===
+// ============================================================================
+// Sub-trait 5: SignalStore
+// ============================================================================
 
-    /// Atomic check-and-increment. Single DB round-trip.
-    async fn check_rate_limit(
-        &self,
-        tenant_id: &TenantId,
-        resource_key: &ResourceKey,
-        now: DateTime<Utc>,
-    ) -> Result<RateLimitCheck, StorageError>;
-
-    async fn upsert_rate_limit(&self, limit: &RateLimit) -> Result<(), StorageError>;
-
-    // === Signals ===
-
+#[async_trait]
+pub trait SignalStore: Send + Sync + 'static {
     async fn enqueue_signal(&self, signal: &Signal) -> Result<(), StorageError>;
 
     /// Atomically enqueue a signal, but only if the target instance exists and
@@ -601,18 +797,18 @@ pub trait StorageBackend: Send + Sync + 'static {
     /// Errors:
     /// - [`StorageError::NotFound`] if the target instance does not exist.
     /// - [`StorageError::TerminalTarget`] if the target is in a terminal state
-    ///   (Completed / Failed / Cancelled). This is a dedicated variant —
+    ///   (Completed / Failed / Cancelled). This is a dedicated variant --
     ///   distinct from [`StorageError::Conflict`], which is reserved for
-    ///   idempotency-key duplicates and constraint violations — so the handler
+    ///   idempotency-key duplicates and constraint violations -- so the handler
     ///   layer can map it to a `Permanent` "cannot send signal to terminal
     ///   instance" without overloading the generic conflict path.
     /// - [`StorageError::Query`] if the target's persisted state column holds
     ///   an unknown value. The backend MUST NOT silently coerce unknown states
-    ///   to `Scheduled` (or any non-terminal) — a corrupted row should surface
+    ///   to `Scheduled` (or any non-terminal) -- a corrupted row should surface
     ///   as a hard error so operators notice.
     /// - Standard sqlx mappings for connection / serialization issues.
     ///
-    /// Every backend MUST implement this — no default impl so a missing
+    /// Every backend MUST implement this -- no default impl so a missing
     /// implementation fails at compile time instead of silently falling back
     /// to the non-atomic [`Self::enqueue_signal`] path (same rule as the R4
     /// dedupe methods).
@@ -644,92 +840,15 @@ pub trait StorageBackend: Send + Sync + 'static {
         &self,
         limit: u32,
     ) -> Result<Vec<(InstanceId, InstanceState)>, StorageError>;
+}
 
-    // === Idempotency ===
+// ============================================================================
+// Sub-trait 6: WorkerStore
+// ============================================================================
 
-    /// Find an instance by tenant + idempotency key.
-    async fn find_by_idempotency_key(
-        &self,
-        tenant_id: &TenantId,
-        idempotency_key: &str,
-    ) -> Result<Option<TaskInstance>, StorageError>;
-
-    // === Concurrency ===
-
-    /// Count running instances with the given concurrency key.
-    ///
-    /// Default delegates to [] with a single key.
-    async fn count_running_by_concurrency_key(
-        &self,
-        concurrency_key: &str,
-    ) -> Result<i64, StorageError> {
-        let mut map = self
-            .count_running_by_concurrency_keys(&[concurrency_key.to_owned()])
-            .await?;
-        Ok(map.remove(concurrency_key).unwrap_or(0))
-    }
-
-    /// Batch count running instances for multiple concurrency keys.
-    /// Returns a map from key to count.
-    async fn count_running_by_concurrency_keys(
-        &self,
-        concurrency_keys: &[String],
-    ) -> Result<HashMap<String, i64>, StorageError>;
-
-    /// Returns the 1-based position of an instance among running instances
-    /// with the same concurrency key, ordered by ID.
-    /// Used to deterministically pick which instances proceed vs. defer.
-    async fn concurrency_position(
-        &self,
-        instance_id: InstanceId,
-        concurrency_key: &str,
-    ) -> Result<i64, StorageError>;
-
-    // === Recovery ===
-
-    /// Find all instances that were `Running` when the engine crashed
-    /// and reset them to `Scheduled` for re-execution.
-    async fn recover_stale_instances(&self, stale_threshold: Duration)
-        -> Result<u64, StorageError>;
-
-    // === Cron Schedules ===
-
-    async fn create_cron_schedule(&self, schedule: &CronSchedule) -> Result<(), StorageError>;
-
-    async fn get_cron_schedule(&self, id: Uuid) -> Result<Option<CronSchedule>, StorageError>;
-
-    async fn list_cron_schedules(
-        &self,
-        tenant_id: Option<&TenantId>,
-        limit: u32,
-    ) -> Result<Vec<CronSchedule>, StorageError>;
-
-    async fn update_cron_schedule(&self, schedule: &CronSchedule) -> Result<(), StorageError>;
-
-    async fn delete_cron_schedule(&self, id: Uuid) -> Result<(), StorageError>;
-
-    /// Atomically claim enabled cron schedules whose `next_fire_at <= now`.
-    ///
-    /// **Missed-fire policy: skip.** If the scheduler was down and multiple
-    /// fire windows were missed, only a single trigger fires — the most
-    /// recent due window. The `next_fire_at` is then advanced past `now` so
-    /// no backfill of missed windows occurs. This prevents burst-spawning
-    /// hundreds of instances after a prolonged outage.
-    async fn claim_due_cron_schedules(
-        &self,
-        now: DateTime<Utc>,
-    ) -> Result<Vec<CronSchedule>, StorageError>;
-
-    /// After triggering, update `last_triggered_at` and `next_fire_at`.
-    async fn update_cron_fire_times(
-        &self,
-        id: Uuid,
-        last_triggered_at: DateTime<Utc>,
-        next_fire_at: DateTime<Utc>,
-    ) -> Result<(), StorageError>;
-
-    // === Worker Tasks ===
-
+#[allow(clippy::too_many_arguments)]
+#[async_trait]
+pub trait WorkerStore: Send + Sync + 'static {
     async fn create_worker_task(&self, task: &WorkerTask) -> Result<(), StorageError>;
 
     async fn get_worker_task(&self, task_id: Uuid) -> Result<Option<WorkerTask>, StorageError>;
@@ -749,7 +868,7 @@ pub trait StorageBackend: Send + Sync + 'static {
     /// The tenant predicate must live INSIDE the claim's lock window.
     /// Filtering after a tenant-agnostic claim (what the HTTP handler used
     /// to do post-hoc) would mark a foreign tenant's row as claimed with
-    /// this `worker_id` and then drop it from the response — the row then
+    /// this `worker_id` and then drop it from the response -- the row then
     /// stays `claimed` with no active worker, heartbeat-reapable but
     /// invisible to everyone until reap. This entry point binds the two
     /// guarantees together so a tenant-scoped poll can never touch another
@@ -791,7 +910,7 @@ pub trait StorageBackend: Send + Sync + 'static {
 
     /// Atomically replace a failed worker task with a retry: delete the old
     /// task, insert the new one, reset the execution node to Pending, and
-    /// reschedule the instance — all in a single transaction.
+    /// reschedule the instance -- all in a single transaction.
     ///
     /// Default impl is non-atomic (sequential calls); production backends
     /// should override with a real transaction.
@@ -802,17 +921,7 @@ pub trait StorageBackend: Send + Sync + 'static {
         node_id: Option<orch8_types::ids::ExecutionNodeId>,
         instance_id: InstanceId,
         fire_at: DateTime<Utc>,
-    ) -> Result<(), StorageError> {
-        self.delete_worker_task(old_task_id).await?;
-        self.create_worker_task(new_task).await?;
-        if let Some(nid) = node_id {
-            self.update_node_state(nid, orch8_types::execution::NodeState::Pending)
-                .await?;
-        }
-        self.update_instance_state(instance_id, InstanceState::Scheduled, Some(fire_at))
-            .await?;
-        Ok(())
-    }
+    ) -> Result<(), StorageError>;
 
     /// Reset stale claimed tasks (no heartbeat within threshold) back to pending.
     async fn reap_stale_worker_tasks(&self, stale_threshold: Duration)
@@ -833,7 +942,7 @@ pub trait StorageBackend: Send + Sync + 'static {
     /// round-trip for an arbitrary set of block IDs under one instance.
     ///
     /// Used at loop iteration boundaries to purge stale `worker_tasks` rows
-    /// across every descendant block — without this the
+    /// across every descendant block -- without this the
     /// `UNIQUE(instance_id, block_id)` constraint would swallow the next
     /// iteration's dispatch via `ON CONFLICT DO NOTHING`.
     async fn cancel_worker_tasks_for_blocks(
@@ -855,6 +964,547 @@ pub trait StorageBackend: Send + Sync + 'static {
         &self,
         tenant_id: Option<&orch8_types::ids::TenantId>,
     ) -> Result<orch8_types::worker_filter::WorkerTaskStats, StorageError>;
+
+    // === Task Queue Routing ===
+
+    /// Claim worker tasks from a specific named queue.
+    async fn claim_worker_tasks_from_queue(
+        &self,
+        queue_name: &str,
+        handler_name: &str,
+        worker_id: &str,
+        limit: u32,
+    ) -> Result<Vec<WorkerTask>, StorageError>;
+
+    /// Tenant-scoped variant of `claim_worker_tasks_from_queue`. See
+    /// `claim_worker_tasks_for_tenant` for why this lives at the storage
+    /// layer instead of being filtered post-claim in the HTTP handler.
+    async fn claim_worker_tasks_from_queue_for_tenant(
+        &self,
+        queue_name: &str,
+        handler_name: &str,
+        worker_id: &str,
+        tenant_id: &TenantId,
+        limit: u32,
+    ) -> Result<Vec<WorkerTask>, StorageError>;
+}
+
+// ============================================================================
+// Sub-trait 7: SchedulingStore
+// ============================================================================
+
+#[async_trait]
+pub trait SchedulingStore: Send + Sync + 'static {
+    // === Cron Schedules ===
+
+    async fn create_cron_schedule(&self, schedule: &CronSchedule) -> Result<(), StorageError>;
+
+    async fn get_cron_schedule(&self, id: Uuid) -> Result<Option<CronSchedule>, StorageError>;
+
+    async fn list_cron_schedules(
+        &self,
+        tenant_id: Option<&TenantId>,
+        limit: u32,
+    ) -> Result<Vec<CronSchedule>, StorageError>;
+
+    async fn update_cron_schedule(&self, schedule: &CronSchedule) -> Result<(), StorageError>;
+
+    async fn delete_cron_schedule(&self, id: Uuid) -> Result<(), StorageError>;
+
+    /// Atomically claim enabled cron schedules whose `next_fire_at <= now`.
+    ///
+    /// **Missed-fire policy: skip.** If the scheduler was down and multiple
+    /// fire windows were missed, only a single trigger fires -- the most
+    /// recent due window. The `next_fire_at` is then advanced past `now` so
+    /// no backfill of missed windows occurs. This prevents burst-spawning
+    /// hundreds of instances after a prolonged outage.
+    async fn claim_due_cron_schedules(
+        &self,
+        now: DateTime<Utc>,
+    ) -> Result<Vec<CronSchedule>, StorageError>;
+
+    /// After triggering, update `last_triggered_at` and `next_fire_at`.
+    async fn update_cron_fire_times(
+        &self,
+        id: Uuid,
+        last_triggered_at: DateTime<Utc>,
+        next_fire_at: DateTime<Utc>,
+    ) -> Result<(), StorageError>;
+
+    // === Rate Limits ===
+
+    /// Atomic check-and-increment. Single DB round-trip.
+    async fn check_rate_limit(
+        &self,
+        tenant_id: &TenantId,
+        resource_key: &ResourceKey,
+        now: DateTime<Utc>,
+    ) -> Result<RateLimitCheck, StorageError>;
+
+    async fn upsert_rate_limit(&self, limit: &RateLimit) -> Result<(), StorageError>;
+}
+
+// ============================================================================
+// Sub-trait 8: AdminStore
+// ============================================================================
+
+#[allow(clippy::too_many_arguments)]
+#[async_trait]
+pub trait AdminStore: Send + Sync + 'static {
+    // === Sessions ===
+
+    async fn create_session(&self, session: &Session) -> Result<(), StorageError>;
+
+    async fn get_session(&self, id: Uuid) -> Result<Option<Session>, StorageError>;
+
+    async fn get_session_by_key(
+        &self,
+        tenant_id: &TenantId,
+        session_key: &str,
+    ) -> Result<Option<Session>, StorageError>;
+
+    async fn update_session_data(
+        &self,
+        id: Uuid,
+        data: &serde_json::Value,
+    ) -> Result<(), StorageError>;
+
+    async fn update_session_state(
+        &self,
+        id: Uuid,
+        state: orch8_types::session::SessionState,
+    ) -> Result<(), StorageError>;
+
+    /// Get all instances belonging to a session.
+    async fn list_session_instances(
+        &self,
+        session_id: Uuid,
+    ) -> Result<Vec<TaskInstance>, StorageError>;
+
+    // === Plugins ===
+
+    async fn create_plugin(&self, plugin: &PluginDef) -> Result<(), StorageError>;
+
+    async fn get_plugin(&self, name: &str) -> Result<Option<PluginDef>, StorageError>;
+
+    async fn list_plugins(
+        &self,
+        tenant_id: Option<&TenantId>,
+    ) -> Result<Vec<PluginDef>, StorageError>;
+
+    async fn update_plugin(&self, plugin: &PluginDef) -> Result<(), StorageError>;
+
+    async fn delete_plugin(&self, name: &str) -> Result<(), StorageError>;
+
+    // === Triggers ===
+
+    async fn create_trigger(&self, trigger: &TriggerDef) -> Result<(), StorageError>;
+
+    async fn get_trigger(&self, slug: &str) -> Result<Option<TriggerDef>, StorageError>;
+
+    async fn list_triggers(
+        &self,
+        tenant_id: Option<&TenantId>,
+        limit: u32,
+    ) -> Result<Vec<TriggerDef>, StorageError>;
+
+    async fn update_trigger(&self, trigger: &TriggerDef) -> Result<(), StorageError>;
+
+    async fn delete_trigger(&self, slug: &str) -> Result<(), StorageError>;
+
+    // === Credentials ===
+
+    async fn create_credential(
+        &self,
+        credential: &orch8_types::credential::CredentialDef,
+    ) -> Result<(), StorageError>;
+
+    async fn get_credential(
+        &self,
+        id: &str,
+    ) -> Result<Option<orch8_types::credential::CredentialDef>, StorageError>;
+
+    async fn list_credentials(
+        &self,
+        tenant_id: Option<&TenantId>,
+        limit: u32,
+    ) -> Result<Vec<orch8_types::credential::CredentialDef>, StorageError>;
+
+    async fn update_credential(
+        &self,
+        credential: &orch8_types::credential::CredentialDef,
+    ) -> Result<(), StorageError>;
+
+    async fn delete_credential(&self, id: &str) -> Result<(), StorageError>;
+
+    /// List `OAuth2` credentials whose `expires_at` is within `threshold` of now
+    /// (and that have a `refresh_url` + `refresh_token` configured). Used by
+    /// the refresh loop -- returns an empty vec if no credentials are due.
+    async fn list_credentials_due_for_refresh(
+        &self,
+        threshold: std::time::Duration,
+    ) -> Result<Vec<orch8_types::credential::CredentialDef>, StorageError>;
+
+    // === Cluster ===
+
+    /// Register a new cluster node.
+    async fn register_node(
+        &self,
+        node: &orch8_types::cluster::ClusterNode,
+    ) -> Result<(), StorageError>;
+
+    /// Update heartbeat timestamp for a node.
+    async fn heartbeat_node(&self, node_id: Uuid) -> Result<(), StorageError>;
+
+    /// Set the drain flag on a node, triggering coordinated shutdown.
+    async fn drain_node(&self, node_id: Uuid) -> Result<(), StorageError>;
+
+    /// Mark a node as stopped.
+    async fn deregister_node(&self, node_id: Uuid) -> Result<(), StorageError>;
+
+    /// List all nodes (for admin dashboard / health check).
+    async fn list_nodes(&self) -> Result<Vec<orch8_types::cluster::ClusterNode>, StorageError>;
+
+    /// Check if this node should drain (returns true if `drain = true` in DB).
+    async fn should_drain(&self, node_id: Uuid) -> Result<bool, StorageError>;
+
+    /// Remove stale nodes that haven't heartbeated within the threshold.
+    async fn reap_stale_nodes(
+        &self,
+        stale_threshold: std::time::Duration,
+    ) -> Result<u64, StorageError>;
+
+    // === Circuit Breakers ===
+    //
+    // Only `Open` rows are persisted -- this is a correctness backstop so that
+    // a crash mid-cooldown does not reset every tripped breaker. Default
+    // impls are no-ops so decorator backends (encrypting, externalizing) and
+    // future backends can opt in without forcing every crate to edit.
+
+    /// Upsert an `Open` circuit breaker row. Keyed by `(tenant_id, handler)`.
+    async fn upsert_circuit_breaker(
+        &self,
+        _state: &CircuitBreakerState,
+    ) -> Result<(), StorageError> {
+        Ok(())
+    }
+
+    /// Return every persisted `Open` row across all tenants. Used at boot to
+    /// rehydrate the in-memory registry.
+    async fn list_open_circuit_breakers(&self) -> Result<Vec<CircuitBreakerState>, StorageError> {
+        Ok(Vec::new())
+    }
+
+    /// Delete any persisted circuit breaker row for `(tenant_id, handler)`.
+    /// No-op if no row exists.
+    async fn delete_circuit_breaker(
+        &self,
+        _tenant_id: &TenantId,
+        _handler: &str,
+    ) -> Result<(), StorageError> {
+        Ok(())
+    }
+
+    // === Audit Log ===
+
+    /// Append an audit log entry.
+    async fn append_audit_log(&self, entry: &AuditLogEntry) -> Result<(), StorageError>;
+
+    /// List audit log entries for an instance.
+    async fn list_audit_log(
+        &self,
+        instance_id: InstanceId,
+        limit: u32,
+    ) -> Result<Vec<AuditLogEntry>, StorageError>;
+
+    /// List audit log entries for a tenant.
+    async fn list_audit_log_by_tenant(
+        &self,
+        tenant_id: &TenantId,
+        limit: u32,
+    ) -> Result<Vec<AuditLogEntry>, StorageError>;
+
+    // === Rollback policies ===
+
+    async fn create_rollback_policy(
+        &self,
+        _tenant_id: &str,
+        _sequence_name: &str,
+        _error_rate_threshold: f64,
+        _time_window_secs: i32,
+        _cooldown_secs: Option<i32>,
+        _confirmation_window_secs: Option<i32>,
+        _webhook_url: Option<&str>,
+    ) -> Result<(), StorageError> {
+        Ok(())
+    }
+
+    async fn get_rollback_policy(
+        &self,
+        _tenant_id: &str,
+        _sequence_name: &str,
+    ) -> Result<Option<orch8_types::rollback::RollbackPolicy>, StorageError> {
+        Ok(None)
+    }
+
+    async fn list_rollback_policies(
+        &self,
+        _tenant_id: Option<&str>,
+        _limit: u32,
+    ) -> Result<Vec<orch8_types::rollback::RollbackPolicy>, StorageError> {
+        Ok(Vec::new())
+    }
+
+    async fn delete_rollback_policy(
+        &self,
+        _tenant_id: &str,
+        _sequence_name: &str,
+    ) -> Result<(), StorageError> {
+        Ok(())
+    }
+
+    async fn record_rollback(
+        &self,
+        _tenant_id: &str,
+        _sequence_name: &str,
+        _error_rate: f64,
+        _threshold: f64,
+        _reason: &str,
+    ) -> Result<(), StorageError> {
+        Ok(())
+    }
+
+    async fn query_error_rate(
+        &self,
+        _tenant_id: &str,
+        _sequence_name: &str,
+        _window_secs: i64,
+    ) -> Result<Option<f64>, StorageError> {
+        Ok(None)
+    }
+
+    async fn list_rollback_history(
+        &self,
+        _tenant_id: Option<&str>,
+        _sequence_name: Option<&str>,
+        _limit: u32,
+    ) -> Result<Vec<orch8_types::rollback::RollbackHistory>, StorageError> {
+        Ok(Vec::new())
+    }
+
+    // === Health ===
+
+    async fn ping(&self) -> Result<(), StorageError>;
+}
+
+// ============================================================================
+// Sub-trait 9: TelemetryStore
+// ============================================================================
+
+#[allow(clippy::too_many_arguments)]
+#[async_trait]
+pub trait TelemetryStore: Send + Sync + 'static {
+    // Default no-ops so decorator backends don't break.
+
+    async fn ingest_telemetry_event(
+        &self,
+        _event_type: &str,
+        _payload: &str,
+        _device_id: &str,
+        _os_name: &str,
+        _os_version: &str,
+        _app_version: &str,
+        _sdk_version: &str,
+        _tenant_id: &str,
+        _created_at: DateTime<Utc>,
+    ) -> Result<(), StorageError> {
+        Ok(())
+    }
+
+    /// Batch-insert telemetry events in a single round-trip.
+    ///
+    /// Default: falls back to one-by-one insertion.
+    async fn ingest_telemetry_events_batch(
+        &self,
+        events: &[TelemetryEvent],
+    ) -> Result<u64, StorageError> {
+        let mut count = 0u64;
+        for e in events {
+            self.ingest_telemetry_event(
+                &e.event_type,
+                &e.payload,
+                &e.device_id,
+                &e.os_name,
+                &e.os_version,
+                &e.app_version,
+                &e.sdk_version,
+                &e.tenant_id,
+                e.created_at,
+            )
+            .await?;
+            count += 1;
+        }
+        Ok(count)
+    }
+
+    async fn ingest_telemetry_error(
+        &self,
+        _error_type: &str,
+        _message: &str,
+        _stack_trace: Option<&str>,
+        _device_id: &str,
+        _os_name: &str,
+        _os_version: &str,
+        _app_version: &str,
+        _sdk_version: &str,
+        _tenant_id: &str,
+        _instance_id: Option<&str>,
+        _sequence_name: Option<&str>,
+    ) -> Result<(), StorageError> {
+        Ok(())
+    }
+
+    async fn query_telemetry_dashboard(
+        &self,
+        _query_type: &str,
+        _tenant_id: &str,
+        _start: DateTime<Utc>,
+        _end: DateTime<Utc>,
+    ) -> Result<Vec<(String, i64)>, StorageError> {
+        Ok(Vec::new())
+    }
+
+    async fn delete_old_telemetry_events(
+        &self,
+        _older_than: DateTime<Utc>,
+        _limit: u32,
+    ) -> Result<u64, StorageError> {
+        Ok(0)
+    }
+}
+
+// ============================================================================
+// Sub-trait 10: ResourceStore
+// ============================================================================
+
+#[async_trait]
+pub trait ResourceStore: Send + Sync + 'static {
+    // === Instance KV State ===
+    //
+    // Per-instance key-value store for workflow state that persists across
+    // ticks. Used by `set_state` / `get_state` / `delete_state` built-in
+    // handlers and the `state.*` template root variable.
+
+    async fn set_instance_kv(
+        &self,
+        _instance_id: InstanceId,
+        _key: &str,
+        _value: &serde_json::Value,
+    ) -> Result<(), StorageError> {
+        Ok(())
+    }
+
+    async fn get_instance_kv(
+        &self,
+        _instance_id: InstanceId,
+        _key: &str,
+    ) -> Result<Option<serde_json::Value>, StorageError> {
+        Ok(None)
+    }
+
+    async fn get_all_instance_kv(
+        &self,
+        _instance_id: InstanceId,
+    ) -> Result<HashMap<String, serde_json::Value>, StorageError> {
+        Ok(HashMap::new())
+    }
+
+    async fn delete_instance_kv(
+        &self,
+        _instance_id: InstanceId,
+        _key: &str,
+    ) -> Result<(), StorageError> {
+        Ok(())
+    }
+
+    // === Externalized State ===
+
+    /// Store a large payload externally, returning the `ref_key`.
+    async fn save_externalized_state(
+        &self,
+        instance_id: InstanceId,
+        ref_key: &str,
+        payload: &serde_json::Value,
+    ) -> Result<(), StorageError>;
+
+    /// Persist multiple externalized payloads atomically in one call.
+    ///
+    /// The write-path counterpart of [`Self::batch_get_externalized_state`].
+    /// Used when externalizing multiple context fields in the same scheduler
+    /// tick so that a partial failure can't leave the `task_instances.context`
+    /// markers pointing at ref-keys that don't exist.
+    ///
+    /// The default impl is a **non-atomic** sequential loop so test/memory
+    /// backends compile -- production callers must use a backend that
+    /// overrides this with a real transaction (Postgres/SQLite below).
+    async fn batch_save_externalized_state(
+        &self,
+        instance_id: InstanceId,
+        entries: &[(String, serde_json::Value)],
+    ) -> Result<(), StorageError> {
+        for (ref_key, payload) in entries {
+            self.save_externalized_state(instance_id, ref_key, payload)
+                .await?;
+        }
+        Ok(())
+    }
+
+    /// Retrieve an externalized payload by `ref_key`.
+    async fn get_externalized_state(
+        &self,
+        ref_key: &str,
+    ) -> Result<Option<serde_json::Value>, StorageError>;
+
+    /// Retrieve multiple externalized payloads in one round-trip.
+    ///
+    /// Returns a map keyed by `ref_key`; absent entries mean the key did not
+    /// exist in `externalized_state` (missing keys are **not** errors -- the
+    /// scheduler's preload path treats them as "nothing to hydrate").
+    ///
+    /// The default impl just loops over [`Self::get_externalized_state`] so
+    /// less-hot backends (memory/test) compile without extra work. Production
+    /// backends should override with a single batched query (e.g. `ANY($1)` on
+    /// Postgres, `IN (?,?,...)` on `SQLite`) to amortize round-trip cost.
+    async fn batch_get_externalized_state(
+        &self,
+        ref_keys: &[String],
+    ) -> Result<HashMap<String, serde_json::Value>, StorageError> {
+        let mut out = HashMap::with_capacity(ref_keys.len());
+        for key in ref_keys {
+            if let Some(v) = self.get_externalized_state(key).await? {
+                out.insert(key.clone(), v);
+            }
+        }
+        Ok(out)
+    }
+
+    /// Delete externalized state by `ref_key`.
+    async fn delete_externalized_state(&self, ref_key: &str) -> Result<(), StorageError>;
+
+    /// Delete up to `limit` `externalized_state` rows whose `expires_at` has
+    /// elapsed. Returns the number of rows actually deleted.
+    ///
+    /// This is the GC sweeper's storage primitive (M4). Limiting per-sweep
+    /// deletion prevents a single long transaction from blocking writers on a
+    /// backlog of stale rows. The sweeper calls this on a fixed interval and
+    /// logs the deletion count.
+    ///
+    /// Rows with `expires_at IS NULL` never expire and are never touched.
+    /// The default impl returns `Ok(0)` so test/memory backends remain
+    /// compilable without an implementation.
+    async fn delete_expired_externalized_state(&self, _limit: u32) -> Result<u64, StorageError> {
+        Ok(0)
+    }
 
     // === Resource Pools ===
 
@@ -933,572 +1583,53 @@ pub trait StorageBackend: Send + Sync + 'static {
         instance_id: InstanceId,
         keep: u32,
     ) -> Result<u64, StorageError>;
-
-    // === Externalized State ===
-
-    /// Store a large payload externally, returning the `ref_key`.
-    async fn save_externalized_state(
-        &self,
-        instance_id: InstanceId,
-        ref_key: &str,
-        payload: &serde_json::Value,
-    ) -> Result<(), StorageError>;
-
-    /// Persist multiple externalized payloads atomically in one call.
-    ///
-    /// The write-path counterpart of [`Self::batch_get_externalized_state`].
-    /// Used when externalizing multiple context fields in the same scheduler
-    /// tick so that a partial failure can't leave the `task_instances.context`
-    /// markers pointing at ref-keys that don't exist.
-    ///
-    /// The default impl is a **non-atomic** sequential loop so test/memory
-    /// backends compile — production callers must use a backend that
-    /// overrides this with a real transaction (Postgres/SQLite below).
-    async fn batch_save_externalized_state(
-        &self,
-        instance_id: InstanceId,
-        entries: &[(String, serde_json::Value)],
-    ) -> Result<(), StorageError> {
-        for (ref_key, payload) in entries {
-            self.save_externalized_state(instance_id, ref_key, payload)
-                .await?;
-        }
-        Ok(())
-    }
-
-    /// Retrieve an externalized payload by `ref_key`.
-    async fn get_externalized_state(
-        &self,
-        ref_key: &str,
-    ) -> Result<Option<serde_json::Value>, StorageError>;
-
-    /// Retrieve multiple externalized payloads in one round-trip.
-    ///
-    /// Returns a map keyed by `ref_key`; absent entries mean the key did not
-    /// exist in `externalized_state` (missing keys are **not** errors — the
-    /// scheduler's preload path treats them as "nothing to hydrate").
-    ///
-    /// The default impl just loops over [`Self::get_externalized_state`] so
-    /// less-hot backends (memory/test) compile without extra work. Production
-    /// backends should override with a single batched query (e.g. `ANY($1)` on
-    /// Postgres, `IN (?,?,...)` on `SQLite`) to amortize round-trip cost.
-    async fn batch_get_externalized_state(
-        &self,
-        ref_keys: &[String],
-    ) -> Result<HashMap<String, serde_json::Value>, StorageError> {
-        let mut out = HashMap::with_capacity(ref_keys.len());
-        for key in ref_keys {
-            if let Some(v) = self.get_externalized_state(key).await? {
-                out.insert(key.clone(), v);
-            }
-        }
-        Ok(out)
-    }
-
-    /// Delete externalized state by `ref_key`.
-    async fn delete_externalized_state(&self, ref_key: &str) -> Result<(), StorageError>;
-
-    /// Delete up to `limit` `externalized_state` rows whose `expires_at` has
-    /// elapsed. Returns the number of rows actually deleted.
-    ///
-    /// This is the GC sweeper's storage primitive (M4). Limiting per-sweep
-    /// deletion prevents a single long transaction from blocking writers on a
-    /// backlog of stale rows. The sweeper calls this on a fixed interval and
-    /// logs the deletion count.
-    ///
-    /// Rows with `expires_at IS NULL` never expire and are never touched.
-    /// The default impl returns `Ok(0)` so test/memory backends remain
-    /// compilable without an implementation.
-    async fn delete_expired_externalized_state(&self, _limit: u32) -> Result<u64, StorageError> {
-        Ok(0)
-    }
-
-    // === Audit Log ===
-
-    /// Append an audit log entry.
-    async fn append_audit_log(&self, entry: &AuditLogEntry) -> Result<(), StorageError>;
-
-    /// List audit log entries for an instance.
-    async fn list_audit_log(
-        &self,
-        instance_id: InstanceId,
-        limit: u32,
-    ) -> Result<Vec<AuditLogEntry>, StorageError>;
-
-    /// List audit log entries for a tenant.
-    async fn list_audit_log_by_tenant(
-        &self,
-        tenant_id: &TenantId,
-        limit: u32,
-    ) -> Result<Vec<AuditLogEntry>, StorageError>;
-
-    // === Sessions ===
-
-    async fn create_session(&self, session: &Session) -> Result<(), StorageError>;
-
-    async fn get_session(&self, id: Uuid) -> Result<Option<Session>, StorageError>;
-
-    async fn get_session_by_key(
-        &self,
-        tenant_id: &TenantId,
-        session_key: &str,
-    ) -> Result<Option<Session>, StorageError>;
-
-    async fn update_session_data(
-        &self,
-        id: Uuid,
-        data: &serde_json::Value,
-    ) -> Result<(), StorageError>;
-
-    async fn update_session_state(
-        &self,
-        id: Uuid,
-        state: orch8_types::session::SessionState,
-    ) -> Result<(), StorageError>;
-
-    /// Get all instances belonging to a session.
-    async fn list_session_instances(
-        &self,
-        session_id: Uuid,
-    ) -> Result<Vec<TaskInstance>, StorageError>;
-
-    // === Sub-Sequences ===
-
-    /// Get child instances of a parent.
-    async fn get_child_instances(
-        &self,
-        parent_instance_id: InstanceId,
-    ) -> Result<Vec<TaskInstance>, StorageError>;
-
-    // === Task Queue Routing ===
-
-    /// Claim worker tasks from a specific named queue.
-    async fn claim_worker_tasks_from_queue(
-        &self,
-        queue_name: &str,
-        handler_name: &str,
-        worker_id: &str,
-        limit: u32,
-    ) -> Result<Vec<WorkerTask>, StorageError>;
-
-    /// Tenant-scoped variant of `claim_worker_tasks_from_queue`. See
-    /// `claim_worker_tasks_for_tenant` for why this lives at the storage
-    /// layer instead of being filtered post-claim in the HTTP handler.
-    async fn claim_worker_tasks_from_queue_for_tenant(
-        &self,
-        queue_name: &str,
-        handler_name: &str,
-        worker_id: &str,
-        tenant_id: &TenantId,
-        limit: u32,
-    ) -> Result<Vec<WorkerTask>, StorageError>;
-
-    // === Dynamic Step Injection ===
-
-    /// Append blocks to a running instance's sequence (stored as instance-level overrides).
-    async fn inject_blocks(
-        &self,
-        instance_id: InstanceId,
-        blocks_json: &serde_json::Value,
-    ) -> Result<(), StorageError>;
-
-    /// Atomically merge new blocks into an instance's existing injected-blocks
-    /// array at the given position, inside a single transaction.
-    ///
-    /// If `position` is `None`, `new_blocks_json` replaces any prior value
-    /// (equivalent to `inject_blocks`). If `position` is `Some(pos)`, the
-    /// current injected blocks are read, `new_blocks_json`'s entries are
-    /// inserted at `pos` (clamped to the current length), and the resulting
-    /// array is written back — all within one transaction so two concurrent
-    /// calls cannot lose each other's writes.
-    ///
-    /// Returns the final injected-blocks array actually persisted.
-    async fn inject_blocks_at_position(
-        &self,
-        instance_id: InstanceId,
-        new_blocks_json: &serde_json::Value,
-        position: Option<usize>,
-    ) -> Result<serde_json::Value, StorageError>;
-
-    /// Get injected blocks for an instance.
-    async fn get_injected_blocks(
-        &self,
-        instance_id: InstanceId,
-    ) -> Result<Option<serde_json::Value>, StorageError>;
-
-    // === Cluster ===
-
-    /// Register a new cluster node.
-    async fn register_node(
-        &self,
-        node: &orch8_types::cluster::ClusterNode,
-    ) -> Result<(), StorageError>;
-
-    /// Update heartbeat timestamp for a node.
-    async fn heartbeat_node(&self, node_id: Uuid) -> Result<(), StorageError>;
-
-    /// Set the drain flag on a node, triggering coordinated shutdown.
-    async fn drain_node(&self, node_id: Uuid) -> Result<(), StorageError>;
-
-    /// Mark a node as stopped.
-    async fn deregister_node(&self, node_id: Uuid) -> Result<(), StorageError>;
-
-    /// List all nodes (for admin dashboard / health check).
-    async fn list_nodes(&self) -> Result<Vec<orch8_types::cluster::ClusterNode>, StorageError>;
-
-    /// Check if this node should drain (returns true if `drain = true` in DB).
-    async fn should_drain(&self, node_id: Uuid) -> Result<bool, StorageError>;
-
-    /// Remove stale nodes that haven't heartbeated within the threshold.
-    async fn reap_stale_nodes(
-        &self,
-        stale_threshold: std::time::Duration,
-    ) -> Result<u64, StorageError>;
-
-    // === Plugins ===
-
-    async fn create_plugin(&self, plugin: &PluginDef) -> Result<(), StorageError>;
-
-    async fn get_plugin(&self, name: &str) -> Result<Option<PluginDef>, StorageError>;
-
-    async fn list_plugins(
-        &self,
-        tenant_id: Option<&TenantId>,
-    ) -> Result<Vec<PluginDef>, StorageError>;
-
-    async fn update_plugin(&self, plugin: &PluginDef) -> Result<(), StorageError>;
-
-    async fn delete_plugin(&self, name: &str) -> Result<(), StorageError>;
-
-    // === Triggers ===
-
-    async fn create_trigger(&self, trigger: &TriggerDef) -> Result<(), StorageError>;
-
-    async fn get_trigger(&self, slug: &str) -> Result<Option<TriggerDef>, StorageError>;
-
-    async fn list_triggers(
-        &self,
-        tenant_id: Option<&TenantId>,
-        limit: u32,
-    ) -> Result<Vec<TriggerDef>, StorageError>;
-
-    async fn update_trigger(&self, trigger: &TriggerDef) -> Result<(), StorageError>;
-
-    async fn delete_trigger(&self, slug: &str) -> Result<(), StorageError>;
-
-    // === Credentials ===
-
-    async fn create_credential(
-        &self,
-        credential: &orch8_types::credential::CredentialDef,
-    ) -> Result<(), StorageError>;
-
-    async fn get_credential(
-        &self,
-        id: &str,
-    ) -> Result<Option<orch8_types::credential::CredentialDef>, StorageError>;
-
-    async fn list_credentials(
-        &self,
-        tenant_id: Option<&TenantId>,
-        limit: u32,
-    ) -> Result<Vec<orch8_types::credential::CredentialDef>, StorageError>;
-
-    async fn update_credential(
-        &self,
-        credential: &orch8_types::credential::CredentialDef,
-    ) -> Result<(), StorageError>;
-
-    async fn delete_credential(&self, id: &str) -> Result<(), StorageError>;
-
-    /// List `OAuth2` credentials whose `expires_at` is within `threshold` of now
-    /// (and that have a `refresh_url` + `refresh_token` configured). Used by
-    /// the refresh loop — returns an empty vec if no credentials are due.
-    async fn list_credentials_due_for_refresh(
-        &self,
-        threshold: std::time::Duration,
-    ) -> Result<Vec<orch8_types::credential::CredentialDef>, StorageError>;
-
-    // === Emit Event Dedupe ===
-
-    /// Record a dedupe key for `emit_event`. If `(scope, key)` already exists,
-    /// returns the previously-recorded `child_instance_id` without modifying state.
-    ///
-    /// `scope` selects the dedupe namespace (see [`DedupeScope`]):
-    /// per-parent (retry idempotency) or per-tenant (tenant-wide at-most-once).
-    ///
-    /// Atomic per row. Every backend MUST implement this — there is deliberately
-    /// no default impl so that a new backend cannot silently fall back to a
-    /// broken stub at runtime (see architectural finding #8).
-    ///
-    /// Prefer [`StorageBackend::create_instance_with_dedupe`] in production code
-    /// paths: this method only records the dedupe row, so a crash between the
-    /// dedupe insert and the child `create_instance` would leave an orphan row.
-    /// This primitive is retained for GC tests and tools that intentionally
-    /// manipulate dedupe state without creating a child.
-    async fn record_or_get_emit_dedupe(
-        &self,
-        scope: &DedupeScope,
-        key: &str,
-        candidate_child: orch8_types::ids::InstanceId,
-    ) -> Result<EmitDedupeOutcome, StorageError>;
-
-    /// Atomically record a dedupe row AND create the child `TaskInstance` in a
-    /// single transaction. Closes the orphan window described in architectural
-    /// finding #2: before this method existed, a crash between
-    /// [`StorageBackend::record_or_get_emit_dedupe`] and
-    /// [`StorageBackend::create_instance`] could leave a dedupe row pointing at
-    /// a non-existent child.
-    ///
-    /// Semantics:
-    /// - If `(scope, key)` is free: inserts the dedupe row AND the instance.
-    ///   Returns `Inserted`; `instance.id` is now present in `task_instances`.
-    /// - If `(scope, key)` already exists: returns `AlreadyExists(existing_id)`
-    ///   without creating the instance. The caller must NOT persist `instance`.
-    ///
-    /// Every backend MUST implement this — no default impl (finding #8).
-    async fn create_instance_with_dedupe(
-        &self,
-        scope: &DedupeScope,
-        key: &str,
-        instance: &TaskInstance,
-    ) -> Result<EmitDedupeOutcome, StorageError>;
-
-    /// Delete up to `limit` `emit_event_dedupe` rows whose `created_at` is older
-    /// than `older_than`. Returns the number of rows actually deleted.
-    ///
-    /// This is the GC sweeper's storage primitive for dedupe TTL (default 30d).
-    /// Dedupe rows are idempotency records — once the configured TTL has
-    /// elapsed a retry of the same `(parent, key)` can safely create a fresh
-    /// child, because callers should not depend on dedupe beyond the window.
-    ///
-    /// Limit is bounded per call so a large backlog doesn't starve writers in
-    /// a single long transaction — same convention as
-    /// [`StorageBackend::delete_expired_externalized_state`].
-    ///
-    /// Every backend MUST implement this — there is deliberately no default
-    /// impl so a missing implementation fails at compile time rather than
-    /// silently returning `Ok(0)` (see architectural finding #8).
-    async fn delete_expired_emit_event_dedupe(
-        &self,
-        older_than: chrono::DateTime<chrono::Utc>,
-        limit: u32,
-    ) -> Result<u64, StorageError>;
-
-    // === Circuit Breakers ===
-    //
-    // Only `Open` rows are persisted — this is a correctness backstop so that
-    // a crash mid-cooldown does not reset every tripped breaker. Default
-    // impls are no-ops so decorator backends (encrypting, externalizing) and
-    // future backends can opt in without forcing every crate to edit.
-
-    /// Upsert an `Open` circuit breaker row. Keyed by `(tenant_id, handler)`.
-    async fn upsert_circuit_breaker(
-        &self,
-        _state: &CircuitBreakerState,
-    ) -> Result<(), StorageError> {
-        Ok(())
-    }
-
-    /// Return every persisted `Open` row across all tenants. Used at boot to
-    /// rehydrate the in-memory registry.
-    async fn list_open_circuit_breakers(&self) -> Result<Vec<CircuitBreakerState>, StorageError> {
-        Ok(Vec::new())
-    }
-
-    /// Delete any persisted circuit breaker row for `(tenant_id, handler)`.
-    /// No-op if no row exists.
-    async fn delete_circuit_breaker(
-        &self,
-        _tenant_id: &TenantId,
-        _handler: &str,
-    ) -> Result<(), StorageError> {
-        Ok(())
-    }
-
-    // === Instance KV State ===
-    //
-    // Per-instance key-value store for workflow state that persists across
-    // ticks. Used by `set_state` / `get_state` / `delete_state` built-in
-    // handlers and the `state.*` template root variable.
-
-    async fn set_instance_kv(
-        &self,
-        _instance_id: InstanceId,
-        _key: &str,
-        _value: &serde_json::Value,
-    ) -> Result<(), StorageError> {
-        Ok(())
-    }
-
-    async fn get_instance_kv(
-        &self,
-        _instance_id: InstanceId,
-        _key: &str,
-    ) -> Result<Option<serde_json::Value>, StorageError> {
-        Ok(None)
-    }
-
-    async fn get_all_instance_kv(
-        &self,
-        _instance_id: InstanceId,
-    ) -> Result<HashMap<String, serde_json::Value>, StorageError> {
-        Ok(HashMap::new())
-    }
-
-    async fn delete_instance_kv(
-        &self,
-        _instance_id: InstanceId,
-        _key: &str,
-    ) -> Result<(), StorageError> {
-        Ok(())
-    }
-
-    // === Health ===
-
-    async fn ping(&self) -> Result<(), StorageError>;
-
-    // === Telemetry (mobile) ===
-    // Default no-ops so decorator backends don't break.
-
-    async fn ingest_telemetry_event(
-        &self,
-        _event_type: &str,
-        _payload: &str,
-        _device_id: &str,
-        _os_name: &str,
-        _os_version: &str,
-        _app_version: &str,
-        _sdk_version: &str,
-        _tenant_id: &str,
-        _created_at: DateTime<Utc>,
-    ) -> Result<(), StorageError> {
-        Ok(())
-    }
-
-    /// Batch-insert telemetry events in a single round-trip.
-    ///
-    /// Default: falls back to one-by-one insertion.
-    async fn ingest_telemetry_events_batch(
-        &self,
-        events: &[TelemetryEvent],
-    ) -> Result<u64, StorageError> {
-        let mut count = 0u64;
-        for e in events {
-            self.ingest_telemetry_event(
-                &e.event_type,
-                &e.payload,
-                &e.device_id,
-                &e.os_name,
-                &e.os_version,
-                &e.app_version,
-                &e.sdk_version,
-                &e.tenant_id,
-                e.created_at,
-            )
-            .await?;
-            count += 1;
-        }
-        Ok(count)
-    }
-
-    async fn ingest_telemetry_error(
-        &self,
-        _error_type: &str,
-        _message: &str,
-        _stack_trace: Option<&str>,
-        _device_id: &str,
-        _os_name: &str,
-        _os_version: &str,
-        _app_version: &str,
-        _sdk_version: &str,
-        _tenant_id: &str,
-        _instance_id: Option<&str>,
-        _sequence_name: Option<&str>,
-    ) -> Result<(), StorageError> {
-        Ok(())
-    }
-
-    async fn query_telemetry_dashboard(
-        &self,
-        _query_type: &str,
-        _tenant_id: &str,
-        _start: DateTime<Utc>,
-        _end: DateTime<Utc>,
-    ) -> Result<Vec<(String, i64)>, StorageError> {
-        Ok(Vec::new())
-    }
-
-    async fn delete_old_telemetry_events(
-        &self,
-        _older_than: DateTime<Utc>,
-        _limit: u32,
-    ) -> Result<u64, StorageError> {
-        Ok(0)
-    }
-
-    // === Rollback policies ===
-
-    async fn create_rollback_policy(
-        &self,
-        _tenant_id: &str,
-        _sequence_name: &str,
-        _error_rate_threshold: f64,
-        _time_window_secs: i32,
-    ) -> Result<(), StorageError> {
-        Ok(())
-    }
-
-    async fn get_rollback_policy(
-        &self,
-        _tenant_id: &str,
-        _sequence_name: &str,
-    ) -> Result<Option<orch8_types::rollback::RollbackPolicy>, StorageError> {
-        Ok(None)
-    }
-
-    async fn list_rollback_policies(
-        &self,
-        _tenant_id: Option<&str>,
-        _limit: u32,
-    ) -> Result<Vec<orch8_types::rollback::RollbackPolicy>, StorageError> {
-        Ok(Vec::new())
-    }
-
-    async fn delete_rollback_policy(
-        &self,
-        _tenant_id: &str,
-        _sequence_name: &str,
-    ) -> Result<(), StorageError> {
-        Ok(())
-    }
-
-    async fn record_rollback(
-        &self,
-        _tenant_id: &str,
-        _sequence_name: &str,
-        _error_rate: f64,
-        _threshold: f64,
-        _reason: &str,
-    ) -> Result<(), StorageError> {
-        Ok(())
-    }
-
-    async fn query_error_rate(
-        &self,
-        _tenant_id: &str,
-        _sequence_name: &str,
-        _window_secs: i64,
-    ) -> Result<Option<f64>, StorageError> {
-        Ok(None)
-    }
-
-    async fn list_rollback_history(
-        &self,
-        _tenant_id: Option<&str>,
-        _sequence_name: Option<&str>,
-        _limit: u32,
-    ) -> Result<Vec<orch8_types::rollback::RollbackHistory>, StorageError> {
-        Ok(Vec::new())
-    }
+}
+
+// ============================================================================
+// StorageBackend supertrait
+// ============================================================================
+
+/// The core storage abstraction.
+///
+/// Object-safe for `dyn StorageBackend` dispatch.
+/// Every method returns `Result<T, StorageError>`.
+/// Batch methods exist for hot paths.
+///
+/// `StorageBackend` is a supertrait of all domain-scoped sub-traits.
+/// Any type implementing all sub-traits automatically implements
+/// `StorageBackend` via the blanket impl below.
+pub trait StorageBackend:
+    SequenceStore
+    + InstanceStore
+    + ExecutionTreeStore
+    + OutputStore
+    + SignalStore
+    + WorkerStore
+    + SchedulingStore
+    + AdminStore
+    + TelemetryStore
+    + ResourceStore
+    + Send
+    + Sync
+    + 'static
+{
+}
+
+/// Blanket impl: any type implementing all sub-traits automatically
+/// implements `StorageBackend`.
+impl<T> StorageBackend for T where
+    T: SequenceStore
+        + InstanceStore
+        + ExecutionTreeStore
+        + OutputStore
+        + SignalStore
+        + WorkerStore
+        + SchedulingStore
+        + AdminStore
+        + TelemetryStore
+        + ResourceStore
+        + Send
+        + Sync
+        + 'static
+{
 }

@@ -16,13 +16,18 @@ use orch8_engine::handlers::for_each::execute_for_each;
 use orch8_engine::handlers::loop_block::execute_loop;
 use orch8_engine::handlers::param_resolve::OutputsSnapshot;
 use orch8_engine::handlers::HandlerRegistry;
-use orch8_storage::{sqlite::SqliteStorage, StorageBackend};
+use orch8_storage::{
+    sqlite::SqliteStorage, ExecutionTreeStore, InstanceStore, OutputStore, ResourceStore,
+    SequenceStore,
+};
 use orch8_types::context::{ExecutionContext, RuntimeContext};
 use orch8_types::execution::{ExecutionNode, NodeState};
 use orch8_types::ids::{BlockId, InstanceId, Namespace, SequenceId, TenantId};
 use orch8_types::instance::{InstanceState, Priority, TaskInstance};
 use orch8_types::output::BlockOutput;
-use orch8_types::sequence::{BlockDefinition, ForEachDef, LoopDef, SequenceDefinition, StepDef};
+use orch8_types::sequence::{
+    BlockDefinition, ForEachDef, LoopDef, SequenceDefinition, SequenceStatus, StepDef,
+};
 
 fn mk_step(id: &str) -> BlockDefinition {
     BlockDefinition::Step(Box::new(StepDef {
@@ -58,6 +63,7 @@ async fn setup(
         name: "loop-fe-cov".into(),
         version: 1,
         deprecated: false,
+        status: SequenceStatus::default(),
         blocks: vec![block.clone()],
         interceptors: None,
         created_at: Utc::now(),

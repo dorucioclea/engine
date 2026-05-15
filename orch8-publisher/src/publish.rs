@@ -151,6 +151,7 @@ mod tests {
     use crate::cdn::MemoryCdnBackend;
     use crate::manifest::ManifestGenerator;
     use ed25519_dalek::SigningKey;
+    use orch8_types::sequence::SequenceStatus;
     use rand::rngs::OsRng;
 
     fn setup() -> (SequencePublisher, SigningKey) {
@@ -172,6 +173,7 @@ mod tests {
             name: "test_seq".to_string(),
             version: 1,
             deprecated: false,
+            status: SequenceStatus::default(),
             blocks: vec![orch8_types::sequence::BlockDefinition::Step(Box::new(
                 orch8_types::sequence::StepDef {
                     id: orch8_types::ids::BlockId::new("step1"),
@@ -216,6 +218,7 @@ mod tests {
             name: "my_seq".to_string(),
             version: 2,
             deprecated: false,
+            status: SequenceStatus::default(),
             blocks: vec![],
             interceptors: None,
             created_at: chrono::Utc::now(),
@@ -253,6 +256,7 @@ mod tests {
             name: "multi_handler".to_string(),
             version: 1,
             deprecated: false,
+            status: SequenceStatus::default(),
             blocks: vec![
                 orch8_types::sequence::BlockDefinition::Step(Box::new(
                     orch8_types::sequence::StepDef {
@@ -311,6 +315,7 @@ mod tests {
             name: name.to_string(),
             version,
             deprecated: false,
+            status: SequenceStatus::default(),
             blocks: vec![orch8_types::sequence::BlockDefinition::Step(Box::new(
                 orch8_types::sequence::StepDef {
                     id: orch8_types::ids::BlockId::new("s1"),

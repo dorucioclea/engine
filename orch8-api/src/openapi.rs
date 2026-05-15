@@ -4,9 +4,16 @@ use utoipa::OpenApi;
 #[openapi(
     info(
         title = "Orch8.io API",
-        description = "Durable task sequencing engine — REST API",
-        version = "0.1.0",
+        description = "Durable task sequencing engine — REST API.\n\n\
+            All versioned endpoints are available under the `/api/v1` prefix \
+            (canonical) and also at the bare path for backward compatibility. \
+            Health and metrics endpoints remain at the root (`/health/*`, `/metrics`).",
+        version = "1.0.0",
         license(name = "BUSL-1.1"),
+    ),
+    servers(
+        (url = "/api/v1", description = "Versioned API (canonical)"),
+        (url = "/", description = "Unversioned (deprecated, backward-compat)"),
     ),
     paths(
         // Health

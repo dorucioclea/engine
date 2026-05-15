@@ -288,7 +288,10 @@ async fn reset_subtree_to_pending(
 mod tests {
     use super::*;
     use crate::expression::{evaluate_condition, is_truthy};
-    use orch8_storage::sqlite::SqliteStorage;
+    use orch8_storage::{
+        sqlite::SqliteStorage, ExecutionTreeStore, InstanceStore, OutputStore, SequenceStore,
+        WorkerStore,
+    };
     use orch8_types::context::{ExecutionContext, RuntimeContext};
     use orch8_types::ids::{InstanceId, Namespace, SequenceId, TenantId};
     use orch8_types::instance::{InstanceState, Priority};
@@ -366,7 +369,7 @@ mod tests {
     }
 
     async fn seed_instance(s: &SqliteStorage, inst: InstanceId) {
-        use orch8_types::sequence::{BlockDefinition, SequenceDefinition, StepDef};
+        use orch8_types::sequence::{BlockDefinition, SequenceDefinition, SequenceStatus, StepDef};
         let now = chrono::Utc::now();
         let seq = SequenceDefinition {
             id: SequenceId::new(),
@@ -375,6 +378,7 @@ mod tests {
             name: "test".into(),
             version: 1,
             deprecated: false,
+            status: SequenceStatus::default(),
             blocks: vec![BlockDefinition::Step(Box::new(StepDef {
                 id: BlockId::new("noop"),
                 handler: "noop".into(),

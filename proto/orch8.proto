@@ -1,5 +1,9 @@
 syntax = "proto3";
 
+// TODO(v2): rename to `orch8.v1` when introducing a breaking gRPC revision.
+// Changing the package name alters fully-qualified service/method names used in
+// gRPC reflection and all generated client stubs, so it must be coordinated
+// with a major version bump.
 package orch8;
 
 import "google/protobuf/timestamp.proto";

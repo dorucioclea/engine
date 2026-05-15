@@ -15,8 +15,8 @@ pub(super) async fn create(
     });
     sqlx::query(
         r"
-        INSERT INTO sequences (id, tenant_id, namespace, name, definition, version, deprecated, created_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        INSERT INTO sequences (id, tenant_id, namespace, name, definition, version, deprecated, status, created_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
         ",
     )
     .bind(seq.id.into_uuid())
@@ -26,6 +26,7 @@ pub(super) async fn create(
     .bind(&definition)
     .bind(seq.version)
     .bind(seq.deprecated)
+    .bind(seq.status.to_string())
     .bind(seq.created_at)
     .execute(&store.pool)
     .await?;
@@ -37,7 +38,7 @@ pub(super) async fn get(
     id: SequenceId,
 ) -> Result<Option<SequenceDefinition>, StorageError> {
     let row = sqlx::query_as::<_, SequenceRow>(
-        "SELECT id, tenant_id, namespace, name, definition, version, deprecated, created_at FROM sequences WHERE id = $1",
+        "SELECT id, tenant_id, namespace, name, definition, version, deprecated, status, created_at FROM sequences WHERE id = $1",
     )
     .bind(id.into_uuid())
     .fetch_optional(&store.pool)
@@ -54,7 +55,7 @@ pub(super) async fn get_by_name(
 ) -> Result<Option<SequenceDefinition>, StorageError> {
     let row = if let Some(v) = version {
         sqlx::query_as::<_, SequenceRow>(
-            r"SELECT id, tenant_id, namespace, name, definition, version, deprecated, created_at
+            r"SELECT id, tenant_id, namespace, name, definition, version, deprecated, status, created_at
                FROM sequences
                WHERE tenant_id = $1 AND namespace = $2 AND name = $3 AND version = $4",
         )
@@ -66,7 +67,7 @@ pub(super) async fn get_by_name(
         .await?
     } else {
         sqlx::query_as::<_, SequenceRow>(
-            r"SELECT id, tenant_id, namespace, name, definition, version, deprecated, created_at
+            r"SELECT id, tenant_id, namespace, name, definition, version, deprecated, status, created_at
                FROM sequences
                WHERE tenant_id = $1 AND namespace = $2 AND name = $3 AND deprecated = false
                ORDER BY version DESC
@@ -88,7 +89,7 @@ pub(super) async fn list_versions(
     name: &str,
 ) -> Result<Vec<SequenceDefinition>, StorageError> {
     let rows = sqlx::query_as::<_, SequenceRow>(
-        r"SELECT id, tenant_id, namespace, name, definition, version, deprecated, created_at
+        r"SELECT id, tenant_id, namespace, name, definition, version, deprecated, status, created_at
           FROM sequences
           WHERE tenant_id = $1 AND namespace = $2 AND name = $3 AND deprecated = false
           ORDER BY version DESC",
@@ -114,7 +115,7 @@ pub(super) async fn list_all(
     let ns = namespace.map(orch8_types::Namespace::as_str);
 
     let rows = sqlx::query_as::<_, SequenceRow>(
-        r"SELECT id, tenant_id, namespace, name, definition, version, deprecated, created_at
+        r"SELECT id, tenant_id, namespace, name, definition, version, deprecated, status, created_at
           FROM sequences
           WHERE ($1::text IS NULL OR tenant_id = $1)
             AND ($2::text IS NULL OR namespace = $2)
@@ -133,6 +134,19 @@ pub(super) async fn list_all(
 pub(super) async fn deprecate(store: &PostgresStorage, id: SequenceId) -> Result<(), StorageError> {
     sqlx::query("UPDATE sequences SET deprecated = TRUE WHERE id = $1")
         .bind(id.into_uuid())
+        .execute(&store.pool)
+        .await?;
+    Ok(())
+}
+
+pub(super) async fn update_status(
+    store: &PostgresStorage,
+    id: SequenceId,
+    status: &str,
+) -> Result<(), StorageError> {
+    sqlx::query("UPDATE sequences SET status = $2 WHERE id = $1")
+        .bind(id.into_uuid())
+        .bind(status)
         .execute(&store.pool)
         .await?;
     Ok(())

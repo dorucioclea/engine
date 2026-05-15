@@ -470,7 +470,9 @@ async fn handle_fail(ctx: StepContext) -> Result<Value, StepError> {
 /// - `body` (string): Request body for POST/PUT.
 /// - `headers` (object): Extra HTTP headers.
 /// - `timeout_ms` (u64): Timeout in milliseconds. Defaults to 10000.
+#[allow(clippy::too_many_lines)]
 async fn handle_http_request(ctx: StepContext) -> Result<Value, StepError> {
+    const MAX_RESPONSE_BYTES: usize = 10_485_760; // 10 MB
     let url = ctx
         .params
         .get("url")
@@ -546,10 +548,28 @@ async fn handle_http_request(ctx: StepContext) -> Result<Value, StepError> {
     })?;
 
     let status = resp.status().as_u16();
-    let response_body = resp.text().await.map_err(|e| StepError::Retryable {
+
+    let content_length = resp.content_length().unwrap_or(0);
+    if content_length > MAX_RESPONSE_BYTES as u64 {
+        return Err(StepError::Permanent {
+            message: format!("response too large: {content_length} bytes exceeds 10MB limit"),
+            details: None,
+        });
+    }
+    let bytes = resp.bytes().await.map_err(|e| StepError::Retryable {
         message: format!("HTTP request failed reading body from {url}: {e}"),
         details: None,
     })?;
+    if bytes.len() > MAX_RESPONSE_BYTES {
+        return Err(StepError::Permanent {
+            message: format!(
+                "response too large: {} bytes exceeds 10MB limit",
+                bytes.len()
+            ),
+            details: None,
+        });
+    }
+    let response_body = String::from_utf8_lossy(&bytes).into_owned();
 
     if status >= 500 {
         return Err(StepError::Retryable {

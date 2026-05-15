@@ -11,13 +11,16 @@ use serde_json::json;
 
 use orch8_engine::circuit_breaker::CircuitBreakerRegistry;
 use orch8_engine::handlers::HandlerRegistry;
-use orch8_storage::{sqlite::SqliteStorage, StorageBackend};
+use orch8_storage::{
+    sqlite::SqliteStorage, ExecutionTreeStore, InstanceStore, OutputStore, SequenceStore,
+    StorageBackend,
+};
 use orch8_types::context::{ExecutionContext, RuntimeContext};
 use orch8_types::execution::{BlockType, ExecutionNode, NodeState};
 use orch8_types::ids::{BlockId, ExecutionNodeId, InstanceId, Namespace, SequenceId, TenantId};
 use orch8_types::instance::{InstanceState, Priority, TaskInstance};
 use orch8_types::output::BlockOutput;
-use orch8_types::sequence::{BlockDefinition, SequenceDefinition, StepDef};
+use orch8_types::sequence::{BlockDefinition, SequenceDefinition, SequenceStatus, StepDef};
 use uuid::Uuid;
 
 // --------------------------------------------------------------------------
@@ -81,6 +84,7 @@ async fn seed_instance(storage: &SqliteStorage, instance_id: InstanceId) {
         name: "seed".into(),
         version: 1,
         deprecated: false,
+        status: SequenceStatus::default(),
         blocks: vec![BlockDefinition::Step(Box::new(mk_step("s", "h")))],
         interceptors: None,
         created_at: Utc::now(),
@@ -110,6 +114,7 @@ async fn setup_single_step(
         name: "gap-repro".into(),
         version: 1,
         deprecated: false,
+        status: SequenceStatus::default(),
         blocks: vec![BlockDefinition::Step(Box::new(step.clone()))],
         interceptors: None,
         created_at: Utc::now(),
@@ -321,6 +326,7 @@ async fn save_output_complete_node_and_transition_is_atomic() {
         name: "atomic-test".into(),
         version: 1,
         deprecated: false,
+        status: SequenceStatus::default(),
         blocks: vec![BlockDefinition::Step(Box::new(mk_step("s1", "noop")))],
         interceptors: None,
         created_at: Utc::now(),
@@ -398,6 +404,7 @@ async fn save_output_complete_node_and_transition_rejects_terminal_instance() {
         name: "cas-test".into(),
         version: 1,
         deprecated: false,
+        status: SequenceStatus::default(),
         blocks: vec![BlockDefinition::Step(Box::new(mk_step("s1", "noop")))],
         interceptors: None,
         created_at: Utc::now(),

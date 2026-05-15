@@ -12,8 +12,27 @@ pub struct RollbackPolicy {
     pub error_rate_threshold: f64,
     pub time_window_secs: i32,
     pub enabled: bool,
+    /// Minimum seconds between consecutive rollback triggers (prevents flapping).
+    /// Default: 3600 (1 hour).
+    #[serde(default = "default_cooldown")]
+    pub cooldown_secs: i32,
+    /// Error rate must remain above threshold for this many seconds before triggering.
+    /// Default: 60. Set to 0 to disable sustained-breach confirmation.
+    #[serde(default = "default_confirmation_window")]
+    pub confirmation_window_secs: i32,
+    /// Optional webhook URL to POST alert payloads when rollback triggers.
+    #[serde(default)]
+    pub webhook_url: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+}
+
+fn default_cooldown() -> i32 {
+    3600
+}
+
+fn default_confirmation_window() -> i32 {
+    60
 }
 
 /// A record of an auto-rollback trigger event.
@@ -44,6 +63,9 @@ mod tests {
             error_rate_threshold: 0.05,
             time_window_secs: 300,
             enabled: true,
+            cooldown_secs: 3600,
+            confirmation_window_secs: 60,
+            webhook_url: None,
             created_at: now,
             updated_at: now,
         };
@@ -55,6 +77,8 @@ mod tests {
         assert!((decoded.error_rate_threshold - 0.05).abs() < f64::EPSILON);
         assert_eq!(decoded.time_window_secs, 300);
         assert!(decoded.enabled);
+        assert_eq!(decoded.cooldown_secs, 3600);
+        assert_eq!(decoded.confirmation_window_secs, 60);
     }
 
     #[test]
@@ -93,5 +117,26 @@ mod tests {
         let policy: RollbackPolicy = serde_json::from_str(json).unwrap();
         assert!(!policy.enabled);
         assert_eq!(policy.time_window_secs, 60);
+        assert_eq!(policy.cooldown_secs, 3600);
+        assert_eq!(policy.confirmation_window_secs, 60);
+    }
+
+    #[test]
+    fn rollback_policy_custom_hysteresis() {
+        let json = r#"{
+            "id": 1,
+            "tenant_id": "t",
+            "sequence_name": "s",
+            "error_rate_threshold": 0.1,
+            "time_window_secs": 300,
+            "enabled": true,
+            "cooldown_secs": 7200,
+            "confirmation_window_secs": 120,
+            "created_at": "2024-01-01T00:00:00Z",
+            "updated_at": "2024-01-01T00:00:00Z"
+        }"#;
+        let policy: RollbackPolicy = serde_json::from_str(json).unwrap();
+        assert_eq!(policy.cooldown_secs, 7200);
+        assert_eq!(policy.confirmation_window_secs, 120);
     }
 }

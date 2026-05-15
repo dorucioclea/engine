@@ -801,6 +801,7 @@ mod tests {
             name: "sample".into(),
             version: 1,
             deprecated: false,
+            status: SequenceStatus::default(),
             blocks,
             interceptors: None,
             created_at: chrono::Utc::now(),

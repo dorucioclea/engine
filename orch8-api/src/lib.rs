@@ -36,6 +36,10 @@ use tokio_util::sync::CancellationToken;
 /// Default ceiling on concurrent SSE streams per process.
 pub const DEFAULT_MAX_CONCURRENT_STREAMS: usize = 256;
 
+/// Canonical API version prefix. All versioned endpoints live under this path.
+/// Operational endpoints (health, metrics) remain at the root.
+pub const API_V1_PREFIX: &str = "/api/v1";
+
 /// Generic paginated response envelope for list endpoints.
 #[derive(Debug, Serialize)]
 pub struct PaginatedResponse<T> {
@@ -63,8 +67,11 @@ pub struct AppState {
     pub publisher: Option<Arc<orch8_publisher::SequencePublisher>>,
 }
 
-/// Build the axum router with all routes.
-pub fn build_router(state: AppState) -> Router {
+/// Assemble the versioned API sub-router (without state applied).
+///
+/// This is the set of business-logic routes that belong under `/api/v1`.
+/// Operational endpoints (health, metrics, swagger) are **not** included.
+fn api_routes() -> Router<AppState> {
     Router::new()
         .merge(sequences::routes())
         .merge(approvals::routes())
@@ -79,5 +86,23 @@ pub fn build_router(state: AppState) -> Router {
         .merge(credentials::routes())
         .merge(telemetry::routes())
         .merge(rollback::routes())
+}
+
+/// Build the axum router with all routes.
+///
+/// Business-logic routes are served under `/api/v1/...` (canonical) and also
+/// at the bare path (`/...`) for backward compatibility with existing clients.
+/// The bare-path mount is deprecated and will be removed in a future major
+/// release.
+pub fn build_router(state: AppState) -> Router {
+    let api = api_routes();
+
+    Router::new()
+        // Canonical versioned mount — clients should migrate to these paths.
+        .nest(API_V1_PREFIX, api.clone())
+        // Backward-compat: keep the same routes at the root so existing
+        // clients and SDKs continue to work during the migration window.
+        // TODO(v2): remove this bare merge once all clients use /api/v1.
+        .merge(api)
         .with_state(state)
 }

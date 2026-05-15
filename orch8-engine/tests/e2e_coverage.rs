@@ -19,7 +19,8 @@ use orch8_types::ids::{BlockId, InstanceId, Namespace, SequenceId, TenantId};
 use orch8_types::instance::{InstanceState, Priority, TaskInstance};
 use orch8_types::sequence::{
     ABSplitDef, ABVariant, BlockDefinition, CancellationScopeDef, ForEachDef, LoopDef, ParallelDef,
-    RetryPolicy, Route, RouterDef, SequenceDefinition, StepDef, SubSequenceDef, TryCatchDef,
+    RetryPolicy, Route, RouterDef, SequenceDefinition, SequenceStatus, StepDef, SubSequenceDef,
+    TryCatchDef,
 };
 use orch8_types::signal::{Signal, SignalType};
 
@@ -128,6 +129,7 @@ fn mk_sequence(blocks: Vec<BlockDefinition>) -> SequenceDefinition {
         blocks,
         interceptors: None,
         created_at: Utc::now(),
+        status: orch8_types::sequence::SequenceStatus::Production,
     }
 }
 
@@ -489,6 +491,7 @@ async fn sub_sequence_spawns_child_and_enters_waiting() {
         name: "child-flow".into(),
         version: 1,
         deprecated: false,
+        status: SequenceStatus::default(),
         blocks: vec![mk_step("child_s1", "noop")],
         interceptors: None,
         created_at: Utc::now(),
@@ -503,6 +506,7 @@ async fn sub_sequence_spawns_child_and_enters_waiting() {
         name: "parent-flow".into(),
         version: 1,
         deprecated: false,
+        status: SequenceStatus::default(),
         blocks: vec![BlockDefinition::SubSequence(Box::new(SubSequenceDef {
             id: BlockId::new("sub"),
             sequence_name: "child-flow".into(),
@@ -1516,6 +1520,7 @@ fn mk_sequence_with_interceptors(
         blocks,
         interceptors: Some(interceptors),
         created_at: Utc::now(),
+        status: orch8_types::sequence::SequenceStatus::Production,
     }
 }
 

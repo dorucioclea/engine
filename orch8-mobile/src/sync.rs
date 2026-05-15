@@ -121,6 +121,7 @@ pub struct SyncOrchestrator {
     root_key: RootKey,
     http: reqwest::Client,
     sdk_version: String,
+    max_stored_sequences: u32,
 }
 
 impl SyncOrchestrator {
@@ -129,6 +130,7 @@ impl SyncOrchestrator {
         backend: Arc<dyn StorageBackend>,
         root_key: RootKey,
         sdk_version: String,
+        max_stored_sequences: u32,
     ) -> Self {
         let http = reqwest::Client::builder()
             .timeout(Duration::from_secs(30))
@@ -140,6 +142,7 @@ impl SyncOrchestrator {
             root_key,
             http,
             sdk_version,
+            max_stored_sequences,
         }
     }
 
@@ -242,7 +245,10 @@ impl SyncOrchestrator {
         result.skipped = skipped;
         result.signature_failures = sig_failures;
 
-        // 6. Persist sync metadata.
+        // 6. Evict oldest sequences if over limit.
+        self.evict_excess_sequences().await?;
+
+        // 7. Persist sync metadata.
         self.persist_sync_metadata(maybe_etag).await?;
 
         info!(
@@ -647,6 +653,37 @@ impl SyncOrchestrator {
         Ok(())
     }
 
+    async fn evict_excess_sequences(&self) -> Result<(), MobileError> {
+        if self.max_stored_sequences == 0 {
+            return Ok(());
+        }
+        let tenant = TenantId::new("mobile").expect("valid tenant");
+        let ns = Namespace::new("default");
+        let seqs = self
+            .backend
+            .list_sequences(Some(&tenant), Some(&ns), u32::MAX, 0)
+            .await
+            .map_err(|e| MobileError::Storage {
+                message: e.to_string(),
+            })?;
+        #[allow(clippy::cast_possible_truncation)]
+        let count = seqs.len() as u32;
+        if count <= self.max_stored_sequences {
+            return Ok(());
+        }
+        let mut sorted = seqs;
+        sorted.sort_by_key(|s| s.created_at);
+        let to_evict = (count - self.max_stored_sequences) as usize;
+        for seq in sorted.iter().take(to_evict) {
+            if let Err(e) = self.backend.delete_sequence(seq.id).await {
+                warn!(name = %seq.name, error = %e, "failed to evict excess sequence");
+            } else {
+                info!(name = %seq.name, "evicted oldest sequence (over limit)");
+            }
+        }
+        Ok(())
+    }
+
     async fn get_last_sync_ts(&self) -> Result<Option<DateTime<Utc>>, MobileError> {
         let raw = self
             .mobile_storage
@@ -685,6 +722,7 @@ impl SyncOrchestrator {
 mod tests {
     use super::*;
     use orch8_storage::sqlite::SqliteStorage;
+    use orch8_types::sequence::SequenceStatus;
 
     #[tokio::test]
     async fn version_meets_min_works() {
@@ -700,6 +738,7 @@ mod tests {
                 pubkey: VerifyingKey::from_bytes(&[0u8; 32]).unwrap(),
             }),
             "0.4.0".to_string(),
+            50,
         );
 
         assert!(orch.version_meets_min("0.4.0", "0.3.0"));
@@ -744,6 +783,7 @@ mod tests {
                 pubkey: VerifyingKey::from_bytes(&[0u8; 32]).unwrap(),
             },
             "0.4.0".to_string(),
+            50,
         );
 
         let manifest = Manifest {
@@ -776,6 +816,7 @@ mod tests {
                 pubkey: VerifyingKey::from_bytes(&[0u8; 32]).unwrap(),
             },
             "0.4.0".to_string(),
+            50,
         );
 
         orch.persist_sync_metadata(Some("etag-123".to_string()))
@@ -805,6 +846,7 @@ mod tests {
                 pubkey: VerifyingKey::from_bytes(&[0u8; 32]).unwrap(),
             },
             "0.4.0".to_string(),
+            50,
         );
 
         orch.persist_sync_metadata(None).await.unwrap();
@@ -837,6 +879,7 @@ mod tests {
                     pubkey: VerifyingKey::from_bytes(&[0u8; 32]).unwrap(),
                 },
                 "0.4.0".to_string(),
+                50,
             );
 
             let result = orch.verify_and_parse_manifest(b"no-newline-here");
@@ -860,6 +903,7 @@ mod tests {
                     pubkey: VerifyingKey::from_bytes(&[0u8; 32]).unwrap(),
                 },
                 "0.4.0".to_string(),
+                50,
             );
 
             assert!(orch.version_meets_min("0.4", "0.4.0"));
@@ -867,5 +911,284 @@ mod tests {
             assert!(orch.version_meets_min("1", "0.9.9"));
             assert!(!orch.version_meets_min("0", "0.0.1"));
         });
+    }
+
+    fn make_test_sequence(name: &str, created_at: DateTime<Utc>) -> SequenceDefinition {
+        use orch8_types::ids::{Namespace, SequenceId, TenantId};
+        SequenceDefinition {
+            id: SequenceId::new(),
+            tenant_id: TenantId::new("mobile").unwrap(),
+            namespace: Namespace::new("default"),
+            name: name.to_string(),
+            version: 1,
+            deprecated: false,
+            status: SequenceStatus::default(),
+            blocks: vec![],
+            interceptors: None,
+            created_at,
+        }
+    }
+
+    #[tokio::test]
+    async fn evict_excess_sequences_removes_oldest() {
+        let sqlite = Arc::new(SqliteStorage::in_memory().await.unwrap());
+        let mobile_storage = Arc::new(MobileStorage::new(sqlite.clone()));
+        let backend: Arc<dyn StorageBackend> = sqlite.clone();
+
+        let orch = SyncOrchestrator::new(
+            mobile_storage,
+            backend.clone(),
+            RootKey {
+                pubkey: VerifyingKey::from_bytes(&[0u8; 32]).unwrap(),
+            },
+            "0.4.0".to_string(),
+            3,
+        );
+
+        let base = Utc::now() - chrono::Duration::hours(10);
+        for i in 0..5 {
+            let seq = make_test_sequence(&format!("seq-{i}"), base + chrono::Duration::hours(i));
+            backend.create_sequence(&seq).await.unwrap();
+        }
+
+        let tenant = orch8_types::ids::TenantId::new("mobile").unwrap();
+        let ns = orch8_types::ids::Namespace::new("default");
+        let before = backend
+            .list_sequences(Some(&tenant), Some(&ns), 100, 0)
+            .await
+            .unwrap();
+        assert_eq!(before.len(), 5);
+
+        orch.evict_excess_sequences().await.unwrap();
+
+        let after = backend
+            .list_sequences(Some(&tenant), Some(&ns), 100, 0)
+            .await
+            .unwrap();
+        assert_eq!(after.len(), 3);
+
+        let remaining_names: Vec<&str> = after.iter().map(|s| s.name.as_str()).collect();
+        assert!(!remaining_names.contains(&"seq-0"));
+        assert!(!remaining_names.contains(&"seq-1"));
+        assert!(remaining_names.contains(&"seq-2"));
+        assert!(remaining_names.contains(&"seq-3"));
+        assert!(remaining_names.contains(&"seq-4"));
+    }
+
+    #[tokio::test]
+    async fn evict_excess_sequences_noop_when_under_limit() {
+        let sqlite = Arc::new(SqliteStorage::in_memory().await.unwrap());
+        let mobile_storage = Arc::new(MobileStorage::new(sqlite.clone()));
+        let backend: Arc<dyn StorageBackend> = sqlite.clone();
+
+        let orch = SyncOrchestrator::new(
+            mobile_storage,
+            backend.clone(),
+            RootKey {
+                pubkey: VerifyingKey::from_bytes(&[0u8; 32]).unwrap(),
+            },
+            "0.4.0".to_string(),
+            10,
+        );
+
+        for i in 0..3 {
+            let seq = make_test_sequence(&format!("seq-{i}"), Utc::now());
+            backend.create_sequence(&seq).await.unwrap();
+        }
+
+        orch.evict_excess_sequences().await.unwrap();
+
+        let tenant = orch8_types::ids::TenantId::new("mobile").unwrap();
+        let ns = orch8_types::ids::Namespace::new("default");
+        let after = backend
+            .list_sequences(Some(&tenant), Some(&ns), 100, 0)
+            .await
+            .unwrap();
+        assert_eq!(after.len(), 3);
+    }
+
+    #[tokio::test]
+    async fn evict_excess_sequences_zero_limit_is_noop() {
+        let sqlite = Arc::new(SqliteStorage::in_memory().await.unwrap());
+        let mobile_storage = Arc::new(MobileStorage::new(sqlite.clone()));
+        let backend: Arc<dyn StorageBackend> = sqlite.clone();
+
+        let orch = SyncOrchestrator::new(
+            mobile_storage,
+            backend.clone(),
+            RootKey {
+                pubkey: VerifyingKey::from_bytes(&[0u8; 32]).unwrap(),
+            },
+            "0.4.0".to_string(),
+            0,
+        );
+
+        for i in 0..5 {
+            let seq = make_test_sequence(&format!("seq-{i}"), Utc::now());
+            backend.create_sequence(&seq).await.unwrap();
+        }
+
+        orch.evict_excess_sequences().await.unwrap();
+
+        let tenant = orch8_types::ids::TenantId::new("mobile").unwrap();
+        let ns = orch8_types::ids::Namespace::new("default");
+        let after = backend
+            .list_sequences(Some(&tenant), Some(&ns), 100, 0)
+            .await
+            .unwrap();
+        assert_eq!(after.len(), 5);
+    }
+
+    #[tokio::test]
+    async fn reconcile_removed_skips_old_removals() {
+        let sqlite = Arc::new(SqliteStorage::in_memory().await.unwrap());
+        let mobile_storage = Arc::new(MobileStorage::new(sqlite.clone()));
+        let backend: Arc<dyn StorageBackend> = sqlite.clone();
+
+        let orch = SyncOrchestrator::new(
+            mobile_storage.clone(),
+            backend.clone(),
+            RootKey {
+                pubkey: VerifyingKey::from_bytes(&[0u8; 32]).unwrap(),
+            },
+            "0.4.0".to_string(),
+            50,
+        );
+
+        // Set a recent last_sync so full reconciliation is skipped.
+        mobile_storage
+            .set_sync_metadata("last_sync_ts", &Utc::now().to_rfc3339())
+            .await
+            .unwrap();
+
+        let base = Utc::now() - chrono::Duration::days(40);
+        let old_seq = make_test_sequence("old-seq", base);
+        backend.create_sequence(&old_seq).await.unwrap();
+
+        let local = orch.list_local_sequences().await.unwrap();
+        assert!(local.contains_key("old-seq"));
+
+        let manifest = Manifest {
+            signing_keys: vec![],
+            sequences: vec![],
+            removed: vec![RemovedEntry {
+                name: "old-seq".to_string(),
+                removed_at: base + chrono::Duration::days(1),
+            }],
+            manifest_version: 1,
+            generated_at: Utc::now(),
+        };
+
+        let removed = orch.reconcile_removed(&manifest, &local).await.unwrap();
+        assert_eq!(removed, 0, "removals older than 30 days should be skipped");
+
+        // The sequence should still exist.
+        let tenant = orch8_types::ids::TenantId::new("mobile").unwrap();
+        let ns = orch8_types::ids::Namespace::new("default");
+        let after = backend
+            .list_sequences(Some(&tenant), Some(&ns), 100, 0)
+            .await
+            .unwrap();
+        assert_eq!(after.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn reconcile_removed_deletes_recent_removals() {
+        let sqlite = Arc::new(SqliteStorage::in_memory().await.unwrap());
+        let mobile_storage = Arc::new(MobileStorage::new(sqlite.clone()));
+        let backend: Arc<dyn StorageBackend> = sqlite.clone();
+
+        let orch = SyncOrchestrator::new(
+            mobile_storage.clone(),
+            backend.clone(),
+            RootKey {
+                pubkey: VerifyingKey::from_bytes(&[0u8; 32]).unwrap(),
+            },
+            "0.4.0".to_string(),
+            50,
+        );
+
+        // Set a recent last_sync so full reconciliation is skipped.
+        mobile_storage
+            .set_sync_metadata("last_sync_ts", &Utc::now().to_rfc3339())
+            .await
+            .unwrap();
+
+        let recent_seq = make_test_sequence("recent-seq", Utc::now());
+        backend.create_sequence(&recent_seq).await.unwrap();
+
+        let local = orch.list_local_sequences().await.unwrap();
+
+        let manifest = Manifest {
+            signing_keys: vec![],
+            sequences: vec![],
+            removed: vec![RemovedEntry {
+                name: "recent-seq".to_string(),
+                removed_at: Utc::now(),
+            }],
+            manifest_version: 1,
+            generated_at: Utc::now(),
+        };
+
+        let removed = orch.reconcile_removed(&manifest, &local).await.unwrap();
+        assert_eq!(removed, 1, "recent removals should be processed");
+
+        let tenant = orch8_types::ids::TenantId::new("mobile").unwrap();
+        let ns = orch8_types::ids::Namespace::new("default");
+        let after = backend
+            .list_sequences(Some(&tenant), Some(&ns), 100, 0)
+            .await
+            .unwrap();
+        assert_eq!(after.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn sync_returns_empty_when_not_modified() {
+        let sqlite = Arc::new(SqliteStorage::in_memory().await.unwrap());
+        let mobile_storage = Arc::new(MobileStorage::new(sqlite.clone()));
+        let backend: Arc<dyn StorageBackend> = sqlite.clone();
+
+        // Pre-seed an ETag so the sync sends If-None-Match.
+        mobile_storage
+            .set_sync_metadata("manifest_etag", "etag-abc")
+            .await
+            .unwrap();
+
+        let orch = SyncOrchestrator::new(
+            mobile_storage,
+            backend,
+            RootKey {
+                pubkey: VerifyingKey::from_bytes(&[0u8; 32]).unwrap(),
+            },
+            "0.4.0".to_string(),
+            50,
+        );
+
+        // Spin up a tiny HTTP server that returns 304.
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = tokio::spawn(async move {
+            use tokio::io::AsyncReadExt;
+            use tokio::io::AsyncWriteExt;
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut buf = vec![0u8; 4096];
+            let _n = socket.read(&mut buf).await.unwrap();
+            let response = "HTTP/1.1 304 Not Modified\r\nContent-Length: 0\r\n\r\n";
+            socket.write_all(response.as_bytes()).await.unwrap();
+        });
+
+        let url = format!("http://127.0.0.1:{port}/manifest");
+        let result = orch
+            .sync(&url, &SyncAuth::UrlToken, &HashSet::new())
+            .await
+            .unwrap();
+
+        server.await.unwrap();
+
+        assert_eq!(result.added, 0);
+        assert_eq!(result.updated, 0);
+        assert_eq!(result.removed, 0);
+        assert_eq!(result.skipped, 0);
+        assert_eq!(result.signature_failures, 0);
     }
 }

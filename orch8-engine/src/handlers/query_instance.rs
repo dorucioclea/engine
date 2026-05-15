@@ -102,7 +102,7 @@ pub(crate) async fn handle_query_instance(ctx: StepContext) -> Result<Value, Ste
 mod tests {
     use super::*;
     use chrono::Utc;
-    use orch8_storage::{sqlite::SqliteStorage, StorageBackend};
+    use orch8_storage::{sqlite::SqliteStorage, ExecutionTreeStore, InstanceStore, StorageBackend};
     use orch8_types::{
         context::{ExecutionContext, RuntimeContext},
         execution::{BlockType, ExecutionNode, NodeState},

@@ -150,8 +150,24 @@ pub(crate) async fn ingest_errors(
     }
 }
 
+fn webhook_client() -> &'static reqwest::Client {
+    static CLIENT: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
+    CLIENT.get_or_init(|| {
+        reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(10))
+            .pool_max_idle_per_host(2)
+            .build()
+            .unwrap_or_default()
+    })
+}
 /// Check if the error rate for a sequence has exceeded its rollback policy
 /// threshold, and if so, record a rollback event and unpublish the sequence.
+///
+/// Hysteresis guards:
+/// 1. **Cooldown**: if a rollback was triggered within `cooldown_secs`, skip.
+/// 2. **Sustained breach**: if `confirmation_window_secs > 0`, also check
+///    the error rate over that shorter window — both must exceed threshold.
+#[allow(clippy::too_many_lines)]
 async fn check_rollback(
     state: &AppState,
     tenant_id: &str,
@@ -167,6 +183,29 @@ async fn check_rollback(
         _ => return Ok(()),
     };
 
+    // Guard 1: cooldown — skip if a rollback happened recently.
+    if policy.cooldown_secs > 0 {
+        let recent = state
+            .storage
+            .list_rollback_history(Some(tenant_id), Some(sequence_name), 1)
+            .await
+            .map_err(|e| ApiError::Internal(format!("DB error: {e}")))?;
+        if let Some(last) = recent.first() {
+            let elapsed = Utc::now()
+                .signed_duration_since(last.triggered_at)
+                .num_seconds();
+            if elapsed < i64::from(policy.cooldown_secs) {
+                debug!(
+                    sequence = %sequence_name,
+                    cooldown_remaining = i64::from(policy.cooldown_secs) - elapsed,
+                    "rollback check skipped — cooldown active"
+                );
+                return Ok(());
+            }
+        }
+    }
+
+    // Primary check: error rate over the full time window.
     let Some(error_rate) = state
         .storage
         .query_error_rate(tenant_id, sequence_name, i64::from(policy.time_window_secs))
@@ -180,7 +219,33 @@ async fn check_rollback(
         return Ok(());
     }
 
-    // Threshold breached — record rollback.
+    // Guard 2: sustained breach — also check the confirmation window.
+    if policy.confirmation_window_secs > 0
+        && policy.confirmation_window_secs < policy.time_window_secs
+    {
+        let confirm_rate = state
+            .storage
+            .query_error_rate(
+                tenant_id,
+                sequence_name,
+                i64::from(policy.confirmation_window_secs),
+            )
+            .await
+            .map_err(|e| ApiError::Internal(format!("DB error: {e}")))?;
+        match confirm_rate {
+            Some(r) if r >= policy.error_rate_threshold => {}
+            _ => {
+                debug!(
+                    sequence = %sequence_name,
+                    full_window_rate = %error_rate,
+                    "rollback check skipped — confirmation window rate below threshold"
+                );
+                return Ok(());
+            }
+        }
+    }
+
+    // Threshold breached + hysteresis passed — record rollback.
     state
         .storage
         .record_rollback(
@@ -193,7 +258,7 @@ async fn check_rollback(
         .await
         .map_err(|e| ApiError::Internal(format!("DB error: {e}")))?;
 
-    // Deprecate the sequence so mobile clients stop using it on next sync.
+    // Deprecate + unpublish the sequence so mobile clients stop using it on next sync.
     let tenant = orch8_types::ids::TenantId::unchecked(tenant_id.to_string());
     let ns = orch8_types::ids::Namespace::new("default");
     if let Ok(Some(seq)) = state
@@ -204,6 +269,29 @@ async fn check_rollback(
         if let Err(e) = state.storage.deprecate_sequence(seq.id).await {
             warn!(error = %e, "failed to deprecate sequence during rollback");
         }
+        if let Err(e) = state
+            .storage
+            .update_sequence_status(seq.id, "unpublished")
+            .await
+        {
+            warn!(error = %e, "failed to update sequence status during rollback");
+        }
+    }
+
+    // Attempt manifest regeneration so the rolled-back sequence is removed on next sync.
+    if let Some(ref publisher) = state.publisher {
+        if let Err(e) = state.storage.acquire_manifest_lock(tenant_id).await {
+            warn!(error = %e, "failed to acquire manifest lock during rollback");
+        } else {
+            let removed = vec![orch8_publisher::ManifestRemoved {
+                name: sequence_name.to_string(),
+                removed_at: chrono::Utc::now(),
+            }];
+            if let Err(e) = publisher.publish_manifest(vec![], removed, vec![]).await {
+                warn!(error = %e, "failed to regenerate manifest during rollback");
+            }
+            let _ = state.storage.release_manifest_lock(tenant_id).await;
+        }
     }
 
     warn!(
@@ -211,8 +299,38 @@ async fn check_rollback(
         tenant = %tenant_id,
         error_rate = %error_rate,
         threshold = %policy.error_rate_threshold,
-        "auto-rollback triggered — sequence deprecated"
+        cooldown_secs = %policy.cooldown_secs,
+        "auto-rollback triggered — sequence deprecated and unpublished"
     );
+
+    if let Some(ref url) = policy.webhook_url {
+        let payload = serde_json::json!({
+            "event": "rollback_triggered",
+            "tenant_id": tenant_id,
+            "sequence_name": sequence_name,
+            "error_rate": error_rate,
+            "threshold": policy.error_rate_threshold,
+            "timestamp": Utc::now().to_rfc3339(),
+        });
+        let client = webhook_client().clone();
+        let url = url.clone();
+        tokio::spawn(async move {
+            match client
+                .post(&url)
+                .header("Content-Type", "application/json")
+                .json(&payload)
+                .send()
+                .await
+            {
+                Ok(resp) => {
+                    debug!(status = %resp.status(), url = %url, "rollback webhook delivered");
+                }
+                Err(e) => {
+                    warn!(error = %e, url = %url, "rollback webhook delivery failed");
+                }
+            }
+        });
+    }
 
     Ok(())
 }

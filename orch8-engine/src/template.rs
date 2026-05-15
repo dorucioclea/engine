@@ -906,6 +906,7 @@ fn is_literal(s: &str) -> bool {
 mod tests {
     use super::*;
     use orch8_types::ids::BlockId;
+    use orch8_types::sequence::SequenceStatus;
     use serde_json::{json, Value};
 
     fn test_context() -> ExecutionContext {
@@ -1868,6 +1869,7 @@ mod tests {
             name: "test".into(),
             version: 1,
             deprecated: false,
+            status: SequenceStatus::default(),
             blocks,
             interceptors: None,
             created_at: chrono::Utc::now(),

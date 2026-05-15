@@ -31,12 +31,16 @@ use chrono::{Duration, Utc};
 use serde_json::json;
 
 use orch8_engine::handlers::HandlerRegistry;
-use orch8_storage::{sqlite::SqliteStorage, StorageBackend};
+use orch8_storage::{
+    sqlite::SqliteStorage, ExecutionTreeStore, InstanceStore, SequenceStore, StorageBackend,
+};
 use orch8_types::context::{ExecutionContext, RuntimeContext};
 use orch8_types::execution::{BlockType, ExecutionNode, NodeState};
 use orch8_types::ids::{BlockId, ExecutionNodeId, InstanceId, Namespace, SequenceId, TenantId};
 use orch8_types::instance::{InstanceState, Priority, TaskInstance};
-use orch8_types::sequence::{BlockDefinition, RetryPolicy, SequenceDefinition, StepDef};
+use orch8_types::sequence::{
+    BlockDefinition, RetryPolicy, SequenceDefinition, SequenceStatus, StepDef,
+};
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -120,6 +124,7 @@ async fn setup_single_step(
         name: "bug-b-repro".into(),
         version: 1,
         deprecated: false,
+        status: SequenceStatus::default(),
         blocks: vec![BlockDefinition::Step(Box::new(step.clone()))],
         interceptors: None,
         created_at: Utc::now(),
@@ -334,6 +339,7 @@ async fn b28_apply_self_modify_append_preserves_prior_blocks() {
         name: "sm-append".into(),
         version: 1,
         deprecated: false,
+        status: SequenceStatus::default(),
         blocks: vec![],
         interceptors: None,
         created_at: Utc::now(),
@@ -412,6 +418,7 @@ async fn b28_apply_self_modify_position_still_preserves_prior() {
         name: "sm-pos".into(),
         version: 1,
         deprecated: false,
+        status: SequenceStatus::default(),
         blocks: vec![],
         interceptors: None,
         created_at: Utc::now(),

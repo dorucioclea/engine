@@ -23,7 +23,9 @@ use orch8_types::error::StepError;
 
 use super::StepContext;
 
+#[allow(clippy::too_many_lines)]
 pub async fn handle_tool_call(ctx: StepContext) -> Result<Value, StepError> {
+    const MAX_RESPONSE_BYTES: usize = 10_485_760; // 10 MB
     let url = ctx
         .params
         .get("url")
@@ -118,10 +120,27 @@ pub async fn handle_tool_call(ctx: StepContext) -> Result<Value, StepError> {
     })?;
 
     let status = resp.status().as_u16();
+
+    let content_length = resp.content_length().unwrap_or(0);
+    if content_length > MAX_RESPONSE_BYTES as u64 {
+        return Err(StepError::Permanent {
+            message: format!("tool response too large: {content_length} bytes exceeds 10MB limit"),
+            details: None,
+        });
+    }
     let body_bytes = resp.bytes().await.map_err(|e| StepError::Retryable {
         message: format!("tool_call body read error: {e}"),
         details: None,
     })?;
+    if body_bytes.len() > MAX_RESPONSE_BYTES {
+        return Err(StepError::Permanent {
+            message: format!(
+                "tool response too large: {} bytes exceeds 10MB limit",
+                body_bytes.len()
+            ),
+            details: None,
+        });
+    }
 
     interpret_tool_response(tool_name, status, &body_bytes)
 }

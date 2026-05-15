@@ -17,7 +17,7 @@ use utoipa_swagger_ui::SwaggerUi;
 
 use orch8_api::metrics::MetricsState;
 use orch8_api::openapi::ApiDoc;
-use orch8_api::{build_router, AppState};
+use orch8_api::{build_router, AppState, API_V1_PREFIX};
 use orch8_engine::circuit_breaker::CircuitBreakerRegistry;
 use orch8_engine::handlers::HandlerRegistry;
 use orch8_engine::Engine;
@@ -106,8 +106,13 @@ async fn main() -> anyhow::Result<()> {
     };
     let grpc_require_tenant = require_tenant;
 
+    // Circuit-breaker routes are merged separately (they need AppState with
+    // the registry). Nest under /api/v1 and also keep at root for backward
+    // compatibility, mirroring what `build_router` does for the other routes.
+    let cb_routes = orch8_api::circuit_breakers::routes().with_state(app_state.clone());
     let mut app = build_router(app_state.clone())
-        .merge(orch8_api::circuit_breakers::routes().with_state(app_state.clone()))
+        .nest(API_V1_PREFIX, cb_routes.clone())
+        .merge(cb_routes)
         .layer(axum::middleware::from_fn(move |req, next| {
             orch8_api::auth::tenant_middleware(require_tenant, req, next)
         }))

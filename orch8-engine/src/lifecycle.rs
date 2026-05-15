@@ -132,6 +132,8 @@ pub async fn audit_event(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use orch8_storage::{AdminStore, InstanceStore};
+
     use chrono::Utc;
     use orch8_types::context::{ExecutionContext, RuntimeContext};
     use orch8_types::ids::{InstanceId, Namespace, SequenceId, TenantId};

@@ -25,7 +25,7 @@ use serde_json::json;
 use uuid::Uuid;
 
 use orch8_storage::sqlite::SqliteStorage;
-use orch8_storage::StorageBackend;
+use orch8_storage::{InstanceStore, WorkerStore};
 use orch8_types::context::ExecutionContext;
 use orch8_types::ids::{BlockId, InstanceId, Namespace, SequenceId, TenantId};
 use orch8_types::instance::{InstanceState, Priority, TaskInstance};

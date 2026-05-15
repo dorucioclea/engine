@@ -19,12 +19,14 @@ use serde_json::json;
 
 use orch8_engine::scheduler::check_human_input;
 use orch8_engine::signals::process_signals;
-use orch8_storage::{sqlite::SqliteStorage, StorageBackend};
+use orch8_storage::{
+    sqlite::SqliteStorage, InstanceStore, OutputStore, SequenceStore, SignalStore,
+};
 use orch8_types::context::{ExecutionContext, RuntimeContext};
 use orch8_types::ids::{BlockId, InstanceId, Namespace, SequenceId, TenantId};
 use orch8_types::instance::{InstanceState, Priority, TaskInstance};
 use orch8_types::sequence::{
-    BlockDefinition, HumanChoice, HumanInputDef, SequenceDefinition, StepDef,
+    BlockDefinition, HumanChoice, HumanInputDef, SequenceDefinition, SequenceStatus, StepDef,
 };
 use orch8_types::signal::{Signal, SignalType};
 use uuid::Uuid;
@@ -60,6 +62,7 @@ async fn setup(step: StepDef) -> (SqliteStorage, TaskInstance, StepDef) {
         name: "hitl-cov".into(),
         version: 1,
         deprecated: false,
+        status: SequenceStatus::default(),
         blocks: vec![block],
         interceptors: None,
         created_at: Utc::now(),

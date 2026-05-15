@@ -116,7 +116,7 @@ async fn save_interceptor_output(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use orch8_storage::sqlite::SqliteStorage;
+    use orch8_storage::{sqlite::SqliteStorage, OutputStore};
     use orch8_types::context::ExecutionContext;
     use orch8_types::ids::{InstanceId, Namespace, SequenceId, TenantId};
     use orch8_types::instance::{InstanceState, Priority, TaskInstance};

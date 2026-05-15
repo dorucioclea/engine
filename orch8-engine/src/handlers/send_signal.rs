@@ -88,7 +88,7 @@ pub(crate) async fn handle_send_signal(ctx: StepContext) -> Result<Value, StepEr
 mod tests {
     use super::*;
     use chrono::Utc;
-    use orch8_storage::{sqlite::SqliteStorage, StorageBackend};
+    use orch8_storage::{sqlite::SqliteStorage, InstanceStore, SignalStore, StorageBackend};
     use orch8_types::{
         context::{ExecutionContext, RuntimeContext},
         ids::{BlockId, InstanceId, Namespace, SequenceId, TenantId},

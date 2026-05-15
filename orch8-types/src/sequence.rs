@@ -5,6 +5,56 @@ use utoipa::ToSchema;
 
 use crate::ids::{BlockId, Namespace, SequenceId, TenantId};
 
+/// Lifecycle status for sequences: Draft → Staging → Production → Unpublished.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum SequenceStatus {
+    Draft,
+    Staging,
+    #[default]
+    Production,
+    Unpublished,
+}
+
+impl std::fmt::Display for SequenceStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Draft => f.write_str("draft"),
+            Self::Staging => f.write_str("staging"),
+            Self::Production => f.write_str("production"),
+            Self::Unpublished => f.write_str("unpublished"),
+        }
+    }
+}
+
+impl std::str::FromStr for SequenceStatus {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "draft" => Ok(Self::Draft),
+            "staging" => Ok(Self::Staging),
+            "production" => Ok(Self::Production),
+            "unpublished" => Ok(Self::Unpublished),
+            other => Err(format!("unknown sequence status: {other}")),
+        }
+    }
+}
+
+impl SequenceStatus {
+    pub fn valid_transitions(self) -> &'static [SequenceStatus] {
+        match self {
+            Self::Draft => &[Self::Staging, Self::Unpublished],
+            Self::Staging => &[Self::Production, Self::Unpublished],
+            Self::Production => &[Self::Unpublished],
+            Self::Unpublished => &[],
+        }
+    }
+
+    pub fn can_transition_to(self, target: Self) -> bool {
+        self.valid_transitions().contains(&target)
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct SequenceDefinition {
     pub id: SequenceId,
@@ -16,6 +66,8 @@ pub struct SequenceDefinition {
     /// Running instances bound to this version continue unaffected.
     #[serde(default)]
     pub deprecated: bool,
+    #[serde(default)]
+    pub status: SequenceStatus,
     pub blocks: Vec<BlockDefinition>,
     /// Lifecycle interceptors (before/after step, on-signal, on-complete, on-failure).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1143,6 +1195,7 @@ mod tests {
             name: "sample".into(),
             version: 1,
             deprecated: false,
+            status: SequenceStatus::default(),
             blocks,
             interceptors: None,
             created_at: chrono::Utc::now(),
@@ -1832,5 +1885,71 @@ mod tests {
         }
         let seq = sample_seq(vec![s]);
         assert!(seq.validate().is_ok());
+    }
+
+    #[test]
+    fn sequence_status_default_is_production() {
+        assert_eq!(SequenceStatus::default(), SequenceStatus::Production);
+    }
+
+    #[test]
+    fn sequence_status_display_and_parse() {
+        for status in [
+            SequenceStatus::Draft,
+            SequenceStatus::Staging,
+            SequenceStatus::Production,
+            SequenceStatus::Unpublished,
+        ] {
+            let s = status.to_string();
+            let parsed: SequenceStatus = s.parse().unwrap();
+            assert_eq!(parsed, status);
+        }
+    }
+
+    #[test]
+    fn sequence_status_parse_unknown_fails() {
+        assert!("bogus".parse::<SequenceStatus>().is_err());
+    }
+
+    #[test]
+    fn sequence_status_valid_transitions() {
+        assert!(SequenceStatus::Draft.can_transition_to(SequenceStatus::Staging));
+        assert!(SequenceStatus::Draft.can_transition_to(SequenceStatus::Unpublished));
+        assert!(!SequenceStatus::Draft.can_transition_to(SequenceStatus::Production));
+
+        assert!(SequenceStatus::Staging.can_transition_to(SequenceStatus::Production));
+        assert!(SequenceStatus::Staging.can_transition_to(SequenceStatus::Unpublished));
+        assert!(!SequenceStatus::Staging.can_transition_to(SequenceStatus::Draft));
+
+        assert!(SequenceStatus::Production.can_transition_to(SequenceStatus::Unpublished));
+        assert!(!SequenceStatus::Production.can_transition_to(SequenceStatus::Draft));
+        assert!(!SequenceStatus::Production.can_transition_to(SequenceStatus::Staging));
+
+        assert!(SequenceStatus::Unpublished.valid_transitions().is_empty());
+    }
+
+    #[test]
+    fn sequence_status_serde_round_trip() {
+        let status = SequenceStatus::Staging;
+        let json = serde_json::to_string(&status).unwrap();
+        assert_eq!(json, r#""staging""#);
+        let parsed: SequenceStatus = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, status);
+    }
+
+    #[test]
+    fn sequence_definition_default_status_deserialization() {
+        let json = r#"{
+            "id": "00000000-0000-0000-0000-000000000001",
+            "tenant_id": "t1",
+            "namespace": "default",
+            "name": "test",
+            "version": 1,
+            "deprecated": false,
+            "blocks": [],
+            "created_at": "2025-01-01T00:00:00Z"
+        }"#;
+        let seq: SequenceDefinition = serde_json::from_str(json).unwrap();
+        assert_eq!(seq.status, SequenceStatus::Production);
     }
 }

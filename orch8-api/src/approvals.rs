@@ -365,7 +365,9 @@ mod tests {
     use orch8_types::execution::{BlockType, ExecutionNode, NodeState};
     use orch8_types::ids::{ExecutionNodeId, InstanceId, Namespace, SequenceId, TenantId};
     use orch8_types::instance::{InstanceState, Priority, TaskInstance};
-    use orch8_types::sequence::{BlockDefinition, HumanInputDef, SequenceDefinition, StepDef};
+    use orch8_types::sequence::{
+        BlockDefinition, HumanInputDef, SequenceDefinition, SequenceStatus, StepDef,
+    };
     use std::time::Duration;
 
     fn make_step(id: &str, wait_for_input: Option<HumanInputDef>) -> StepDef {
@@ -397,6 +399,7 @@ mod tests {
             name: "test-seq".into(),
             version: 1,
             deprecated: false,
+            status: SequenceStatus::default(),
             blocks: vec![BlockDefinition::Step(Box::new(step))],
             interceptors: None,
             created_at: Utc::now(),

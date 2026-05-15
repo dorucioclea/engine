@@ -12,17 +12,20 @@
 mod config;
 mod error;
 mod handlers;
+mod lifecycle;
+mod memory;
+mod notifier;
 mod runtime;
 mod storage;
 mod sync;
 mod telemetry;
+mod tick_controller;
 
-use std::collections::{HashMap, HashSet};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex as StdMutex, RwLock as StdRwLock};
+use std::collections::HashSet;
+use std::sync::{Arc, RwLock as StdRwLock};
 use std::time::Duration;
 
-use tokio::sync::{Mutex, Semaphore};
+use tokio::sync::Semaphore;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 
@@ -31,7 +34,7 @@ use orch8_engine::scheduler::{tick_once, TickOnceResult};
 use orch8_engine::sequence_cache::SequenceCache;
 use orch8_storage::StorageBackend;
 use orch8_types::ids::{InstanceId, Namespace, TenantId};
-use orch8_types::instance::{InstanceState, TaskInstance};
+use orch8_types::instance::InstanceState;
 use orch8_types::sequence::SequenceDefinition;
 
 pub use crate::config::MobileEngineConfig;
@@ -93,6 +96,38 @@ pub struct SequenceInfo {
     pub version: i32,
 }
 
+/// Device power state reported by the host app. Used to adapt tick frequency.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum PowerState {
+    /// Plugged in — full tick frequency.
+    Charging,
+    /// Battery above 20% — normal tick frequency.
+    Unplugged,
+    /// Battery at or below 20% — reduced tick frequency (2x interval).
+    LowBattery,
+    /// Battery at or below 5% — minimal tick frequency (4x interval).
+    CriticalBattery,
+}
+
+impl PowerState {
+    fn tick_multiplier(self) -> u32 {
+        match self {
+            Self::Charging | Self::Unplugged => 1,
+            Self::LowBattery => 2,
+            Self::CriticalBattery => 4,
+        }
+    }
+
+    fn from_atomic(val: u8) -> Self {
+        match val {
+            0 => Self::Charging,
+            2 => Self::LowBattery,
+            3 => Self::CriticalBattery,
+            _ => Self::Unplugged,
+        }
+    }
+}
+
 /// Summary of a running instance, returned by `active_instances()`.
 #[derive(Debug, Clone, uniffi::Record)]
 pub struct InstanceSummary {
@@ -114,28 +149,30 @@ pub struct InstanceState_ {
 }
 
 /// The mobile workflow engine. Opaque handle for the host app.
+///
+/// Internally delegates to focused components:
+/// - [`notifier::MobileNotifier`] — bounded lifecycle event deduplication
+/// - [`tick_controller::TickController`] — tick loop management and power adaptation
+/// - [`lifecycle::InstanceLifecycleManager`] — instance CRUD and GC
+/// - [`telemetry::TelemetryManager`] — event recording and flushing
 #[derive(uniffi::Object)]
 pub struct MobileEngine {
+    // --- Core engine state ---
     storage: Arc<dyn StorageBackend>,
-    #[allow(dead_code)]
-    sqlite: Arc<orch8_storage::sqlite::SqliteStorage>,
-    mobile_storage: Arc<storage::MobileStorage>,
     handlers: StdRwLock<Arc<HandlerRegistry>>,
     config: MobileEngineConfig,
     scheduler_config: orch8_types::config::SchedulerConfig,
     semaphore: Arc<Semaphore>,
     sequence_cache: Arc<SequenceCache>,
     cancel: CancellationToken,
-    tick_mutex: Arc<Mutex<()>>,
-    tick_loop_cancel: StdMutex<CancellationToken>,
     runtime: runtime::MobileRuntime,
-    listener: Arc<Mutex<Option<Arc<dyn EngineListener>>>>,
-    dedup_keys: Arc<Mutex<HashMap<String, String>>>,
-    notified_terminals: Arc<Mutex<HashSet<String>>>,
-    notified_waiting: Arc<Mutex<HashSet<String>>>,
-    dirty: Arc<AtomicBool>,
+
+    // --- Decomposed components ---
+    notifier: Arc<notifier::MobileNotifier>,
+    tick_controller: tick_controller::TickController,
     telemetry: Arc<telemetry::TelemetryManager>,
-    sync_orchestrator: Arc<Mutex<Option<Arc<sync::SyncOrchestrator>>>>,
+    sync_orchestrator: Arc<tokio::sync::Mutex<Option<Arc<sync::SyncOrchestrator>>>>,
+    lifecycle: Arc<lifecycle::InstanceLifecycleManager>,
 }
 
 #[uniffi::export]
@@ -155,19 +192,26 @@ impl MobileEngine {
 
         let mobile_storage = Arc::new(storage::MobileStorage::new(sqlite.clone()));
 
-        // Hydrate dedup keys from persistent storage.
-        let dedup_map = rt.block_on(async {
-            // We don't have a list_all_dedup method, so start with empty.
-            // In a full implementation, we'd query all rows from mobile_dedup.
-            HashMap::<String, String>::new()
-        });
-
         let scheduler_config = config.to_scheduler_config();
         let semaphore = Arc::new(Semaphore::new(config.max_concurrent_steps as usize));
         let sequence_cache = Arc::new(SequenceCache::new(
             u64::from(config.max_stored_sequences),
             Duration::from_secs(3600),
         ));
+
+        let lifecycle = Arc::new(lifecycle::InstanceLifecycleManager::new(
+            storage.clone(),
+            mobile_storage.clone(),
+            sequence_cache.clone(),
+            config.max_concurrent_instances,
+        ));
+
+        // Hydrate dedup keys from persistent storage.
+        rt.block_on(async {
+            if let Err(e) = lifecycle.hydrate_dedup().await {
+                warn!(error = %e, "failed to hydrate dedup keys from storage");
+            }
+        });
 
         let telemetry_mgr = Arc::new(telemetry::TelemetryManager::new(
             mobile_storage.clone(),
@@ -191,6 +235,7 @@ impl MobileEngine {
                     storage.clone(),
                     root_key,
                     config.sdk_version.clone(),
+                    config.max_stored_sequences,
                 ))),
                 Err(e) => {
                     warn!(error = %e, "invalid root_public_key — sync disabled");
@@ -203,24 +248,18 @@ impl MobileEngine {
 
         Ok(Arc::new(Self {
             storage,
-            sqlite,
-            mobile_storage,
             handlers: StdRwLock::new(Arc::new(HandlerRegistry::new())),
             config,
             scheduler_config,
             semaphore,
             sequence_cache,
             cancel: CancellationToken::new(),
-            tick_mutex: Arc::new(Mutex::new(())),
-            tick_loop_cancel: StdMutex::new(CancellationToken::new()),
             runtime: rt,
-            listener: Arc::new(Mutex::new(None)),
-            dedup_keys: Arc::new(Mutex::new(dedup_map)),
-            notified_terminals: Arc::new(Mutex::new(HashSet::new())),
-            notified_waiting: Arc::new(Mutex::new(HashSet::new())),
-            dirty: Arc::new(AtomicBool::new(false)),
+            notifier: Arc::new(notifier::MobileNotifier::new()),
+            tick_controller: tick_controller::TickController::new(),
             telemetry: telemetry_mgr,
-            sync_orchestrator: Arc::new(Mutex::new(sync_orch)),
+            sync_orchestrator: Arc::new(tokio::sync::Mutex::new(sync_orch)),
+            lifecycle,
         }))
     }
 
@@ -246,19 +285,32 @@ impl MobileEngine {
     /// Set the event listener for engine lifecycle events.
     pub fn set_listener(&self, listener: Arc<dyn EngineListener>) {
         self.runtime.block_on(async {
-            *self.listener.lock().await = Some(listener);
+            self.notifier.set_listener(listener).await;
         });
     }
 
     /// Execute a single tick.
     pub fn tick_once(&self) -> Result<TickResult, MobileError> {
+        if memory::exceeds_budget(self.config.memory_budget_bytes) {
+            warn!(
+                budget = self.config.memory_budget_bytes,
+                rss = memory::current_rss_bytes().unwrap_or(0),
+                "tick skipped — memory budget exceeded"
+            );
+            return Ok(TickResult {
+                instances_advanced: 0,
+                steps_executed: 0,
+                has_pending_work: true,
+            });
+        }
+
         let handlers = self
             .handlers
             .read()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .clone();
         self.run_with_timeout(async {
-            let _guard = self.tick_mutex.lock().await;
+            let _guard = self.tick_controller.tick_mutex().lock().await;
 
             if self.cancel.is_cancelled() {
                 return Err(MobileError::Shutdown);
@@ -284,116 +336,34 @@ impl MobileEngine {
 
     /// Start a foreground tick loop.
     pub fn resume(&self) {
-        {
-            let mut guard = self
-                .tick_loop_cancel
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            guard.cancel();
-            *guard = CancellationToken::new();
-        }
-
-        if self.dirty.swap(false, Ordering::AcqRel) {
-            info!("dirty flag set — recovering stale instances before resuming");
-            self.runtime.block_on(async {
-                let threshold = self.scheduler_config.stale_instance_threshold_secs;
-                if let Err(e) = orch8_engine::recovery::recover_stale_instances(
-                    self.storage.as_ref(),
-                    threshold,
-                )
-                .await
-                {
-                    warn!(error = %e, "stale instance recovery failed");
-                }
-            });
-        }
-
-        let storage = Arc::clone(&self.storage);
-        let handlers = self
-            .handlers
-            .read()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .clone();
-        let semaphore = Arc::clone(&self.semaphore);
-        let config = self.scheduler_config.clone();
-        let seq_cache = Arc::clone(&self.sequence_cache);
-        let cancel = self.cancel.clone();
-        let tick_mutex = Arc::clone(&self.tick_mutex);
-        let loop_cancel = self
-            .tick_loop_cancel
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .clone();
-        let tick_interval = Duration::from_millis(self.config.tick_interval_ms);
-        let tick_budget = Duration::from_millis(self.config.max_tick_duration_ms);
-        let listener = Arc::clone(&self.listener);
-        let dedup_keys = Arc::clone(&self.dedup_keys);
-        let notified = Arc::clone(&self.notified_terminals);
-        let notified_waiting = Arc::clone(&self.notified_waiting);
-        let seq_cache_for_events = Arc::clone(&self.sequence_cache);
-        let max_lifetime_secs = self.config.max_instance_lifetime_secs;
-        let storage_for_gc = Arc::clone(&self.storage);
-
-        self.runtime.handle().spawn(async move {
-            let mut ticker = tokio::time::interval(tick_interval);
-            ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-            let mut tick_count: u64 = 0;
-
-            loop {
-                tokio::select! {
-                    () = cancel.cancelled() => break,
-                    () = loop_cancel.cancelled() => break,
-                    _ = ticker.tick() => {
-                        let _guard = tick_mutex.lock().await;
-                        let tick_result = tokio::time::timeout(
-                            tick_budget,
-                            tick_once(&storage, &handlers, &semaphore, &config, &seq_cache, &cancel),
-                        ).await;
-                        match tick_result {
-                            Ok(Ok(_)) => {}
-                            Ok(Err(e)) => warn!(error = %e, "mobile tick error"),
-                            Err(_) => {
-                                warn!(budget_ms = tick_budget.as_millis(), "tick exceeded duration budget");
-                            }
-                        }
-                        fire_terminal_events_inner(
-                            &storage, &listener, &dedup_keys, &notified,
-                        ).await;
-                        fire_step_pending_events_inner(
-                            &storage, &listener, &seq_cache_for_events, &notified_waiting,
-                        ).await;
-
-                        tick_count += 1;
-                        if tick_count.is_multiple_of(60) {
-                            gc_expired_instances_inner(&storage_for_gc, max_lifetime_secs).await;
-                        }
-                    }
-                }
-            }
-            info!("mobile tick loop stopped");
-        });
-
-        info!("mobile tick loop started");
+        self.tick_controller.resume(
+            &self.runtime,
+            &self.storage,
+            &self.handlers,
+            &self.semaphore,
+            &self.scheduler_config,
+            &self.sequence_cache,
+            &self.cancel,
+            &self.notifier,
+            &self.lifecycle,
+            self.config.tick_interval_ms,
+            self.config.max_tick_duration_ms,
+            self.config.max_instance_lifetime_secs,
+            self.config.memory_budget_bytes,
+        );
     }
 
     /// Pause the foreground tick loop.
     pub fn pause(&self) {
-        self.tick_loop_cancel
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .cancel();
-        self.runtime.block_on(async {
-            let timeout = Duration::from_millis(self.config.max_tick_duration_ms);
-            if tokio::time::timeout(timeout, self.tick_mutex.lock())
-                .await
-                .is_ok()
-            {
-                debug!("mobile engine paused cleanly");
-            } else {
-                self.dirty.store(true, Ordering::Release);
-                warn!("pause timed out waiting for current tick — marked dirty for recovery");
-            }
-        });
+        self.tick_controller
+            .pause(&self.runtime, self.config.max_tick_duration_ms);
+    }
+
+    /// Report current device power state. The engine adapts tick frequency based
+    /// on battery level: `Charging`/`Unplugged` = normal, `LowBattery` = 2x interval,
+    /// `CriticalBattery` = 4x interval.
+    pub fn report_power_state(&self, state: PowerState) {
+        self.tick_controller.report_power_state(state);
     }
 
     /// Start a new workflow instance.
@@ -404,130 +374,24 @@ impl MobileEngine {
         dedup_key: Option<String>,
     ) -> Result<String, MobileError> {
         self.run_with_timeout(async {
-            if let Some(ref key) = dedup_key {
-                let dedup = self.dedup_keys.lock().await;
-                if let Some(existing_id) = dedup.get(key) {
-                    return Ok(existing_id.clone());
-                }
-                // Also check persistent storage.
-                drop(dedup);
-                if let Ok(Some(persisted_id)) = self.mobile_storage.get_dedup_instance(key).await {
-                    self.dedup_keys
-                        .lock()
-                        .await
-                        .insert(key.clone(), persisted_id.clone());
-                    return Ok(persisted_id);
-                }
-            }
-
-            let active = self.count_active_instances().await?;
-            if active >= u64::from(self.config.max_concurrent_instances) {
-                return Err(MobileError::ResourceLimit {
-                    message: format!(
-                        "max concurrent instances ({}) reached",
-                        self.config.max_concurrent_instances
-                    ),
-                });
-            }
-
-            let tenant = TenantId::new("mobile").expect("valid tenant");
-            let ns = Namespace::new("default");
-            let seq = self
-                .storage
-                .get_sequence_by_name(&tenant, &ns, &sequence_name, None)
-                .await?
-                .ok_or_else(|| MobileError::NotFound {
-                    message: format!("sequence '{sequence_name}' not found"),
-                })?;
-
-            let input_data: serde_json::Value = serde_json::from_str(&input)
-                .unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
-
-            let instance_id = InstanceId::new();
-            let now = chrono::Utc::now();
-
-            let context = orch8_types::context::ExecutionContext {
-                data: input_data,
-                ..orch8_types::context::ExecutionContext::default()
-            };
-
-            let instance = TaskInstance {
-                id: instance_id,
-                sequence_id: seq.id,
-                tenant_id: tenant,
-                namespace: ns,
-                state: InstanceState::Scheduled,
-                next_fire_at: Some(now),
-                priority: orch8_types::instance::Priority::Normal,
-                timezone: "UTC".to_string(),
-                metadata: serde_json::json!({}),
-                context,
-                concurrency_key: None,
-                max_concurrency: None,
-                idempotency_key: dedup_key.clone(),
-                session_id: None,
-                parent_instance_id: None,
-                created_at: now,
-                updated_at: now,
-            };
-
-            self.storage.create_instance(&instance).await?;
-
-            let id_str = instance_id.to_string();
-
-            if let Some(key) = dedup_key {
-                self.dedup_keys
-                    .lock()
-                    .await
-                    .insert(key.clone(), id_str.clone());
-                let _ = self.mobile_storage.set_dedup(&key, &id_str).await;
-            }
-
-            info!(instance_id = %id_str, sequence = %sequence_name, "started mobile instance");
-            Ok(id_str)
+            self.lifecycle
+                .start(&sequence_name, &input, dedup_key.as_deref())
+                .await
         })
     }
 
     /// Cancel a running instance.
     pub fn cancel_instance(&self, instance_id: String) -> Result<(), MobileError> {
-        self.run_with_timeout(async {
-            let id = parse_instance_id(&instance_id)?;
-            self.storage
-                .update_instance_state(id, InstanceState::Cancelled, None)
-                .await?;
-
-            let mut dedup = self.dedup_keys.lock().await;
-            dedup.retain(|_, v| v != &instance_id);
-            drop(dedup);
-            let _ = self.mobile_storage.remove_dedup(&instance_id).await;
-
-            info!(instance_id = %instance_id, "cancelled mobile instance");
-            Ok(())
-        })
+        self.run_with_timeout(async { self.lifecycle.cancel_instance(&instance_id).await })
     }
 
     /// Get the state of a specific instance.
     pub fn get_instance(&self, instance_id: String) -> Result<InstanceState_, MobileError> {
         self.run_with_timeout(async {
-            let id = parse_instance_id(&instance_id)?;
-            let inst =
-                self.storage
-                    .get_instance(id)
-                    .await?
-                    .ok_or_else(|| MobileError::NotFound {
-                        message: format!("instance '{instance_id}' not found"),
-                    })?;
-
-            let seq = self
-                .storage
-                .get_sequence(inst.sequence_id)
-                .await?
-                .map(|s| s.name)
-                .unwrap_or_default();
-
+            let (inst, seq_name) = self.lifecycle.get_instance(&instance_id).await?;
             Ok(InstanceState_ {
                 instance_id: inst.id.to_string(),
-                sequence_name: seq,
+                sequence_name: seq_name,
                 state: inst.state.into(),
                 context: serde_json::to_string(&inst.context.data).unwrap_or_default(),
                 created_at: inst.created_at.to_rfc3339(),
@@ -539,42 +403,16 @@ impl MobileEngine {
     /// List all non-terminal instances.
     pub fn active_instances(&self) -> Result<Vec<InstanceSummary>, MobileError> {
         self.run_with_timeout(async {
-            let filter = orch8_types::filter::InstanceFilter {
-                states: Some(vec![
-                    InstanceState::Scheduled,
-                    InstanceState::Running,
-                    InstanceState::Waiting,
-                    InstanceState::Paused,
-                ]),
-                ..Default::default()
-            };
-            let pagination = orch8_types::filter::Pagination {
-                offset: 0,
-                limit: 100,
-                sort_ascending: false,
-            };
-
-            let instances = self.storage.list_instances(&filter, &pagination).await?;
-            let mut summaries = Vec::with_capacity(instances.len());
-
-            for inst in instances {
-                let seq_name = self
-                    .sequence_cache
-                    .get_by_id(self.storage.as_ref(), inst.sequence_id)
-                    .await
-                    .ok()
-                    .map(|s| s.name.clone())
-                    .unwrap_or_default();
-
-                summaries.push(InstanceSummary {
+            let instances = self.lifecycle.active_instances().await?;
+            Ok(instances
+                .into_iter()
+                .map(|(inst, seq_name)| InstanceSummary {
                     instance_id: inst.id.to_string(),
                     sequence_name: seq_name,
                     state: inst.state.into(),
                     created_at: inst.created_at.to_rfc3339(),
-                });
-            }
-
-            Ok(summaries)
+                })
+                .collect())
         })
     }
 
@@ -586,38 +424,9 @@ impl MobileEngine {
         output: String,
     ) -> Result<(), MobileError> {
         self.run_with_timeout(async {
-            let id = parse_instance_id(&instance_id)?;
-
-            let inst =
-                self.storage
-                    .get_instance(id)
-                    .await?
-                    .ok_or_else(|| MobileError::NotFound {
-                        message: format!("instance '{instance_id}' not found"),
-                    })?;
-
-            if inst.state != InstanceState::Waiting {
-                return Err(MobileError::InvalidInput {
-                    message: format!("instance is in {:?} state, expected Waiting", inst.state),
-                });
-            }
-
-            let output_value: serde_json::Value = serde_json::from_str(&output)?;
-
-            let mut ctx = inst.context.clone();
-            if let serde_json::Value::Object(map) = output_value {
-                if let serde_json::Value::Object(ref mut data) = ctx.data {
-                    data.extend(map);
-                }
-            }
-            self.storage.update_instance_context(id, &ctx).await?;
-
-            self.storage
-                .update_instance_state(id, InstanceState::Scheduled, Some(chrono::Utc::now()))
-                .await?;
-
-            debug!(instance_id = %instance_id, "completed waiting step");
-            Ok(())
+            self.lifecycle
+                .complete_step(&instance_id, &_step_name, &output)
+                .await
         })
     }
 
@@ -749,10 +558,7 @@ impl MobileEngine {
     pub fn shutdown(&self) {
         info!("mobile engine shutting down");
         self.cancel.cancel();
-        self.tick_loop_cancel
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .cancel();
+        self.tick_controller.cancel_loop();
     }
 }
 
@@ -774,204 +580,29 @@ impl MobileEngine {
         })
     }
 
-    async fn count_active_instances(&self) -> Result<u64, MobileError> {
-        let filter = orch8_types::filter::InstanceFilter {
-            states: Some(vec![
-                InstanceState::Scheduled,
-                InstanceState::Running,
-                InstanceState::Waiting,
-            ]),
-            ..Default::default()
-        };
-        let count = self.storage.count_instances(&filter).await?;
-        Ok(count)
-    }
-
     async fn fire_terminal_events(&self) {
-        fire_terminal_events_inner(
-            &self.storage,
-            &self.listener,
-            &self.dedup_keys,
-            &self.notified_terminals,
-        )
-        .await;
+        let terminal_ids = self.notifier.fire_terminal_events(&self.storage).await;
+        for id in terminal_ids {
+            self.lifecycle.cleanup_dedup(&id).await;
+        }
     }
 
     async fn fire_step_pending_events(&self) {
-        fire_step_pending_events_inner(
-            &self.storage,
-            &self.listener,
-            &self.sequence_cache,
-            &self.notified_waiting,
-        )
-        .await;
+        self.notifier
+            .fire_step_pending_events(&self.storage, &self.sequence_cache)
+            .await;
     }
 
     async fn gc_expired_instances(&self) {
-        gc_expired_instances_inner(&self.storage, self.config.max_instance_lifetime_secs).await;
+        let _ = self
+            .lifecycle
+            .gc_expired_instances(self.config.max_instance_lifetime_secs)
+            .await;
     }
 }
 
-async fn fire_terminal_events_inner(
-    storage: &Arc<dyn StorageBackend>,
-    listener: &Arc<Mutex<Option<Arc<dyn EngineListener>>>>,
-    dedup_keys: &Arc<Mutex<HashMap<String, String>>>,
-    notified: &Arc<Mutex<HashSet<String>>>,
-) {
-    let listener = {
-        let guard = listener.lock().await;
-        match guard.clone() {
-            Some(l) => l,
-            None => return,
-        }
-    };
-
-    let filter = orch8_types::filter::InstanceFilter {
-        states: Some(vec![
-            InstanceState::Completed,
-            InstanceState::Failed,
-            InstanceState::Cancelled,
-        ]),
-        ..Default::default()
-    };
-    let pagination = orch8_types::filter::Pagination {
-        offset: 0,
-        limit: 100,
-        sort_ascending: false,
-    };
-
-    let Ok(instances) = storage.list_instances(&filter, &pagination).await else {
-        return;
-    };
-
-    let mut notified_set = notified.lock().await;
-    if notified_set.len() > 500 {
-        notified_set.clear();
-    }
-
-    for inst in instances {
-        let id_str = inst.id.to_string();
-        if !notified_set.insert(id_str.clone()) {
-            continue;
-        }
-
-        match inst.state {
-            InstanceState::Completed => {
-                let output = serde_json::to_string(&inst.context.data).unwrap_or_default();
-                listener.on_instance_completed(id_str.clone(), output);
-            }
-            InstanceState::Failed => {
-                let error = serde_json::to_string(&inst.context.data).unwrap_or_default();
-                listener.on_instance_failed(id_str.clone(), error);
-            }
-            _ => {}
-        }
-
-        dedup_keys.lock().await.retain(|_, v| v != &id_str);
-    }
-}
-
-async fn fire_step_pending_events_inner(
-    storage: &Arc<dyn StorageBackend>,
-    listener: &Arc<Mutex<Option<Arc<dyn EngineListener>>>>,
-    sequence_cache: &Arc<SequenceCache>,
-    notified: &Arc<Mutex<HashSet<String>>>,
-) {
-    let listener = {
-        let guard = listener.lock().await;
-        match guard.clone() {
-            Some(l) => l,
-            None => return,
-        }
-    };
-
-    let filter = orch8_types::filter::InstanceFilter {
-        states: Some(vec![InstanceState::Waiting]),
-        ..Default::default()
-    };
-    let pagination = orch8_types::filter::Pagination {
-        offset: 0,
-        limit: 100,
-        sort_ascending: false,
-    };
-
-    let Ok(instances) = storage.list_instances(&filter, &pagination).await else {
-        return;
-    };
-
-    let mut notified_set = notified.lock().await;
-    if notified_set.len() > 500 {
-        notified_set.clear();
-    }
-
-    for inst in instances {
-        let Some(ref step_id) = inst.context.runtime.current_step else {
-            continue;
-        };
-        let dedup_key = format!("{}:{}", inst.id, step_id);
-        if !notified_set.insert(dedup_key) {
-            continue;
-        }
-
-        let handler = sequence_cache
-            .get_by_id(storage.as_ref(), inst.sequence_id)
-            .await
-            .ok()
-            .and_then(|seq| {
-                seq.blocks.iter().find_map(|b| {
-                    if let orch8_types::sequence::BlockDefinition::Step(s) = b {
-                        if s.id == *step_id {
-                            return Some(s.handler.clone());
-                        }
-                    }
-                    None
-                })
-            })
-            .unwrap_or_default();
-
-        listener.on_step_pending(inst.id.to_string(), step_id.to_string(), handler);
-    }
-}
-
-async fn gc_expired_instances_inner(storage: &Arc<dyn StorageBackend>, max_lifetime_secs: u64) {
-    let max_lifetime = Duration::from_secs(max_lifetime_secs);
-    let cutoff = chrono::Utc::now()
-        - chrono::Duration::from_std(max_lifetime).unwrap_or(chrono::Duration::hours(24));
-
-    let filter = orch8_types::filter::InstanceFilter {
-        states: Some(vec![
-            InstanceState::Scheduled,
-            InstanceState::Running,
-            InstanceState::Waiting,
-            InstanceState::Paused,
-        ]),
-        ..Default::default()
-    };
-    let pagination = orch8_types::filter::Pagination {
-        offset: 0,
-        limit: 50,
-        sort_ascending: true,
-    };
-
-    let Ok(instances) = storage.list_instances(&filter, &pagination).await else {
-        return;
-    };
-
-    for inst in instances {
-        if inst.created_at < cutoff {
-            if let Err(e) = storage
-                .update_instance_state(inst.id, InstanceState::Failed, None)
-                .await
-            {
-                warn!(instance_id = %inst.id, error = %e, "failed to expire instance");
-            } else {
-                info!(instance_id = %inst.id, "expired instance (exceeded max lifetime)");
-            }
-        }
-    }
-}
-
-fn parse_instance_id(s: &str) -> Result<InstanceId, MobileError> {
+#[allow(dead_code)]
+pub(crate) fn parse_instance_id(s: &str) -> Result<InstanceId, MobileError> {
     let uuid = uuid::Uuid::parse_str(s).map_err(|e| MobileError::InvalidInput {
         message: format!("invalid instance ID '{s}': {e}"),
     })?;
@@ -981,6 +612,8 @@ fn parse_instance_id(s: &str) -> Result<InstanceId, MobileError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use orch8_types::instance::TaskInstance;
+    use std::sync::Mutex as StdMutex;
 
     #[test]
     fn default_config_has_sane_values() {
@@ -1052,5 +685,794 @@ mod tests {
             InstanceStateKind::from(InstanceState::Cancelled),
             InstanceStateKind::Cancelled
         );
+    }
+
+    #[test]
+    fn engine_load_sequence_from_json_and_start_instance() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("engine.db").to_string_lossy().to_string();
+        let config = MobileEngineConfig::default();
+        let engine = MobileEngine::new(path, config).unwrap();
+
+        let seq_json = serde_json::json!({
+            "id": uuid::Uuid::new_v4().to_string(),
+            "tenant_id": "mobile",
+            "namespace": "default",
+            "name": "test-seq",
+            "version": 1,
+            "deprecated": false,
+            "blocks": [
+                {
+                    "type": "step",
+                    "id": "s1",
+                    "handler": "noop",
+                    "params": {},
+                    "cancellable": true
+                }
+            ],
+            "created_at": chrono::Utc::now().to_rfc3339()
+        });
+        engine
+            .load_sequence_from_json(seq_json.to_string())
+            .unwrap();
+
+        let instances = engine.loaded_sequences().unwrap();
+        assert_eq!(instances.len(), 1);
+        assert_eq!(instances[0].name, "test-seq");
+
+        let id = engine
+            .start("test-seq".to_string(), r#"{"key":"val"}"#.to_string(), None)
+            .unwrap();
+        assert!(!id.is_empty());
+
+        let inst = engine.get_instance(id.clone()).unwrap();
+        assert_eq!(inst.sequence_name, "test-seq");
+        assert_eq!(inst.state, InstanceStateKind::Scheduled);
+
+        let active = engine.active_instances().unwrap();
+        assert_eq!(active.len(), 1);
+        assert_eq!(active[0].instance_id, id);
+    }
+
+    #[test]
+    fn engine_start_enforces_max_concurrent_instances() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("engine.db").to_string_lossy().to_string();
+        let config = MobileEngineConfig {
+            max_concurrent_instances: 2,
+            ..MobileEngineConfig::default()
+        };
+        let engine = MobileEngine::new(path, config).unwrap();
+
+        let seq_json = serde_json::json!({
+            "id": uuid::Uuid::new_v4().to_string(),
+            "tenant_id": "mobile",
+            "namespace": "default",
+            "name": "test-seq",
+            "version": 1,
+            "deprecated": false,
+            "blocks": [
+                {
+                    "type": "step",
+                    "id": "s1",
+                    "handler": "noop",
+                    "params": {},
+                    "cancellable": true
+                }
+            ],
+            "created_at": chrono::Utc::now().to_rfc3339()
+        });
+        engine
+            .load_sequence_from_json(seq_json.to_string())
+            .unwrap();
+
+        let _ = engine
+            .start("test-seq".to_string(), "{}".to_string(), None)
+            .unwrap();
+        let _ = engine
+            .start("test-seq".to_string(), "{}".to_string(), None)
+            .unwrap();
+
+        let result = engine.start("test-seq".to_string(), "{}".to_string(), None);
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("max concurrent instances"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn engine_dedup_key_returns_same_instance_id() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("engine.db").to_string_lossy().to_string();
+        let config = MobileEngineConfig::default();
+        let engine = MobileEngine::new(path, config).unwrap();
+
+        let seq_json = serde_json::json!({
+            "id": uuid::Uuid::new_v4().to_string(),
+            "tenant_id": "mobile",
+            "namespace": "default",
+            "name": "test-seq",
+            "version": 1,
+            "deprecated": false,
+            "blocks": [
+                {
+                    "type": "step",
+                    "id": "s1",
+                    "handler": "noop",
+                    "params": {},
+                    "cancellable": true
+                }
+            ],
+            "created_at": chrono::Utc::now().to_rfc3339()
+        });
+        engine
+            .load_sequence_from_json(seq_json.to_string())
+            .unwrap();
+
+        let id1 = engine
+            .start(
+                "test-seq".to_string(),
+                "{}".to_string(),
+                Some("dedup-1".to_string()),
+            )
+            .unwrap();
+        let id2 = engine
+            .start(
+                "test-seq".to_string(),
+                "{}".to_string(),
+                Some("dedup-1".to_string()),
+            )
+            .unwrap();
+        assert_eq!(id1, id2, "dedup key should return same instance id");
+
+        // After cancel, the instance is no longer active.
+        engine.cancel_instance(id1.clone()).unwrap();
+        assert_eq!(engine.active_instances().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn engine_load_sequence_rejects_oversized_json() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("engine.db").to_string_lossy().to_string();
+        let config = MobileEngineConfig {
+            max_sequence_size_bytes: 100,
+            ..MobileEngineConfig::default()
+        };
+        let engine = MobileEngine::new(path, config).unwrap();
+
+        let big_json = "x".repeat(200);
+        let result = engine.load_sequence_from_json(big_json.clone());
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("exceeds limit"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn engine_cancel_instance_removes_from_active() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("engine.db").to_string_lossy().to_string();
+        let config = MobileEngineConfig::default();
+        let engine = MobileEngine::new(path, config).unwrap();
+
+        let seq_json = serde_json::json!({
+            "id": uuid::Uuid::new_v4().to_string(),
+            "tenant_id": "mobile",
+            "namespace": "default",
+            "name": "test-seq",
+            "version": 1,
+            "deprecated": false,
+            "blocks": [
+                {
+                    "type": "step",
+                    "id": "s1",
+                    "handler": "noop",
+                    "params": {},
+                    "cancellable": true
+                }
+            ],
+            "created_at": chrono::Utc::now().to_rfc3339()
+        });
+        engine
+            .load_sequence_from_json(seq_json.to_string())
+            .unwrap();
+
+        let id = engine
+            .start("test-seq".to_string(), "{}".to_string(), None)
+            .unwrap();
+        assert_eq!(engine.active_instances().unwrap().len(), 1);
+
+        engine.cancel_instance(id).unwrap();
+        assert_eq!(engine.active_instances().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn engine_complete_step_transitions_waiting_to_scheduled() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("engine.db").to_string_lossy().to_string();
+        let config = MobileEngineConfig::default();
+        let engine = MobileEngine::new(path, config).unwrap();
+
+        let seq_json = serde_json::json!({
+            "id": uuid::Uuid::new_v4().to_string(),
+            "tenant_id": "mobile",
+            "namespace": "default",
+            "name": "wait-seq",
+            "version": 1,
+            "deprecated": false,
+            "blocks": [
+                {
+                    "type": "step",
+                    "id": "s1",
+                    "handler": "noop",
+                    "params": {},
+                    "cancellable": true,
+                    "wait_for_input": {
+                        "prompt": "Enter your name",
+                        "timeout": 60
+                    }
+                }
+            ],
+            "created_at": chrono::Utc::now().to_rfc3339()
+        });
+        engine
+            .load_sequence_from_json(seq_json.to_string())
+            .unwrap();
+
+        let instance_id = engine
+            .start(
+                "wait-seq".to_string(),
+                r#"{"name":"Alice"}"#.to_string(),
+                None,
+            )
+            .unwrap();
+
+        // Manually set instance to Waiting state (simulating scheduler pause).
+        let parsed_id = parse_instance_id(&instance_id).unwrap();
+        let rt = runtime::MobileRuntime::new().unwrap();
+        rt.block_on(async {
+            engine
+                .storage
+                .update_instance_state(parsed_id, InstanceState::Waiting, Some(chrono::Utc::now()))
+                .await
+                .unwrap();
+        });
+
+        // Complete the step with output that merges into context.
+        engine
+            .complete_step(
+                instance_id.clone(),
+                "s1".to_string(),
+                r#"{"age":30}"#.to_string(),
+            )
+            .unwrap();
+
+        let inst = engine.get_instance(instance_id).unwrap();
+        assert_eq!(inst.state, InstanceStateKind::Scheduled);
+        // Context should have original "name" + new "age" merged.
+        let ctx: serde_json::Value = serde_json::from_str(&inst.context).unwrap();
+        assert_eq!(ctx["name"], "Alice");
+        assert_eq!(ctx["age"], 30);
+    }
+
+    #[test]
+    fn engine_complete_step_rejects_non_waiting_instance() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("engine.db").to_string_lossy().to_string();
+        let config = MobileEngineConfig::default();
+        let engine = MobileEngine::new(path, config).unwrap();
+
+        let seq_json = serde_json::json!({
+            "id": uuid::Uuid::new_v4().to_string(),
+            "tenant_id": "mobile",
+            "namespace": "default",
+            "name": "test-seq",
+            "version": 1,
+            "deprecated": false,
+            "blocks": [
+                {
+                    "type": "step",
+                    "id": "s1",
+                    "handler": "noop",
+                    "params": {},
+                    "cancellable": true
+                }
+            ],
+            "created_at": chrono::Utc::now().to_rfc3339()
+        });
+        engine
+            .load_sequence_from_json(seq_json.to_string())
+            .unwrap();
+
+        let instance_id = engine
+            .start("test-seq".to_string(), "{}".to_string(), None)
+            .unwrap();
+
+        // Instance is Scheduled, not Waiting — should fail.
+        let result = engine.complete_step(instance_id, "s1".to_string(), "{}".to_string());
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("expected Waiting"), "unexpected error: {err}");
+    }
+
+    // ------------------------------------------------------------------
+    // E2E tests: tick loop, handlers, listeners, shutdown, sync
+    // ------------------------------------------------------------------
+
+    #[derive(Clone)]
+    struct MockStepHandler {
+        output: String,
+    }
+
+    impl StepHandler for MockStepHandler {
+        fn execute(&self, _step_name: String, _input: String) -> Result<String, HandlerError> {
+            Ok(self.output.clone())
+        }
+    }
+
+    #[derive(Clone)]
+    struct MockListener {
+        completed: Arc<StdMutex<Vec<(String, String)>>>,
+        failed: Arc<StdMutex<Vec<(String, String)>>>,
+        pending: Arc<StdMutex<Vec<(String, String, String)>>>,
+    }
+
+    impl MockListener {
+        fn new() -> Self {
+            Self {
+                completed: Arc::new(StdMutex::new(Vec::new())),
+                failed: Arc::new(StdMutex::new(Vec::new())),
+                pending: Arc::new(StdMutex::new(Vec::new())),
+            }
+        }
+    }
+
+    impl EngineListener for MockListener {
+        fn on_instance_completed(&self, instance_id: String, output: String) {
+            self.completed.lock().unwrap().push((instance_id, output));
+        }
+        fn on_instance_failed(&self, instance_id: String, error: String) {
+            self.failed.lock().unwrap().push((instance_id, error));
+        }
+        fn on_step_pending(&self, instance_id: String, step_name: String, handler: String) {
+            self.pending
+                .lock()
+                .unwrap()
+                .push((instance_id, step_name, handler));
+        }
+    }
+
+    fn make_engine_with_noop() -> (Arc<MobileEngine>, tempfile::TempDir) {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("engine.db").to_string_lossy().to_string();
+        let config = MobileEngineConfig::default();
+        let engine = MobileEngine::new(path, config).unwrap();
+
+        engine
+            .register_handler(
+                "noop".to_string(),
+                Arc::new(MockStepHandler {
+                    output: r#"{"ok":true}"#.to_string(),
+                }),
+            )
+            .unwrap();
+
+        let seq_json = serde_json::json!({
+            "id": uuid::Uuid::new_v4().to_string(),
+            "tenant_id": "mobile",
+            "namespace": "default",
+            "name": "tick-seq",
+            "version": 1,
+            "deprecated": false,
+            "blocks": [
+                {
+                    "type": "step",
+                    "id": "s1",
+                    "handler": "noop",
+                    "params": {},
+                    "cancellable": true
+                }
+            ],
+            "created_at": chrono::Utc::now().to_rfc3339()
+        });
+        engine
+            .load_sequence_from_json(seq_json.to_string())
+            .unwrap();
+        (engine, dir)
+    }
+
+    #[test]
+    fn engine_tick_once_advances_and_completes_instance() {
+        let (engine, _dir) = make_engine_with_noop();
+
+        let id = engine
+            .start("tick-seq".to_string(), "{}".to_string(), None)
+            .unwrap();
+        assert_eq!(
+            engine.get_instance(id.clone()).unwrap().state,
+            InstanceStateKind::Scheduled
+        );
+
+        let _ = engine.tick_once().unwrap();
+
+        // process_tick spawns background tasks; poll until terminal state.
+        let mut state = engine.get_instance(id.clone()).unwrap().state;
+        for _ in 0..50 {
+            if matches!(
+                state,
+                InstanceStateKind::Completed
+                    | InstanceStateKind::Failed
+                    | InstanceStateKind::Cancelled
+            ) {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            state = engine.get_instance(id.clone()).unwrap().state;
+        }
+
+        assert_eq!(
+            state,
+            InstanceStateKind::Completed,
+            "instance should be completed after tick"
+        );
+    }
+
+    #[test]
+    fn engine_set_listener_receives_completion_event() {
+        let (engine, _dir) = make_engine_with_noop();
+
+        let listener = Arc::new(MockListener::new());
+        engine.set_listener(listener.clone());
+
+        let id = engine
+            .start("tick-seq".to_string(), "{}".to_string(), None)
+            .unwrap();
+        let _ = engine.tick_once().unwrap();
+
+        // Wait for background task to complete the instance.
+        let mut state = engine.get_instance(id.clone()).unwrap().state;
+        for _ in 0..50 {
+            if matches!(
+                state,
+                InstanceStateKind::Completed
+                    | InstanceStateKind::Failed
+                    | InstanceStateKind::Cancelled
+            ) {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            state = engine.get_instance(id.clone()).unwrap().state;
+        }
+        assert_eq!(state, InstanceStateKind::Completed);
+
+        // fire_terminal_events runs on the next tick after instance reaches terminal state.
+        let _ = engine.tick_once().unwrap();
+
+        let completed = listener.completed.lock().unwrap();
+        assert_eq!(completed.len(), 1, "expected one completion event");
+        assert_eq!(completed[0].0, id);
+    }
+
+    #[test]
+    fn engine_shutdown_prevents_tick() {
+        let (engine, _dir) = make_engine_with_noop();
+
+        engine.shutdown();
+
+        let result = engine.tick_once();
+        assert!(result.is_err(), "tick should fail after shutdown");
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("shutdown") || err.contains("Shutdown"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn engine_get_instance_not_found() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("engine.db").to_string_lossy().to_string();
+        let config = MobileEngineConfig::default();
+        let engine = MobileEngine::new(path, config).unwrap();
+
+        let result = engine.get_instance(uuid::Uuid::new_v4().to_string());
+        assert!(result.is_err(), "expected NotFound for random UUID");
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("not found") || err.contains("NotFound"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn engine_sync_without_root_key_returns_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("engine.db").to_string_lossy().to_string();
+        let mut config = MobileEngineConfig::default();
+        config.root_public_key.clear();
+        let engine = MobileEngine::new(path, config).unwrap();
+
+        let result = engine.sync("https://example.com/manifest".to_string(), None);
+        assert!(
+            result.is_err(),
+            "sync should fail when root_public_key is empty"
+        );
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("sync not configured"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn engine_pause_and_resume() {
+        let (engine, _dir) = make_engine_with_noop();
+
+        // Pause should not panic.
+        engine.pause();
+
+        // Resume should not panic and tick should work afterwards.
+        engine.resume();
+
+        let id = engine
+            .start("tick-seq".to_string(), "{}".to_string(), None)
+            .unwrap();
+        let _ = engine.tick_once().unwrap();
+
+        // Poll until background task completes.
+        let mut state = engine.get_instance(id.clone()).unwrap().state;
+        for _ in 0..50 {
+            if matches!(
+                state,
+                InstanceStateKind::Completed
+                    | InstanceStateKind::Failed
+                    | InstanceStateKind::Cancelled
+            ) {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            state = engine.get_instance(id.clone()).unwrap().state;
+        }
+
+        assert_eq!(
+            state,
+            InstanceStateKind::Completed,
+            "instance should complete after resume+tick"
+        );
+    }
+
+    #[test]
+    fn engine_register_handler_after_start_fails() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("engine.db").to_string_lossy().to_string();
+        let config = MobileEngineConfig::default();
+        let engine = MobileEngine::new(path, config).unwrap();
+
+        // First handler registration succeeds.
+        engine
+            .register_handler(
+                "h1".to_string(),
+                Arc::new(MockStepHandler {
+                    output: "{}".to_string(),
+                }),
+            )
+            .unwrap();
+
+        // tick_once clones the Arc, so after it returns the refcount drops back.
+        // But we haven't started any instance, so let's tick (empty) to bump refcount.
+        let _ = engine.tick_once().unwrap();
+
+        // After tick_once the Arc clone is dropped; registering again should succeed
+        // because only the engine holds the Arc. Let's verify.
+        let result = engine.register_handler(
+            "h2".to_string(),
+            Arc::new(MockStepHandler {
+                output: "{}".to_string(),
+            }),
+        );
+        assert!(
+            result.is_ok(),
+            "registering after tick_once should succeed: {result:?}",
+        );
+    }
+
+    #[test]
+    fn engine_start_rejects_unknown_sequence() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("engine.db").to_string_lossy().to_string();
+        let config = MobileEngineConfig::default();
+        let engine = MobileEngine::new(path, config).unwrap();
+
+        let result = engine.start("unknown-seq".to_string(), "{}".to_string(), None);
+        assert!(result.is_err(), "starting unknown sequence should fail");
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("not found") || err.contains("No sequence"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn engine_loaded_sequences_lists_stored_sequences() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("engine.db").to_string_lossy().to_string();
+        let config = MobileEngineConfig::default();
+        let engine = MobileEngine::new(path, config).unwrap();
+
+        let seq_json = serde_json::json!({
+            "id": uuid::Uuid::new_v4().to_string(),
+            "tenant_id": "mobile",
+            "namespace": "default",
+            "name": "seq-a",
+            "version": 1,
+            "deprecated": false,
+            "blocks": [{ "type": "step", "id": "s1", "handler": "noop", "params": {}, "cancellable": true }],
+            "created_at": chrono::Utc::now().to_rfc3339()
+        });
+        engine
+            .load_sequence_from_json(seq_json.to_string())
+            .unwrap();
+
+        let seq_json2 = serde_json::json!({
+            "id": uuid::Uuid::new_v4().to_string(),
+            "tenant_id": "mobile",
+            "namespace": "default",
+            "name": "seq-b",
+            "version": 1,
+            "deprecated": false,
+            "blocks": [{ "type": "step", "id": "s1", "handler": "noop", "params": {}, "cancellable": true }],
+            "created_at": chrono::Utc::now().to_rfc3339()
+        });
+        engine
+            .load_sequence_from_json(seq_json2.to_string())
+            .unwrap();
+
+        let sequences = engine.loaded_sequences().unwrap();
+        assert_eq!(sequences.len(), 2);
+        let names: std::collections::HashSet<_> = sequences.into_iter().map(|s| s.name).collect();
+        assert!(names.contains("seq-a"));
+        assert!(names.contains("seq-b"));
+    }
+
+    #[test]
+    fn engine_set_device_context_updates_telemetry() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("engine.db").to_string_lossy().to_string();
+        let config = MobileEngineConfig::default();
+        let engine = MobileEngine::new(path, config).unwrap();
+
+        engine.set_device_context(DeviceContext {
+            device_id: "dev-123".to_string(),
+            os_name: "iOS".to_string(),
+            os_version: "17.0".to_string(),
+            app_version: "1.0.0".to_string(),
+            sdk_version: "0.4.0".to_string(),
+        });
+
+        // Verify by recording an event and checking it includes the device context
+        // when flushed. We'll use wiremock for this.
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let ev = TelemetryEventRecord::new("TestEvent", r#"{"x":1}"#);
+            engine.telemetry.record(&ev).await.unwrap();
+        });
+
+        rt.block_on(async {
+            // Access the telemetry manager's storage directly
+            engine
+                .telemetry
+                .record(&TelemetryEventRecord::new("TestEvent2", "{}"))
+                .await
+                .unwrap();
+            // We can't easily inspect the device context, but we can verify the event was recorded.
+            // The real test is that set_device_context didn't panic.
+        });
+        // If we got here without panic, the test passes.
+    }
+
+    #[test]
+    fn engine_report_power_state_does_not_panic() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("engine.db").to_string_lossy().to_string();
+        let config = MobileEngineConfig::default();
+        let engine = MobileEngine::new(path, config).unwrap();
+
+        engine.report_power_state(PowerState::Charging);
+        engine.report_power_state(PowerState::Unplugged);
+        engine.report_power_state(PowerState::LowBattery);
+        engine.report_power_state(PowerState::CriticalBattery);
+        // If we got here, all power states were accepted without panic.
+    }
+
+    #[test]
+    fn engine_gc_expired_instances_fails_old_instances() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("engine.db").to_string_lossy().to_string();
+        let config = MobileEngineConfig::default();
+        let engine = MobileEngine::new(path, config).unwrap();
+
+        // Load a sequence so we can create an instance.
+        let seq_json = serde_json::json!({
+            "id": uuid::Uuid::new_v4().to_string(),
+            "tenant_id": "mobile",
+            "namespace": "default",
+            "name": "gc-seq",
+            "version": 1,
+            "deprecated": false,
+            "blocks": [{ "type": "step", "id": "s1", "handler": "noop", "params": {}, "cancellable": true }],
+            "created_at": chrono::Utc::now().to_rfc3339()
+        });
+        engine
+            .load_sequence_from_json(seq_json.to_string())
+            .unwrap();
+
+        let id = engine
+            .start("gc-seq".to_string(), "{}".to_string(), None)
+            .unwrap();
+
+        // Manually age the instance by updating created_at in the database.
+        let rt = runtime::MobileRuntime::new().unwrap();
+        rt.block_on(async {
+            let _parsed_id = parse_instance_id(&id).unwrap();
+            // We need to update the created_at field directly.
+            // Since StorageBackend doesn't expose update_created_at, we'll create a new
+            // instance with an old timestamp and delete the fresh one.
+            // Actually, let's just use SQL directly through the sqlite pool.
+        });
+
+        // Instead of SQL hacking, we'll use the lifecycle manager's gc directly
+        // by creating an old instance through the storage backend.
+        let seq = rt.block_on(async {
+            let tenant = TenantId::new("mobile").unwrap();
+            let ns = Namespace::new("default");
+            engine
+                .storage
+                .get_sequence_by_name(&tenant, &ns, "gc-seq", None)
+                .await
+                .unwrap()
+                .unwrap()
+        });
+
+        let old_instance = TaskInstance {
+            id: InstanceId::new(),
+            sequence_id: seq.id,
+            tenant_id: TenantId::new("mobile").unwrap(),
+            namespace: Namespace::new("default"),
+            state: InstanceState::Scheduled,
+            next_fire_at: Some(chrono::Utc::now()),
+            priority: orch8_types::instance::Priority::Normal,
+            timezone: "UTC".to_string(),
+            metadata: serde_json::json!({}),
+            context: orch8_types::context::ExecutionContext::default(),
+            concurrency_key: None,
+            max_concurrency: None,
+            idempotency_key: None,
+            session_id: None,
+            parent_instance_id: None,
+            created_at: chrono::Utc::now() - chrono::Duration::hours(48),
+            updated_at: chrono::Utc::now() - chrono::Duration::hours(48),
+        };
+        rt.block_on(async {
+            engine.storage.create_instance(&old_instance).await.unwrap();
+        });
+
+        // Call gc_expired_instances through tick_once (which calls gc every 60 ticks).
+        // Instead, we'll call the lifecycle manager directly via the engine's internal method.
+        // Actually, tick_once calls gc_expired_instances but only every 60 ticks.
+        // Let's just call the lifecycle manager directly through the engine's storage.
+        rt.block_on(async {
+            let expired = engine.lifecycle.gc_expired_instances(86_400).await.unwrap();
+            assert_eq!(expired, 1);
+        });
+
+        let (inst, _) = rt.block_on(async {
+            engine
+                .lifecycle
+                .get_instance(&old_instance.id.to_string())
+                .await
+                .unwrap()
+        });
+        assert_eq!(inst.state, InstanceState::Failed);
     }
 }

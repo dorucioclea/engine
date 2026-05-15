@@ -116,6 +116,10 @@ pub async fn handle_llm_call(ctx: StepContext) -> Result<Value, StepError> {
     let api_key = resolve_api_key(&ctx.params, provider)?;
     let base = resolve_base_url(&ctx.params, provider);
 
+    if !super::builtin::is_url_safe(&base).await {
+        return Err(permanent(format!("base_url is not allowed: {base}")));
+    }
+
     if provider == "anthropic" {
         anthropic::call_anthropic(&ctx.params, &api_key, &base).await
     } else {

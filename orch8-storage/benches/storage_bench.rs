@@ -6,13 +6,15 @@ use serde_json::json;
 use uuid::Uuid;
 
 use orch8_storage::sqlite::SqliteStorage;
-use orch8_storage::StorageBackend;
+use orch8_storage::{
+    ExecutionTreeStore, InstanceStore, OutputStore, SequenceStore, SignalStore, WorkerStore,
+};
 use orch8_types::context::ExecutionContext;
 use orch8_types::execution::{BlockType, ExecutionNode, NodeState};
 use orch8_types::ids::{BlockId, ExecutionNodeId, InstanceId, Namespace, SequenceId, TenantId};
 use orch8_types::instance::{InstanceState, Priority, TaskInstance};
 use orch8_types::output::BlockOutput;
-use orch8_types::sequence::{BlockDefinition, SequenceDefinition, StepDef};
+use orch8_types::sequence::{BlockDefinition, SequenceDefinition, SequenceStatus, StepDef};
 use orch8_types::signal::{Signal, SignalType};
 use orch8_types::worker::{WorkerTask, WorkerTaskState};
 
@@ -24,6 +26,7 @@ fn make_sequence() -> SequenceDefinition {
         name: "bench_seq".into(),
         version: 1,
         deprecated: false,
+        status: SequenceStatus::default(),
         blocks: vec![BlockDefinition::Step(Box::new(StepDef {
             id: BlockId::new("s1"),
             handler: "noop".into(),

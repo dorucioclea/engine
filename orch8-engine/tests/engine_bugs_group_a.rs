@@ -29,14 +29,17 @@ use serde_json::json;
 use orch8_engine::evaluator;
 use orch8_engine::handlers::param_resolve::OutputsSnapshot;
 use orch8_engine::handlers::HandlerRegistry;
-use orch8_storage::{sqlite::SqliteStorage, StorageBackend};
+use orch8_storage::{
+    sqlite::SqliteStorage, ExecutionTreeStore, InstanceStore, OutputStore, SequenceStore,
+    SignalStore, StorageBackend, WorkerStore,
+};
 use orch8_types::context::{ExecutionContext, RuntimeContext};
 use orch8_types::execution::NodeState;
 use orch8_types::ids::{BlockId, InstanceId, Namespace, SequenceId, TenantId};
 use orch8_types::instance::{InstanceState, Priority, TaskInstance};
 use orch8_types::sequence::{
-    BlockDefinition, ForEachDef, LoopDef, ParallelDef, RaceDef, SequenceDefinition, StepDef,
-    TryCatchDef,
+    BlockDefinition, ForEachDef, LoopDef, ParallelDef, RaceDef, SequenceDefinition, SequenceStatus,
+    StepDef, TryCatchDef,
 };
 
 // --------------------------------------------------------------------------
@@ -112,6 +115,7 @@ async fn setup_tree(
         name: "bug-repro".into(),
         version: 1,
         deprecated: false,
+        status: SequenceStatus::default(),
         blocks: blocks.clone(),
         interceptors: None,
         created_at: Utc::now(),
@@ -1356,6 +1360,7 @@ async fn a6_reap_stale_worker_tasks_honours_small_threshold() {
         name: "reap-test".into(),
         version: 1,
         deprecated: false,
+        status: SequenceStatus::default(),
         blocks: vec![mk_step("step", "test.handler")],
         interceptors: None,
         created_at: Utc::now(),
@@ -1639,6 +1644,7 @@ async fn a10_sub_sequence_links_parent_and_propagates_outputs() {
         name: "child-seq".into(),
         version: 1,
         deprecated: false,
+        status: SequenceStatus::default(),
         blocks: vec![mk_step("child_step", "builtin.noop")],
         interceptors: None,
         created_at: Utc::now(),
@@ -1659,6 +1665,7 @@ async fn a10_sub_sequence_links_parent_and_propagates_outputs() {
         name: "parent-seq".into(),
         version: 1,
         deprecated: false,
+        status: SequenceStatus::default(),
         blocks: vec![sub.clone()],
         interceptors: None,
         created_at: Utc::now(),
@@ -1893,6 +1900,7 @@ async fn a11_sla_breach_records_block_output() {
         name: "bug-repro".into(),
         version: 1,
         deprecated: false,
+        status: SequenceStatus::default(),
         blocks: vec![step],
         interceptors: None,
         created_at: Utc::now(),
@@ -2181,6 +2189,7 @@ async fn a15_workers_receive_fair_share_under_load() {
         name: "fairness".into(),
         version: 1,
         deprecated: false,
+        status: SequenceStatus::default(),
         blocks: vec![mk_step("s", "builtin.noop")],
         interceptors: None,
         created_at: Utc::now(),

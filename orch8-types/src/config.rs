@@ -122,7 +122,7 @@ pub struct DatabaseConfig {
     pub url: SecretString,
     #[serde(default = "default_max_connections")]
     pub max_connections: u32,
-    #[serde(default = "default_true")]
+    #[serde(default)]
     pub run_migrations: bool,
     /// Postgres schema to use for this instance (schema-per-instance isolation).
     #[serde(default)]
@@ -135,7 +135,7 @@ impl Default for DatabaseConfig {
             backend: default_backend(),
             url: default_database_url(),
             max_connections: default_max_connections(),
-            run_migrations: true,
+            run_migrations: false,
             search_path: None,
         }
     }
@@ -153,10 +153,6 @@ fn default_database_url() -> SecretString {
 
 const fn default_max_connections() -> u32 {
     64
-}
-
-const fn default_true() -> bool {
-    true
 }
 
 /// How the engine decides which payloads leave the inline context and
@@ -619,8 +615,8 @@ mod tests {
         assert_eq!(cfg.database.backend, "sqlite");
         assert_eq!(cfg.database.url.expose(), "sqlite::memory:");
         assert_eq!(cfg.database.max_connections, 4);
-        // run_migrations omitted — falls back to the default_true() default.
-        assert!(cfg.database.run_migrations);
+        // run_migrations omitted — falls back to the serde default (false).
+        assert!(!cfg.database.run_migrations);
     }
 
     #[test]
@@ -897,7 +893,7 @@ mod tests {
         assert_eq!(cfg.database.backend, "postgres");
         assert!(cfg.database.url.is_empty());
         assert_eq!(cfg.database.max_connections, 64);
-        assert!(cfg.database.run_migrations);
+        assert!(!cfg.database.run_migrations);
         assert_eq!(cfg.database.search_path, None);
         assert_eq!(cfg.engine.tick_interval_ms, 100);
         assert_eq!(cfg.api.grpc_addr, "127.0.0.1:50051");
@@ -929,7 +925,7 @@ mod tests {
         assert_eq!(cfg.backend, "postgres");
         assert!(cfg.url.is_empty());
         assert_eq!(cfg.max_connections, 64);
-        assert!(cfg.run_migrations);
+        assert!(!cfg.run_migrations);
         assert_eq!(cfg.search_path, None);
     }
 

@@ -20,8 +20,7 @@ use crate::handlers::HandlerRegistry;
 use super::{wake_parent_if_child, StepOutcome};
 
 /// Check if a step's SLA deadline has been breached (fast path).
-/// Looks at the previous attempt's `created_at` as the start time. If the deadline
-/// has elapsed, invokes the escalation handler, records the breach, and fails the instance.
+/// Delegates to the shared `handle_deadline_breach` with `from_state = Running`.
 /// Returns `true` if the deadline was breached and the instance was failed.
 pub(super) async fn check_step_deadline(
     storage: &Arc<dyn StorageBackend>,
@@ -30,106 +29,15 @@ pub(super) async fn check_step_deadline(
     step_def: &orch8_types::sequence::StepDef,
     prev_output: Option<&orch8_types::output::BlockOutput>,
 ) -> Result<bool, EngineError> {
-    let Some(deadline) = step_def.deadline else {
-        return Ok(false);
-    };
-    // Compute elapsed time: use previous output's created_at if available
-    // (retry scenario), otherwise fall back to instance runtime start time
-    // (external worker scenario where no output exists yet).
-    let baseline = prev_output
-        .map(|o| o.created_at)
-        .or(instance.context.runtime.started_at);
-    let Some(baseline) = baseline else {
-        return Ok(false);
-    };
-    let elapsed = Utc::now() - baseline;
-    if elapsed < chrono::Duration::from_std(deadline).unwrap_or(chrono::TimeDelta::MAX) {
-        return Ok(false);
-    }
-
-    let instance_id = instance.id;
-    warn!(
-        instance_id = %instance_id,
-        block_id = %step_def.id,
-        deadline_ms = u64::try_from(deadline.as_millis()).unwrap_or(u64::MAX),
-        elapsed_ms = elapsed.num_milliseconds(),
-        "SLA deadline breached (fast path)"
-    );
-
-    // Invoke escalation handler if configured.
-    if let Some(ref escalation) = step_def.on_deadline_breach {
-        if let Some(handler) = handlers.get(&escalation.handler) {
-            let mut params = escalation.params.clone();
-            if let serde_json::Value::Object(ref mut map) = params {
-                map.insert(
-                    "_breach_block_id".into(),
-                    serde_json::json!(step_def.id.as_str()),
-                );
-                map.insert(
-                    "_breach_instance_id".into(),
-                    serde_json::json!(instance_id.into_uuid()),
-                );
-                map.insert(
-                    "_breach_elapsed_ms".into(),
-                    serde_json::json!(elapsed.num_milliseconds()),
-                );
-                map.insert(
-                    "_breach_deadline_ms".into(),
-                    serde_json::json!(u64::try_from(deadline.as_millis()).unwrap_or(u64::MAX)),
-                );
-            }
-            let step_ctx = crate::handlers::StepContext {
-                instance_id,
-                tenant_id: instance.tenant_id.clone(),
-                block_id: step_def.id.clone(),
-                params,
-                context: instance.context.clone(),
-                attempt: 0,
-                storage: Arc::clone(storage),
-                wait_for_input: None,
-            };
-            if let Err(e) = handler(step_ctx).await {
-                warn!(
-                    instance_id = %instance_id,
-                    block_id = %step_def.id,
-                    error = %e,
-                    "SLA escalation handler failed"
-                );
-            }
-        }
-    }
-
-    // Record breach output and fail the instance.
-    let breach_output = orch8_types::output::BlockOutput {
-        id: uuid::Uuid::now_v7(),
-        instance_id,
-        block_id: step_def.id.clone(),
-        output: serde_json::json!({
-            "_error": "sla_deadline_breached",
-            "_deadline_ms": u64::try_from(deadline.as_millis()).unwrap_or(u64::MAX),
-            "_elapsed_ms": elapsed.num_milliseconds(),
-        }),
-        output_ref: None,
-        output_size: 0,
-        attempt: prev_output.as_ref().map_or(0, |o| o.attempt),
-        created_at: Utc::now(),
-    };
-    storage.save_block_output(&breach_output).await?;
-    crate::lifecycle::transition_instance(
-        storage.as_ref(),
-        instance_id,
-        Some(&instance.tenant_id),
+    super::handle_deadline_breach(
+        storage,
+        handlers,
+        instance,
+        step_def,
+        prev_output,
         InstanceState::Running,
-        InstanceState::Failed,
-        None,
     )
-    .await?;
-    crate::metrics::inc(crate::metrics::INSTANCES_FAILED);
-
-    // Wake parent: SLA deadline breach on a running child → terminal Failed.
-    wake_parent_if_child(storage.as_ref(), instance).await;
-
-    Ok(true)
+    .await
 }
 
 /// Check if the step has a delay and defer if so. Returns `true` if deferred.
@@ -384,7 +292,7 @@ pub async fn check_human_input(
     }
 
     // Still waiting — caller is responsible for the instance state transition.
-    // The flat-path caller (execute_step_block) transitions Running → Scheduled
+    // The flat-path caller (execute_step_block) transitions Running -> Scheduled
     // with a delay; the tree-path caller (execute_step_node) sets the node to
     // Waiting and lets process_tick transition the instance to Waiting.
     debug!(
@@ -737,7 +645,7 @@ pub(super) async fn execute_step_block(
                     block_id = %step_def.id,
                     sentinel_id = %sentinel.id,
                     error = %err,
-                    "failed to delete in-progress sentinel after step success — leaked row"
+                    "failed to delete in-progress sentinel after step success -- leaked row"
                 );
             }
 
@@ -802,7 +710,7 @@ pub(super) async fn execute_step_block(
                     instance_id = %instance_id,
                     block_id = %step_def.id,
                     error = %err,
-                    "failed to delete in-progress sentinel after retryable failure — leaked row"
+                    "failed to delete in-progress sentinel after retryable failure -- leaked row"
                 );
             }
 
@@ -811,7 +719,7 @@ pub(super) async fn execute_step_block(
             // already sits in `Paused` or `Cancelled`. Treat the
             // `Retryable` as a benign yield in that case — falling through
             // to `handle_retryable_failure` would otherwise attempt an
-            // invalid `Paused→Failed` transition and error out.
+            // invalid `Paused->Failed` transition and error out.
             let current = storage
                 .get_instance(instance_id)
                 .await?
@@ -926,7 +834,7 @@ pub(super) async fn handle_retryable_failure(
                 cancel,
             );
 
-            // Wake parent: max retries exhausted → terminal Failed.
+            // Wake parent: max retries exhausted -> terminal Failed.
             wake_parent_if_child(storage, instance).await;
 
             return Ok(());
@@ -986,7 +894,7 @@ pub(super) async fn handle_retryable_failure(
         cancel,
     );
 
-    // Wake parent: no retry policy → terminal Failed.
+    // Wake parent: no retry policy -> terminal Failed.
     wake_parent_if_child(storage, instance).await;
 
     Ok(())
@@ -1026,7 +934,7 @@ pub(super) async fn fail_instance_with_error(
         cancel,
     );
 
-    // Wake parent: template/credential resolution failure → terminal Failed.
+    // Wake parent: template/credential resolution failure -> terminal Failed.
     wake_parent_if_child(storage, instance).await;
 
     Ok(StepOutcome::Failed)
@@ -1087,7 +995,7 @@ pub(super) async fn dispatch_to_external_worker(
 
     storage.create_worker_task(&task).await?;
 
-    // Transition instance Running → Waiting so the scheduler doesn't re-claim it.
+    // Transition instance Running -> Waiting so the scheduler doesn't re-claim it.
     crate::lifecycle::transition_instance(
         storage,
         instance.id,
