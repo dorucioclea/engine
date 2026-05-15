@@ -5,7 +5,7 @@ license.workspace = true
 edition.workspace = true
 
 [lib]
-crate-type = ["lib", "cdylib"]
+crate-type = ["lib", "cdylib", "staticlib"]
 
 [dependencies]
 orch8-engine = { path = "../orch8-engine", default-features = false, features = ["embedded"] }

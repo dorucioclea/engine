@@ -1,5 +1,6 @@
 /// Error type exposed to mobile hosts via `UniFFI`.
 #[derive(Debug, uniffi::Error, thiserror::Error)]
+#[uniffi(flat_error)]
 pub enum MobileError {
     #[error("engine error: {message}")]
     Engine { message: String },
@@ -51,6 +52,7 @@ impl From<SyncError> for MobileError {
 
 /// Sync-specific error type.
 #[derive(Debug, uniffi::Error, thiserror::Error)]
+#[uniffi(flat_error)]
 pub enum SyncError {
     #[error("network error: {message}")]
     Network { message: String },
@@ -62,6 +64,7 @@ pub enum SyncError {
 
 /// Handler error returned by host-registered step handlers.
 #[derive(Debug, uniffi::Error, thiserror::Error)]
+#[uniffi(flat_error)]
 pub enum HandlerError {
     #[error("handler failed (retryable): {message}")]
     Retryable { message: String },
