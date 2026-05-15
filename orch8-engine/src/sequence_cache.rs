@@ -79,7 +79,7 @@ impl SequenceCache {
     }
 
     /// Get-or-fetch by `(tenant, namespace, name, version)`. Mirrors
-    /// [`StorageBackend::get_sequence_by_name`] semantics: returns `None` when
+    /// `StorageBackend::get_sequence_by_name` semantics: returns `None` when
     /// the sequence isn't registered (does NOT cache negatives — callers that
     /// poll for missing sequences would otherwise never recover).
     pub async fn get_by_name(

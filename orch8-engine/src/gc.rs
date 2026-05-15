@@ -67,9 +67,9 @@ pub const EMIT_DEDUPE_DEFAULT_TTL: Duration = Duration::from_secs(2_592_000);
 
 /// Run the expiry sweeper until `cancel` fires.
 ///
-/// Each tick calls [`StorageBackend::delete_expired_externalized_state`] once
+/// Each tick calls `StorageBackend::delete_expired_externalized_state` once
 /// with [`GC_BATCH_LIMIT`] and then sweeps
-/// [`StorageBackend::delete_expired_emit_event_dedupe`]
+/// `StorageBackend::delete_expired_emit_event_dedupe`
 /// with the same bound. Continued backlog naturally spreads across ticks.
 ///
 /// Both tables share the same tick so the engine only maintains one timer;

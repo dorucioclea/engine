@@ -49,6 +49,8 @@ jobs:
         with:
           toolchain: stable
           targets: ${{ matrix.target }}
+      - name: Ensure cargo on PATH
+        run: echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
       - uses: Swatinem/rust-cache@9d47c6ad4b02e050fd481d890b2ea34778fd09d6 # v2.7.8
         with:
           key: ios-${{ matrix.target }}
@@ -84,6 +86,8 @@ jobs:
         with:
           toolchain: stable
           targets: ${{ matrix.target }}
+      - name: Ensure cargo on PATH
+        run: echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
       - uses: Swatinem/rust-cache@9d47c6ad4b02e050fd481d890b2ea34778fd09d6 # v2.7.8
         with:
           key: android-${{ matrix.target }}
@@ -127,6 +131,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # stable
         with:
           toolchain: stable
+      - name: Ensure cargo on PATH
+        run: echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
       - uses: Swatinem/rust-cache@9d47c6ad4b02e050fd481d890b2ea34778fd09d6 # v2.7.8
 
       - name: Build library for binding generation

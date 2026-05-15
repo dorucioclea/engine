@@ -281,7 +281,7 @@ async fn bind_item_var(
 /// Walk the subtree rooted at `root_id` (exclusive) and transition every
 /// descendant back to [`NodeState::Pending`]. Additionally purge composite
 /// iteration-counter markers from descendant `Loop` / `ForEach` blocks via
-/// [`StorageBackend::delete_block_outputs`].
+/// `StorageBackend::delete_block_outputs`.
 ///
 /// Mirror of `crate::handlers::loop_block::reset_subtree_to_pending`.
 /// Called at iteration boundaries so the body can re-execute without stale

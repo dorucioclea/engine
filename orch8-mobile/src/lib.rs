@@ -151,10 +151,10 @@ pub struct InstanceState_ {
 /// The mobile workflow engine. Opaque handle for the host app.
 ///
 /// Internally delegates to focused components:
-/// - [`notifier::MobileNotifier`] — bounded lifecycle event deduplication
-/// - [`tick_controller::TickController`] — tick loop management and power adaptation
-/// - [`lifecycle::InstanceLifecycleManager`] — instance CRUD and GC
-/// - [`telemetry::TelemetryManager`] — event recording and flushing
+/// - `notifier::MobileNotifier` — bounded lifecycle event deduplication
+/// - `tick_controller::TickController` — tick loop management and power adaptation
+/// - `lifecycle::InstanceLifecycleManager` — instance CRUD and GC
+/// - `telemetry::TelemetryManager` — event recording and flushing
 #[derive(uniffi::Object)]
 pub struct MobileEngine {
     // --- Core engine state ---

@@ -221,7 +221,7 @@ pub async fn execute_loop(
 /// Walk the subtree rooted at `root_id` (exclusive) and transition every
 /// descendant back to [`NodeState::Pending`]. Additionally purge composite
 /// iteration-counter markers from descendant `Loop` / `ForEach` blocks via
-/// [`StorageBackend::delete_block_outputs`].
+/// `StorageBackend::delete_block_outputs`.
 ///
 /// Called at loop-iteration boundaries so the body can run again without
 /// stale terminal state from the previous iteration. Step body outputs are
