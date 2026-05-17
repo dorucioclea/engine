@@ -140,7 +140,7 @@ pub async fn handle_human_review(ctx: StepContext) -> Result<Value, StepError> {
         "instance_id": ctx.instance_id.into_uuid().to_string(),
         "block_id": ctx.block_id.as_str(),
         "choices": choices_json,
-        "allow_comment": ctx.wait_for_input.as_ref().map_or(false, |h| h.allow_comment),
+        "allow_comment": ctx.wait_for_input.as_ref().is_some_and(|h| h.allow_comment),
     }))
 }
 
