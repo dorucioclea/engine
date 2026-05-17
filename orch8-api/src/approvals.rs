@@ -52,6 +52,7 @@ pub(crate) struct ApprovalItem {
     pub waiting_since: DateTime<Utc>,
     pub deadline: Option<DateTime<Utc>>,
     pub metadata: serde_json::Value,
+    pub allow_comment: bool,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -218,6 +219,7 @@ fn build_item_from_step(
         waiting_since,
         deadline,
         metadata: instance.metadata.clone(),
+        allow_comment: human_def.allow_comment,
     }
 }
 
@@ -264,6 +266,7 @@ fn try_build_item(
         waiting_since,
         deadline,
         metadata: instance.metadata.clone(),
+        allow_comment: human_def.allow_comment,
     })
 }
 
@@ -451,6 +454,7 @@ mod tests {
             escalation_handler: None,
             choices: None,
             store_as: None,
+            allow_comment: false,
         };
         let step = make_step("review", Some(human));
         let seq = make_sequence(step);
@@ -483,6 +487,7 @@ mod tests {
             escalation_handler: None,
             choices: None,
             store_as: None,
+            allow_comment: false,
         };
         let step = make_step("review", Some(human));
         let seq = make_sequence(step);
@@ -514,6 +519,7 @@ mod tests {
             escalation_handler: None,
             choices: Some(choices),
             store_as: Some("decision".into()),
+            allow_comment: false,
         };
         let step = make_step("review", Some(human));
         let seq = make_sequence(step);
@@ -536,6 +542,7 @@ mod tests {
             escalation_handler: None,
             choices: None,
             store_as: None,
+            allow_comment: false,
         };
         let step = make_step("review", Some(human));
         let seq = make_sequence(step);

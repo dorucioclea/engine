@@ -362,6 +362,9 @@ pub struct HumanInputDef {
     /// (`context.data[store_as]`). If `None`, the block id is used.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub store_as: Option<String>,
+    /// When true, the reviewer can attach a free-text comment to their decision.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub allow_comment: bool,
 }
 
 impl HumanInputDef {
@@ -1350,6 +1353,7 @@ mod tests {
             escalation_handler: None,
             choices: Some(vec![]),
             store_as: None,
+            allow_comment: false,
         };
         let step_with_bad = BlockDefinition::Step(Box::new(StepDef {
             id: BlockId::new("review"),
@@ -1385,6 +1389,7 @@ mod tests {
             escalation_handler: None,
             choices: Some(vec![]),
             store_as: None,
+            allow_comment: false,
         };
         assert!(d.validate().is_err());
     }
@@ -1406,6 +1411,7 @@ mod tests {
                 },
             ]),
             store_as: None,
+            allow_comment: false,
         };
         assert!(d.validate().is_err());
     }
@@ -1418,6 +1424,7 @@ mod tests {
             escalation_handler: None,
             choices: None,
             store_as: Some(String::new()),
+            allow_comment: false,
         };
         assert!(d.validate().is_err());
     }
@@ -1439,6 +1446,7 @@ mod tests {
                 },
             ]),
             store_as: Some("decision".into()),
+            allow_comment: false,
         };
         assert!(d.validate().is_ok());
     }
@@ -1451,6 +1459,7 @@ mod tests {
             escalation_handler: None,
             choices: None,
             store_as: None,
+            allow_comment: false,
         };
         assert!(d.validate().is_ok());
     }
@@ -1463,6 +1472,7 @@ mod tests {
             escalation_handler: None,
             choices: None,
             store_as: None,
+            allow_comment: false,
         };
         let c = d.effective_choices();
         assert_eq!(c.len(), 2);
@@ -1483,6 +1493,7 @@ mod tests {
                 value: "approve".into(),
             }]),
             store_as: None,
+            allow_comment: false,
         };
         let c = d.effective_choices();
         assert_eq!(c.len(), 1);

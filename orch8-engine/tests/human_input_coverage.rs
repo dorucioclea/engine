@@ -136,6 +136,7 @@ fn advanced_def() -> HumanInputDef {
             },
         ]),
         store_as: Some("decision".into()),
+        allow_comment: false,
     }
 }
 
@@ -146,6 +147,7 @@ fn default_yes_no_def() -> HumanInputDef {
         escalation_handler: None,
         choices: None,
         store_as: None,
+        allow_comment: false,
     }
 }
 

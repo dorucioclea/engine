@@ -73,6 +73,7 @@ pub async fn handle_human_review(ctx: StepContext) -> Result<Value, StepError> {
                 escalation_handler: None,
                 choices: None,
                 store_as: None,
+                allow_comment: false,
             }
             .effective_choices()
         },
@@ -139,6 +140,7 @@ pub async fn handle_human_review(ctx: StepContext) -> Result<Value, StepError> {
         "instance_id": ctx.instance_id.into_uuid().to_string(),
         "block_id": ctx.block_id.as_str(),
         "choices": choices_json,
+        "allow_comment": ctx.wait_for_input.as_ref().map_or(false, |h| h.allow_comment),
     }))
 }
 
@@ -202,6 +204,7 @@ mod tests {
             escalation_handler: None,
             choices: None,
             store_as: None,
+            allow_comment: false,
         };
         let ctx = StepContext {
             instance_id: InstanceId::new(),
@@ -241,6 +244,7 @@ mod tests {
                 },
             ]),
             store_as: None,
+            allow_comment: false,
         };
         let ctx = StepContext {
             instance_id: InstanceId::new(),
