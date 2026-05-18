@@ -175,10 +175,15 @@ impl InstanceLifecycleManager {
     }
 
     /// Complete a step that transitioned to Waiting state.
+    ///
+    /// Enqueues a `human_input:{step_name}` signal so the engine's normal
+    /// tick loop picks it up via `check_human_input`, which validates the
+    /// value against `effective_choices` and stores it under the step's
+    /// `store_as` key in `context.data`.
     pub async fn complete_step(
         &self,
         instance_id: &str,
-        _step_name: &str,
+        step_name: &str,
         output: &str,
     ) -> Result<(), MobileError> {
         let id = parse_instance_id(instance_id)?;
@@ -197,21 +202,22 @@ impl InstanceLifecycleManager {
             });
         }
 
-        let output_value: serde_json::Value = serde_json::from_str(output)?;
+        let payload: serde_json::Value = serde_json::from_str(output)?;
 
-        let mut ctx = inst.context.clone();
-        if let serde_json::Value::Object(map) = output_value {
-            if let serde_json::Value::Object(ref mut data) = ctx.data {
-                data.extend(map);
-            }
-        }
-        self.storage.update_instance_context(id, &ctx).await?;
+        let signal = orch8_types::signal::Signal {
+            id: uuid::Uuid::now_v7(),
+            instance_id: id,
+            signal_type: orch8_types::signal::SignalType::Custom(
+                format!("human_input:{step_name}"),
+            ),
+            payload,
+            delivered: false,
+            created_at: chrono::Utc::now(),
+            delivered_at: None,
+        };
+        self.storage.enqueue_signal(&signal).await?;
 
-        self.storage
-            .update_instance_state(id, InstanceState::Scheduled, Some(chrono::Utc::now()))
-            .await?;
-
-        debug!(instance_id = %instance_id, "completed waiting step");
+        debug!(instance_id = %instance_id, step_name = %step_name, "enqueued human_input signal");
         Ok(())
     }
 
