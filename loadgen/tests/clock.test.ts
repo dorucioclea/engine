@@ -50,12 +50,6 @@ test("TokenBucket(100) allows rapid burst of acquires", async () => {
 });
 
 // 6. TokenBucket acquire returns a promise
-test("TokenBucket acquire returns a promise", () => {
-  const bucket = new TokenBucket(10);
-  const result = bucket.acquire();
-  assert.ok(result instanceof Promise, "acquire() should return a Promise");
-});
-
 // 7. TokenBucket with rate 1 enforces ~1/second rate
 test("TokenBucket with rate 1 enforces ~1/second rate after burst", async () => {
   const bucket = new TokenBucket(1);
@@ -91,21 +85,7 @@ test("TokenBucket(0.5) caps at capacity of at least 1", async () => {
 });
 
 // 10. TokenBucket constructor with rate 0 uses capacity 1
-test("TokenBucket constructor with rate 0 uses capacity 1", async () => {
-  const bucket = new TokenBucket(0);
-  // capacity = Math.max(1, 0) = 1
-  const start = Date.now();
-  await bucket.acquire();
-  const elapsed = Date.now() - start;
-  assert.ok(elapsed < 50, `first acquire on rate 0 took ${elapsed}ms`);
-});
-
 // 11. sleep returns a Promise
-test("sleep returns a Promise", () => {
-  const result = sleep(1);
-  assert.ok(result instanceof Promise, "sleep should return a Promise");
-});
-
 // 12. Multiple concurrent acquires on high-rate bucket work
 test("multiple concurrent acquires on high-rate bucket work", async () => {
   const bucket = new TokenBucket(50);

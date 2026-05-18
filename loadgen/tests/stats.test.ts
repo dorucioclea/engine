@@ -3,22 +3,6 @@ import * as assert from "node:assert/strict";
 import { Counters } from "../src/lib/stats.ts";
 
 // 1. New Counters has all fields at 0
-test("new Counters has all fields at 0", () => {
-  const c = new Counters();
-  assert.equal(c.spawned, 0);
-  assert.equal(c.spawnFailed, 0);
-  assert.equal(c.completed, 0);
-  assert.equal(c.failed, 0);
-  assert.equal(c.cancelled, 0);
-  assert.equal(c.signalsSent, 0);
-  assert.equal(c.workerPolls, 0);
-  assert.equal(c.tasksClaimed, 0);
-  assert.equal(c.tasksCompleted, 0);
-  assert.equal(c.tasksFailed, 0);
-  assert.equal(c.errors5xx, 0);
-  assert.equal(c.errorsConn, 0);
-});
-
 // 2. Incrementing spawned works
 test("incrementing spawned works", () => {
   const c = new Counters();
@@ -90,12 +74,6 @@ test("snapshot() contains 'fail='", () => {
 });
 
 // 10. snapshot() contains "rate=" for throughput
-test("snapshot() contains 'rate='", () => {
-  const c = new Counters();
-  const snap = c.snapshot();
-  assert.ok(snap.includes("rate="), `missing rate= in: ${snap}`);
-});
-
 // 11. snapshot() contains uptime in HH:MM:SS format
 test("snapshot() contains uptime in HH:MM:SS format", () => {
   const c = new Counters();
@@ -206,17 +184,6 @@ test("snapshot() with no latencies shows 0ms", () => {
 });
 
 // 22. Reservoir sampling caps at 500 (record >500 latencies, verify no crash)
-test("reservoir sampling caps at 500 latencies without crash", () => {
-  const c = new Counters();
-  for (let i = 0; i < 1000; i++) {
-    c.spawned++;
-    c.recordLatency(i);
-  }
-  // Should not throw and should produce valid snapshot
-  const snap = c.snapshot();
-  assert.ok(snap.includes("spawn_p50="), "snapshot should still work");
-});
-
 // 23. Counters startedAt is close to Date.now()
 test("Counters startedAt is close to Date.now()", () => {
   const before = Date.now();

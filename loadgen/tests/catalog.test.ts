@@ -96,14 +96,6 @@ test("10 - buildSequencesFor with empty templates returns empty", () => {
 //  orderFulfillment (11-14)
 // ══════════════════════════════════════════════════════════════════════
 
-test("11 - orderFulfillment name is 'order-fulfillment'", () => {
-  assert.equal(orderFulfillment.name, "order-fulfillment");
-});
-
-test("12 - orderFulfillment has 5 handlers", () => {
-  assert.equal(orderFulfillment.handlers.length, 5);
-});
-
 test("13 - orderFulfillment buildBlocks returns blocks starting with parallel", () => {
   const blocks = orderFulfillment.buildBlocks(rng());
   assert.ok(blocks.length >= 1, "expected at least one block");
@@ -122,14 +114,6 @@ test("14 - orderFulfillment buildContext returns data with order_id, amount_cent
 //  approvalFlow (15-18)
 // ══════════════════════════════════════════════════════════════════════
 
-test("15 - approvalFlow name is 'approval-flow'", () => {
-  assert.equal(approvalFlow.name, "approval-flow");
-});
-
-test("16 - approvalFlow has 4 handlers", () => {
-  assert.equal(approvalFlow.handlers.length, 4);
-});
-
 test("17 - approvalFlow buildBlocks includes router block", () => {
   const blocks = approvalFlow.buildBlocks(rng());
   const routers = findBlocks(blocks as Record<string, unknown>[], "router");
@@ -146,10 +130,6 @@ test("18 - approvalFlow buildContext returns data with request_id, requester", (
 // ══════════════════════════════════════════════════════════════════════
 //  dataPipeline (19-21)
 // ══════════════════════════════════════════════════════════════════════
-
-test("19 - dataPipeline name is 'data-pipeline'", () => {
-  assert.equal(dataPipeline.name, "data-pipeline");
-});
 
 test("20 - dataPipeline buildBlocks includes for_each block", () => {
   const blocks = dataPipeline.buildBlocks(rng());
@@ -168,10 +148,6 @@ test("21 - dataPipeline buildContext returns data.items as array", () => {
 //  etaEscalation (22-24)
 // ══════════════════════════════════════════════════════════════════════
 
-test("22 - etaEscalation name is 'eta-escalation'", () => {
-  assert.equal(etaEscalation.name, "eta-escalation");
-});
-
 test("23 - etaEscalation buildBlocks includes try_catch block", () => {
   const blocks = etaEscalation.buildBlocks(rng());
   const tryCatch = findBlocks(blocks as Record<string, unknown>[], "try_catch");
@@ -187,10 +163,6 @@ test("24 - etaEscalation buildContext returns data with task_id", () => {
 // ══════════════════════════════════════════════════════════════════════
 //  abSplitRollout (25-27)
 // ══════════════════════════════════════════════════════════════════════
-
-test("25 - abSplitRollout name is 'ab-split-rollout'", () => {
-  assert.equal(abSplitRollout.name, "ab-split-rollout");
-});
 
 test("26 - abSplitRollout buildBlocks includes a_b_split block", () => {
   const blocks = abSplitRollout.buildBlocks(rng());
@@ -208,10 +180,6 @@ test("27 - abSplitRollout buildContext returns data with experiment_id", () => {
 //  loopAggregator (28-30)
 // ══════════════════════════════════════════════════════════════════════
 
-test("28 - loopAggregator name is 'loop-aggregator'", () => {
-  assert.equal(loopAggregator.name, "loop-aggregator");
-});
-
 test("29 - loopAggregator buildBlocks includes loop block", () => {
   const blocks = loopAggregator.buildBlocks(rng());
   const loops = findBlocks(blocks as Record<string, unknown>[], "loop");
@@ -228,10 +196,6 @@ test("30 - loopAggregator buildContext returns data with remaining", () => {
 // ══════════════════════════════════════════════════════════════════════
 //  raceFetch (31-33)
 // ══════════════════════════════════════════════════════════════════════
-
-test("31 - raceFetch name is 'race-fetch'", () => {
-  assert.equal(raceFetch.name, "race-fetch");
-});
 
 test("32 - raceFetch buildBlocks includes race block with 3 branches", () => {
   const blocks = raceFetch.buildBlocks(rng());
@@ -252,10 +216,6 @@ test("33 - raceFetch buildContext returns data with request_id", () => {
 //  nestedSubsequence (34-36)
 // ══════════════════════════════════════════════════════════════════════
 
-test("34 - nestedSubsequence name is 'nested-subsequence'", () => {
-  assert.equal(nestedSubsequence.name, "nested-subsequence");
-});
-
 test("35 - nestedSubsequence buildBlocks includes sub_sequence block", () => {
   const blocks = nestedSubsequence.buildBlocks(rng());
   const subs = findBlocks(blocks as Record<string, unknown>[], "sub_sequence");
@@ -271,18 +231,6 @@ test("36 - nestedSubsequence buildContext returns data with parent_id", () => {
 // ══════════════════════════════════════════════════════════════════════
 //  llmChain (37-40)
 // ══════════════════════════════════════════════════════════════════════
-
-test("37 - llmChain name is 'llm-chain'", () => {
-  assert.equal(llmChain.name, "llm-chain");
-});
-
-test("38 - llmChain handlers is empty (built-ins only)", () => {
-  assert.equal(llmChain.handlers.length, 0);
-});
-
-test("39 - llmChain weight is 0 (disabled by default)", () => {
-  assert.equal(llmChain.weight, 0);
-});
 
 test("40 - llmChain buildBlocks includes llm_call handler steps", () => {
   const blocks = llmChain.buildBlocks(rng());

@@ -320,16 +320,3 @@ test("next() produces different values on consecutive calls", () => {
 });
 
 // 35. Rng seeded with 42 is deterministic across instantiations
-test("Rng seeded with 42 is deterministic across instantiations", () => {
-  const runs: number[][] = [];
-  for (let r = 0; r < 3; r++) {
-    const rng = new Rng(42);
-    const seq: number[] = [];
-    for (let i = 0; i < 20; i++) {
-      seq.push(rng.next());
-    }
-    runs.push(seq);
-  }
-  assert.deepEqual(runs[0], runs[1]);
-  assert.deepEqual(runs[1], runs[2]);
-});

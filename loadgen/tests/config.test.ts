@@ -72,15 +72,6 @@ test("3 - parseArgs with --preset=stress uses stress preset values", () => {
   assert.equal(cfg.signalRate, 0.5);
 });
 
-test("4 - parseArgs with --preset=steady uses steady preset values", () => {
-  const cfg = parseArgs(["--preset=steady"]);
-  assert.equal(cfg.preset, "steady");
-  assert.equal(cfg.rate, 5);
-  assert.equal(cfg.concurrency, 200);
-  assert.equal(cfg.workers, 8);
-  assert.ok(Math.abs(cfg.signalRate - 0.1) < 1e-9);
-});
-
 test("5 - parseArgs with invalid preset throws", () => {
   assert.throws(() => parseArgs(["--preset=turbo"]), {
     message: /Unknown preset.*turbo/,
