@@ -11,7 +11,8 @@ pub(crate) struct MobileRuntime {
 
 impl MobileRuntime {
     pub fn new() -> Result<Self, String> {
-        let runtime = tokio::runtime::Builder::new_current_thread()
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(1)
             .thread_name("orch8-mobile")
             .enable_all()
             .build()

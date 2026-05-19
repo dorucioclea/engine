@@ -16,6 +16,7 @@ import Plugins from "./pages/Plugins";
 import Credentials from "./pages/Credentials";
 import Pools from "./pages/Pools";
 import Settings from "./pages/Settings";
+import MobileSync from "./pages/MobileSync";
 
 export default function App() {
   return (
@@ -36,6 +37,7 @@ export default function App() {
           <Route path="plugins" element={<Plugins />} />
           <Route path="credentials" element={<Credentials />} />
           <Route path="pools" element={<Pools />} />
+          <Route path="mobile" element={<MobileSync />} />
           <Route path="settings" element={<Settings />} />
         </Route>
       </Routes>

@@ -203,6 +203,15 @@ fn build_app_state(
     shutdown: CancellationToken,
     cb_registry: Arc<CircuitBreakerRegistry>,
 ) -> AppState {
+    let mobile_sync_enabled =
+        std::env::var("ORCH8_MOBILE_SYNC_ENABLED").is_ok_and(|v| v == "true" || v == "1");
+
+    let push_provider: Arc<dyn orch8_push::PushProvider> = Arc::new(orch8_push::NoopPushProvider);
+
+    if mobile_sync_enabled {
+        tracing::info!("Mobile sync endpoints enabled");
+    }
+
     AppState {
         storage,
         shutdown,
@@ -213,6 +222,8 @@ fn build_app_state(
             orch8_api::DEFAULT_MAX_CONCURRENT_STREAMS,
         )),
         publisher: None,
+        push_provider,
+        mobile_sync_enabled,
     }
 }
 

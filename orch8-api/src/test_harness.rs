@@ -55,6 +55,15 @@ impl Drop for TestServer {
 /// Panics if the in-memory storage cannot be initialised or the TCP listener
 /// fails to bind — both indicate a broken test environment, not a product bug.
 pub async fn spawn_test_server() -> TestServer {
+    spawn_test_server_inner(false).await
+}
+
+/// Like [`spawn_test_server`] but with mobile sync endpoints enabled.
+pub async fn spawn_test_server_with_mobile_sync() -> TestServer {
+    spawn_test_server_inner(true).await
+}
+
+async fn spawn_test_server_inner(mobile_sync_enabled: bool) -> TestServer {
     let storage = Arc::new(
         SqliteStorage::in_memory()
             .await
@@ -71,6 +80,8 @@ pub async fn spawn_test_server() -> TestServer {
             crate::DEFAULT_MAX_CONCURRENT_STREAMS,
         )),
         publisher: None,
+        push_provider: Arc::new(orch8_push::NoopPushProvider),
+        mobile_sync_enabled,
     };
 
     // Attach tenant middleware (require_tenant = false) so `X-Tenant-Id`

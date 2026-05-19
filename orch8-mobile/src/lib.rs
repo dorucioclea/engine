@@ -18,6 +18,7 @@ mod notifier;
 mod runtime;
 mod storage;
 mod sync;
+mod sync_reporter;
 mod telemetry;
 mod tick_controller;
 
@@ -173,6 +174,7 @@ pub struct MobileEngine {
     telemetry: Arc<telemetry::TelemetryManager>,
     sync_orchestrator: Arc<tokio::sync::Mutex<Option<Arc<sync::SyncOrchestrator>>>>,
     lifecycle: Arc<lifecycle::InstanceLifecycleManager>,
+    sync_reporter: Option<Arc<sync_reporter::SyncReporter>>,
 }
 
 #[uniffi::export]
@@ -244,6 +246,22 @@ impl MobileEngine {
             }
         };
 
+        // Build sync reporter if sync_url is configured.
+        let sync_reporter = if config.sync_url.is_empty() {
+            None
+        } else {
+            let reporter = Arc::new(sync_reporter::SyncReporter::new(
+                sqlite.pool().clone(),
+                config.sync_url.clone(),
+                config.device_id.clone(),
+                config.sync_api_key.clone(),
+                config.tick_interval_ms,
+            ));
+            rt.block_on(async { reporter.init_tables().await });
+            info!(sync_url = %config.sync_url, "mobile sync reporter enabled");
+            Some(reporter)
+        };
+
         info!(db_path = %db_path, "mobile engine initialized");
 
         Ok(Arc::new(Self {
@@ -260,6 +278,7 @@ impl MobileEngine {
             telemetry: telemetry_mgr,
             sync_orchestrator: Arc::new(tokio::sync::Mutex::new(sync_orch)),
             lifecycle,
+            sync_reporter,
         }))
     }
 
@@ -350,6 +369,7 @@ impl MobileEngine {
             self.config.max_tick_duration_ms,
             self.config.max_instance_lifetime_secs,
             self.config.memory_budget_bytes,
+            self.sync_reporter.as_ref(),
         );
     }
 
@@ -366,6 +386,14 @@ impl MobileEngine {
         self.tick_controller.report_power_state(state);
     }
 
+    /// Notify the engine that a silent push notification was received.
+    /// Triggers an immediate sync cycle on the next tick.
+    pub fn on_push_received(&self) {
+        if let Some(ref reporter) = self.sync_reporter {
+            reporter.on_push_received();
+        }
+    }
+
     /// Start a new workflow instance.
     pub fn start(
         &self,
@@ -373,11 +401,16 @@ impl MobileEngine {
         input: String,
         dedup_key: Option<String>,
     ) -> Result<String, MobileError> {
-        self.run_with_timeout(async {
+        let result = self.run_with_timeout(async {
             self.lifecycle
                 .start(&sequence_name, &input, dedup_key.as_deref())
                 .await
-        })
+        });
+        match &result {
+            Ok(id) => eprintln!("[orch8] started instance {id} for {sequence_name}"),
+            Err(e) => eprintln!("[orch8] start failed for {sequence_name}: {e}"),
+        }
+        result
     }
 
     /// Cancel a running instance.
@@ -475,6 +508,82 @@ impl MobileEngine {
             self.storage.create_sequence(&seq).await?;
             info!(name = %seq.name, version = seq.version, "loaded sequence from JSON");
             Ok(())
+        })
+    }
+
+    /// Fetch and load sequences from a remote URL. The endpoint must return a
+    /// JSON array of sequence definition objects. Uses the URL from
+    /// `config.sequences_url` if `url` is empty.
+    pub fn load_sequences_from_url(&self, url: String) -> Result<u32, MobileError> {
+        let target = if url.is_empty() {
+            &self.config.sequences_url
+        } else {
+            &url
+        };
+        if target.is_empty() {
+            return Err(MobileError::InvalidInput {
+                message: "no sequences URL configured".to_string(),
+            });
+        }
+        let target = target.clone();
+        self.run_with_timeout(async {
+            let http = reqwest::Client::builder()
+                .timeout(Duration::from_secs(30))
+                .build()
+                .map_err(|e| MobileError::Engine {
+                    message: format!("http client: {e}"),
+                })?;
+
+            let resp = http
+                .get(&target)
+                .send()
+                .await
+                .map_err(|e| MobileError::Engine {
+                    message: format!("fetch sequences from {target}: {e}"),
+                })?;
+
+            if !resp.status().is_success() {
+                return Err(MobileError::Engine {
+                    message: format!("fetch sequences: HTTP {} from {target}", resp.status()),
+                });
+            }
+
+            let body = resp.text().await.map_err(|e| MobileError::Engine {
+                message: format!("read response body: {e}"),
+            })?;
+
+            let sequences: Vec<SequenceDefinition> =
+                serde_json::from_str(&body).map_err(|e| MobileError::InvalidInput {
+                    message: format!("parse sequences JSON: {e}"),
+                })?;
+
+            let mut loaded = 0u32;
+            for seq in sequences {
+                let json = serde_json::to_string(&seq).map_err(|e| MobileError::Engine {
+                    message: format!("re-serialize sequence: {e}"),
+                })?;
+                if json.len() as u64 > self.config.max_sequence_size_bytes {
+                    warn!(
+                        name = %seq.name,
+                        size = json.len(),
+                        limit = self.config.max_sequence_size_bytes,
+                        "skipping oversized sequence"
+                    );
+                    continue;
+                }
+                match self.storage.create_sequence(&seq).await {
+                    Ok(()) => {
+                        info!(name = %seq.name, version = seq.version, "loaded sequence from URL");
+                        loaded += 1;
+                    }
+                    Err(e) => {
+                        warn!(name = %seq.name, error = %e, "failed to store sequence");
+                    }
+                }
+            }
+
+            info!(url = %target, count = loaded, "loaded sequences from remote");
+            Ok(loaded)
         })
     }
 

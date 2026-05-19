@@ -77,6 +77,15 @@ pub async fn execute_step_node(
             crate::scheduler::check_human_input(storage.as_ref(), instance, step_def, human_def)
                 .await?;
         if deferred {
+            // Record which step the instance is waiting on so the mobile
+            // notifier (and approvals API) can identify it.
+            if let Some(mut inst) = storage.get_instance(instance.id).await? {
+                inst.context.runtime.current_step = Some(step_def.id.clone());
+                inst.context.runtime.current_step_started_at = Some(chrono::Utc::now());
+                storage
+                    .update_instance_context(instance.id, &inst.context)
+                    .await?;
+            }
             // No signal yet — set node to Waiting so the instance transitions
             // to Waiting state and process_signalled_instances can wake it.
             storage

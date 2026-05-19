@@ -18,6 +18,7 @@ orch8-storage = { path = "../orch8-storage" }
 orch8-engine = { path = "../orch8-engine" }
 orch8-api = { path = "../orch8-api" }
 orch8-grpc = { path = "../orch8-grpc" }
+orch8-push = { path = "../orch8-push" }
 tokio.workspace = true
 tokio-util.workspace = true
 tracing.workspace = true

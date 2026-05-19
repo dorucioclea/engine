@@ -5,16 +5,21 @@
 //!
 //! Payloads below [`COMPRESSION_THRESHOLD_BYTES`] are left as raw JSON because
 //! the zstd frame header (~12 bytes) dominates the savings on tiny inputs.
+//!
+//! When the `compression` feature is disabled (e.g. on iOS where zstd's C code
+//! doesn't link), payloads are stored as raw JSON.
 
 use orch8_types::error::StorageError;
-
-const ZSTD_LEVEL: i32 = 3;
 
 /// Minimum raw JSON size (in bytes) before compression is applied. Below this
 /// threshold the frame overhead typically exceeds any savings.
 pub const COMPRESSION_THRESHOLD_BYTES: usize = 1024;
 
+#[cfg(feature = "compression")]
+const ZSTD_LEVEL: i32 = 3;
+
 /// Serialize `value` to JSON and compress with zstd level 3.
+#[cfg(feature = "compression")]
 pub fn compress(value: &serde_json::Value) -> Result<Vec<u8>, StorageError> {
     let json = serde_json::to_vec(value).map_err(StorageError::Serialization)?;
     zstd::encode_all(&json[..], ZSTD_LEVEL)
@@ -22,10 +27,21 @@ pub fn compress(value: &serde_json::Value) -> Result<Vec<u8>, StorageError> {
 }
 
 /// Decompress zstd bytes and parse the payload back into JSON.
+#[cfg(feature = "compression")]
 pub fn decompress(bytes: &[u8]) -> Result<serde_json::Value, StorageError> {
     let json =
         zstd::decode_all(bytes).map_err(|e| StorageError::Query(format!("zstd decode: {e}")))?;
     serde_json::from_slice(&json).map_err(StorageError::Serialization)
+}
+
+#[cfg(not(feature = "compression"))]
+pub fn compress(value: &serde_json::Value) -> Result<Vec<u8>, StorageError> {
+    serde_json::to_vec(value).map_err(StorageError::Serialization)
+}
+
+#[cfg(not(feature = "compression"))]
+pub fn decompress(bytes: &[u8]) -> Result<serde_json::Value, StorageError> {
+    serde_json::from_slice(bytes).map_err(StorageError::Serialization)
 }
 
 #[cfg(test)]
@@ -43,6 +59,7 @@ mod tests {
         assert_eq!(decompressed, v);
     }
 
+    #[cfg(feature = "compression")]
     #[test]
     fn compressed_smaller_than_raw_on_repetitive_payload() {
         let v = json!({"blob": "x".repeat(10_000)});
@@ -58,6 +75,8 @@ mod tests {
 
     #[test]
     fn decompress_rejects_invalid_bytes() {
+        // When compression is enabled, invalid zstd bytes are rejected.
+        // When disabled, invalid JSON bytes are rejected.
         assert!(decompress(&[0xff, 0xff, 0xff]).is_err());
     }
 

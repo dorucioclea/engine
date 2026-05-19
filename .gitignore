@@ -1,15 +1,20 @@
-/target
 .env
+.env.*
+!.env.example
+
+/target
 *.db
 *.db-shm
 *.db-wal
 .worktrees/
 node_modules/
 dist/
-.DS_Store
 .build
 
-# Internal AI-tool learning logs — not for public repo
+# Internal AI-tool learning logs
 .jules/
 .claude/
 
+# Generated Swift bindings and XCFramework
+packages/swift/Orch8Mobile.xcframework/
+packages/swift/Sources/Orch8Mobile/Orch8MobileGenerated.swift

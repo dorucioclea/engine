@@ -27,8 +27,14 @@ done
 
 echo "==> Generating Swift bindings…"
 cargo build -p orch8-mobile
+HOST_DYLIB="$(find "${ROOT}/target" -maxdepth 3 -name 'liborch8_mobile.dylib' -not -path '*/deps/*' -not -path '*/ios*' | head -1)"
+if [[ -z "${HOST_DYLIB}" ]]; then
+    echo "ERROR: Could not find host liborch8_mobile.dylib" >&2
+    exit 1
+fi
+echo "    Using host dylib: ${HOST_DYLIB}"
 cargo run -p orch8-mobile --features bindgen --bin uniffi-bindgen -- \
-    generate --library "target/debug/liborch8_mobile.dylib" \
+    generate --library "${HOST_DYLIB}" \
     --language swift --out-dir "${BUILD}/headers"
 
 echo "==> Creating fat simulator library…"

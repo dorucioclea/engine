@@ -1572,6 +1572,9 @@ impl crate::ResourceStore for EncryptingStorage {
     }
 }
 
+#[async_trait]
+impl crate::MobileSyncStore for EncryptingStorage {}
+
 #[cfg(test)]
 mod tests {
     use super::*;

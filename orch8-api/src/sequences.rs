@@ -18,6 +18,7 @@ use crate::AppState;
 pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/sequences", post(create_sequence).get(list_sequences))
+        .route("/sequences.json", get(list_sequences_array))
         .route("/sequences/{id}", get(get_sequence).delete(delete_sequence))
         .route("/sequences/{id}/deprecate", post(deprecate_sequence))
         .route("/sequences/{id}/status", post(set_sequence_status))
@@ -301,6 +302,20 @@ pub(crate) async fn list_sequences(
         .map_err(|e| ApiError::from_storage(e, "sequence"))?;
 
     Ok(Json(crate::PaginatedResponse::from_vec(sequences, limit)))
+}
+
+/// Return all sequences as a plain JSON array (no pagination wrapper).
+/// Used by mobile SDKs via `loadSequencesFromUrl`.
+pub(crate) async fn list_sequences_array(
+    State(state): State<AppState>,
+) -> Result<impl axum::response::IntoResponse, ApiError> {
+    let sequences = state
+        .storage
+        .list_sequences(None, None, 1000, 0)
+        .await
+        .map_err(|e| ApiError::from_storage(e, "sequence"))?;
+
+    Ok(Json(sequences))
 }
 
 /// Hot migration: rebind a running instance to a different sequence version.

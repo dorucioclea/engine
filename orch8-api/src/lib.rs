@@ -8,6 +8,7 @@ pub mod error;
 pub mod health;
 pub mod instances;
 pub mod metrics;
+pub mod mobile_sync;
 #[allow(clippy::needless_for_each)]
 pub mod openapi;
 pub mod plugins;
@@ -65,6 +66,8 @@ pub struct AppState {
     pub stream_limiter: Arc<Semaphore>,
     /// Optional publisher for manifest/sequence publishing.
     pub publisher: Option<Arc<orch8_publisher::SequencePublisher>>,
+    pub push_provider: Arc<dyn orch8_push::PushProvider>,
+    pub mobile_sync_enabled: bool,
 }
 
 /// Assemble the versioned API sub-router (without state applied).
@@ -95,7 +98,11 @@ fn api_routes() -> Router<AppState> {
 /// The bare-path mount is deprecated and will be removed in a future major
 /// release.
 pub fn build_router(state: AppState) -> Router {
-    let api = api_routes();
+    let mut api = api_routes();
+
+    if state.mobile_sync_enabled {
+        api = api.merge(mobile_sync::routes());
+    }
 
     Router::new()
         // Canonical versioned mount — clients should migrate to these paths.

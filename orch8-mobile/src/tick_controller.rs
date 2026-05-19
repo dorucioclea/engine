@@ -21,6 +21,7 @@ use crate::lifecycle::InstanceLifecycleManager;
 use crate::memory;
 use crate::notifier::MobileNotifier;
 use crate::runtime::MobileRuntime;
+use crate::sync_reporter::SyncReporter;
 use crate::PowerState;
 
 /// Manages the tick loop lifecycle: resume, pause, power-state adaptation,
@@ -86,6 +87,7 @@ impl TickController {
         max_tick_duration_ms: u64,
         max_instance_lifetime_secs: u64,
         memory_budget: u64,
+        sync_reporter: Option<&Arc<SyncReporter>>,
     ) {
         // Cancel the previous tick loop (if any).
         {
@@ -132,17 +134,22 @@ impl TickController {
         let notifier = Arc::clone(notifier);
         let lifecycle = Arc::clone(lifecycle);
         let power_state = Arc::clone(&self.power_state);
+        let sync_reporter = sync_reporter.map(Arc::clone);
 
         runtime.handle().spawn(async move {
+            eprintln!("[orch8] tick loop task spawned, interval={tick_interval:?}");
             let mut ticker = tokio::time::interval(tick_interval);
             ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             let mut tick_count: u64 = 0;
 
             loop {
                 tokio::select! {
-                    () = cancel.cancelled() => break,
-                    () = loop_cancel.cancelled() => break,
+                    () = cancel.cancelled() => { eprintln!("[orch8] tick loop: cancel signal"); break; }
+                    () = loop_cancel.cancelled() => { eprintln!("[orch8] tick loop: loop_cancel signal"); break; }
                     _ = ticker.tick() => {
+                        if tick_count.is_multiple_of(50) {
+                            eprintln!("[orch8] tick #{tick_count}");
+                        }
                         let ps = PowerState::from_atomic(
                             power_state.load(Ordering::Acquire),
                         );
@@ -161,25 +168,37 @@ impl TickController {
                             continue;
                         }
 
-                        let _guard = tick_mutex.lock().await;
-                        let tick_result = tokio::time::timeout(
-                            tick_budget,
-                            tick_once(
-                                &storage, &handlers, &semaphore,
-                                &config, &seq_cache, &cancel,
-                            ),
-                        ).await;
-                        match tick_result {
-                            Ok(Ok(_)) => {}
-                            Ok(Err(e)) => warn!(error = %e, "mobile tick error"),
-                            Err(_) => {
-                                warn!(
-                                    budget_ms = tick_budget.as_millis(),
-                                    "tick exceeded duration budget"
-                                );
+                        // Acquire mutex only for tick_once — release before
+                        // notifier queries and listener callbacks to prevent
+                        // stacking when listeners call back into the engine
+                        // (e.g. completeStep from onStepPending).
+                        {
+                            eprintln!("[orch8] tick #{tick_count}: acquiring mutex");
+                            let _guard = tick_mutex.lock().await;
+                            eprintln!("[orch8] tick #{tick_count}: calling tick_once");
+                            let tick_result = tokio::time::timeout(
+                                tick_budget,
+                                tick_once(
+                                    &storage, &handlers, &semaphore,
+                                    &config, &seq_cache, &cancel,
+                                ),
+                            ).await;
+                            eprintln!("[orch8] tick #{tick_count}: tick_once done");
+                            match tick_result {
+                                Ok(Ok(ref r)) => {
+                                    eprintln!("[orch8] tick #{tick_count}: advanced={} steps={} pending={}", r.instances_advanced, r.steps_executed, r.has_pending_work);
+                                }
+                                Ok(Err(ref e)) => eprintln!("[orch8] tick #{tick_count} error: {e}"),
+                                Err(_) => {
+                                    eprintln!("[orch8] tick #{tick_count}: TIMEOUT after {}ms", tick_budget.as_millis());
+                                }
                             }
+                            // _guard dropped here — mutex released before notifications
                         }
 
+                        // Fire notifications outside the mutex so listener
+                        // callbacks (which may call completeStep → block_on)
+                        // don't deadlock with the next tick or pause().
                         let terminal_ids =
                             notifier.fire_terminal_events(&storage).await;
                         for id in terminal_ids {
@@ -188,6 +207,17 @@ impl TickController {
                         notifier
                             .fire_step_pending_events(&storage, &seq_cache)
                             .await;
+
+                        // Sync reporter: queue status/approvals periodically,
+                        // then sync with server when the interval fires.
+                        if let Some(ref reporter) = sync_reporter {
+                            if tick_count.is_multiple_of(10) {
+                                reporter.scan_and_queue(&storage, &seq_cache).await;
+                            }
+                            if reporter.should_sync() {
+                                reporter.sync_once(&storage, &lifecycle).await;
+                            }
+                        }
 
                         tick_count += 1;
                         if tick_count.is_multiple_of(60) {

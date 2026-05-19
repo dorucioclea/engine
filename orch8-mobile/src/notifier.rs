@@ -102,11 +102,16 @@ impl MobileNotifier {
             match inst.state {
                 InstanceState::Completed => {
                     let output = serde_json::to_string(&inst.context.data).unwrap_or_default();
-                    listener.on_instance_completed(id_str.clone(), output);
+                    debug!(instance_id = %id_str, "firing on_instance_completed");
+                    let cb = Arc::clone(&listener);
+                    let id = id_str.clone();
+                    tokio::task::spawn_blocking(move || cb.on_instance_completed(id, output));
                 }
                 InstanceState::Failed => {
                     let error = serde_json::to_string(&inst.context.data).unwrap_or_default();
-                    listener.on_instance_failed(id_str.clone(), error);
+                    let cb = Arc::clone(&listener);
+                    let id = id_str.clone();
+                    tokio::task::spawn_blocking(move || cb.on_instance_failed(id, error));
                 }
                 _ => {}
             }
@@ -164,7 +169,6 @@ impl MobileNotifier {
             if !seen.insert(dedup_key) {
                 continue;
             }
-
             let handler = sequence_cache
                 .get_by_id(storage.as_ref(), inst.sequence_id)
                 .await
@@ -181,7 +185,11 @@ impl MobileNotifier {
                 })
                 .unwrap_or_default();
 
-            listener.on_step_pending(inst.id.to_string(), step_id.to_string(), handler);
+            debug!(instance_id = %inst.id, step_id = %step_id, handler = %handler, "firing on_step_pending");
+            let cb = Arc::clone(&listener);
+            let id = inst.id.to_string();
+            let step = step_id.to_string();
+            tokio::task::spawn_blocking(move || cb.on_step_pending(id, step, handler));
         }
     }
 }

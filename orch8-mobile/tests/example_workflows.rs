@@ -51,6 +51,10 @@ fn make_engine() -> Arc<MobileEngine> {
         root_public_key: String::new(),
         sdk_version: "0.1.0".to_string(),
         memory_budget_bytes: 0,
+        sequences_url: String::new(),
+        sync_url: String::new(),
+        device_id: String::new(),
+        sync_api_key: String::new(),
     };
 
     let engine = MobileEngine::new(db, config).unwrap();
@@ -152,6 +156,30 @@ fn all_three_workflows_can_start_concurrently() {
     assert_ne!(id1, id2);
     assert_ne!(id2, id3);
     engine.shutdown();
+}
+
+#[test]
+fn resume_auto_advances_workflow() {
+    let engine = make_engine();
+    let id = engine
+        .start("payment-verification".into(), "{}".into(), None)
+        .unwrap();
+    engine.resume();
+    // Give the tick loop time to advance
+    for _ in 0..50 {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        let info = engine.get_instance(id.clone()).unwrap();
+        if info.state == InstanceStateKind::Waiting {
+            engine.shutdown();
+            return;
+        }
+    }
+    let info = engine.get_instance(id).unwrap();
+    engine.shutdown();
+    panic!(
+        "expected Waiting state via resume() tick loop, got {:?}",
+        info.state
+    );
 }
 
 // ---------------------------------------------------------------------------

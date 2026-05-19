@@ -341,6 +341,66 @@ CREATE TABLE IF NOT EXISTS mobile_dedup (
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- Mobile sync tables ─────────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS mobile_devices (
+    device_id    TEXT PRIMARY KEY,
+    tenant_id    TEXT NOT NULL DEFAULT '',
+    push_token   TEXT,
+    platform     TEXT NOT NULL DEFAULT 'ios',
+    app_version  TEXT,
+    active       INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0, 1)),
+    last_sync_at TEXT,
+    registered_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS mobile_instance_status (
+    device_id     TEXT NOT NULL,
+    instance_id   TEXT NOT NULL,
+    sequence_name TEXT,
+    state         TEXT NOT NULL,
+    current_step  TEXT,
+    handler       TEXT,
+    context_summary TEXT,
+    steps         TEXT,
+    updated_at    TEXT NOT NULL,
+    PRIMARY KEY (device_id, instance_id)
+);
+
+CREATE TABLE IF NOT EXISTS mobile_approval_requests (
+    id            TEXT PRIMARY KEY,
+    device_id     TEXT NOT NULL,
+    tenant_id     TEXT NOT NULL DEFAULT '',
+    instance_id   TEXT NOT NULL,
+    block_id      TEXT NOT NULL,
+    sequence_name TEXT,
+    prompt        TEXT,
+    choices       TEXT,
+    store_as      TEXT,
+    timeout_secs  INTEGER,
+    metadata      TEXT,
+    state         TEXT NOT NULL DEFAULT 'pending',
+    resolution    TEXT,
+    created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+    resolved_at   TEXT,
+    UNIQUE (device_id, instance_id, block_id)
+);
+CREATE INDEX IF NOT EXISTS idx_mobile_approvals_state ON mobile_approval_requests(state);
+CREATE INDEX IF NOT EXISTS idx_mobile_approvals_device ON mobile_approval_requests(device_id);
+
+CREATE TABLE IF NOT EXISTS mobile_commands (
+    id           TEXT PRIMARY KEY,
+    device_id    TEXT NOT NULL,
+    command_type TEXT NOT NULL,
+    payload      TEXT NOT NULL DEFAULT '{}',
+    created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+    acked_at     TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_mobile_commands_device_pending
+    ON mobile_commands(device_id, acked_at);
+
+-- End mobile sync tables ─────────────────────────────────────────────────────
+
 -- Rollback policy tables (server-side, also in SQLite for testing) ────────────
 
 CREATE TABLE IF NOT EXISTS rollback_policies (
@@ -380,4 +440,4 @@ CREATE INDEX IF NOT EXISTS idx_rollback_history_triggered ON rollback_history(tr
 /// Current bundled schema version. Bump when the `SCHEMA` string above is
 /// edited in a non-idempotent way (e.g. adding a new column whose default
 /// matters for code that reads the column).
-pub(super) const SCHEMA_VERSION: i64 = 5;
+pub(super) const SCHEMA_VERSION: i64 = 6;

@@ -72,6 +72,10 @@ fn engine_lifecycle() {
         root_public_key: String::new(),
         sdk_version: "0.4.0".to_string(),
         memory_budget_bytes: 0,
+        sequences_url: String::new(),
+        sync_url: String::new(),
+        device_id: String::new(),
+        sync_api_key: String::new(),
     };
 
     let engine = orch8_mobile::MobileEngine::new(db_path, config).unwrap();

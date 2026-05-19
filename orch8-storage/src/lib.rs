@@ -1586,6 +1586,216 @@ pub trait ResourceStore: Send + Sync + 'static {
 }
 
 // ============================================================================
+// Sub-trait 11: MobileSyncStore
+// ============================================================================
+
+/// Device registration record.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct MobileDevice {
+    pub device_id: String,
+    pub tenant_id: String,
+    pub push_token: Option<String>,
+    pub platform: String,
+    pub app_version: Option<String>,
+    pub active: bool,
+    pub last_sync_at: Option<String>,
+    pub registered_at: String,
+}
+
+/// Status update from a mobile device for a single instance.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct MobileInstanceStatus {
+    pub device_id: String,
+    pub instance_id: String,
+    pub sequence_name: Option<String>,
+    pub state: String,
+    pub current_step: Option<String>,
+    pub handler: Option<String>,
+    pub context_summary: Option<String>,
+    /// JSON array of step entries from the execution tree:
+    /// `[{block_id, block_type, state, handler, started_at, completed_at}]`
+    pub steps: Option<String>,
+    pub updated_at: String,
+}
+
+/// Approval request sent from mobile when a `wait_for_input` step is hit.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct MobileApprovalRequest {
+    pub id: String,
+    pub device_id: String,
+    pub tenant_id: String,
+    pub instance_id: String,
+    pub block_id: String,
+    pub sequence_name: Option<String>,
+    pub prompt: Option<String>,
+    pub choices: Option<String>,
+    pub store_as: Option<String>,
+    pub timeout_secs: Option<i64>,
+    pub metadata: Option<String>,
+    pub state: String,
+    pub resolution: Option<String>,
+    pub created_at: String,
+    pub resolved_at: Option<String>,
+}
+
+/// Command queued on the server for a mobile device to execute.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct MobileCommand {
+    pub id: String,
+    pub device_id: String,
+    pub command_type: String,
+    pub payload: String,
+    pub created_at: String,
+    pub acked_at: Option<String>,
+}
+
+#[async_trait]
+pub trait MobileSyncStore: Send + Sync + 'static {
+    // --- Devices ---
+
+    async fn register_mobile_device(&self, device: &MobileDevice) -> Result<(), StorageError> {
+        let _ = device;
+        Ok(())
+    }
+
+    async fn get_mobile_device(
+        &self,
+        device_id: &str,
+    ) -> Result<Option<MobileDevice>, StorageError> {
+        let _ = device_id;
+        Ok(None)
+    }
+
+    async fn update_device_last_sync(&self, device_id: &str) -> Result<(), StorageError> {
+        let _ = device_id;
+        Ok(())
+    }
+
+    async fn list_mobile_devices(
+        &self,
+        tenant_id: Option<&str>,
+        limit: u32,
+    ) -> Result<Vec<MobileDevice>, StorageError> {
+        let _ = (tenant_id, limit);
+        Ok(Vec::new())
+    }
+
+    async fn mark_stale_devices_inactive(
+        &self,
+        stale_threshold_secs: i64,
+    ) -> Result<u64, StorageError> {
+        let _ = stale_threshold_secs;
+        Ok(0)
+    }
+
+    // --- Instance Status ---
+
+    async fn upsert_mobile_instance_status(
+        &self,
+        status: &MobileInstanceStatus,
+    ) -> Result<(), StorageError> {
+        let _ = status;
+        Ok(())
+    }
+
+    async fn upsert_mobile_instance_status_batch(
+        &self,
+        statuses: &[MobileInstanceStatus],
+    ) -> Result<(), StorageError> {
+        for s in statuses {
+            self.upsert_mobile_instance_status(s).await?;
+        }
+        Ok(())
+    }
+
+    async fn list_mobile_instance_status(
+        &self,
+        tenant_id: Option<&str>,
+        device_id: Option<&str>,
+        limit: u32,
+    ) -> Result<Vec<MobileInstanceStatus>, StorageError> {
+        let _ = (tenant_id, device_id, limit);
+        Ok(Vec::new())
+    }
+
+    // --- Approval Requests ---
+
+    async fn insert_mobile_approval(
+        &self,
+        approval: &MobileApprovalRequest,
+    ) -> Result<bool, StorageError> {
+        let _ = approval;
+        Ok(false)
+    }
+
+    async fn get_mobile_approval(
+        &self,
+        id: &str,
+    ) -> Result<Option<MobileApprovalRequest>, StorageError> {
+        let _ = id;
+        Ok(None)
+    }
+
+    async fn resolve_mobile_approval(
+        &self,
+        id: &str,
+        resolution: &str,
+    ) -> Result<Option<MobileApprovalRequest>, StorageError> {
+        let _ = (id, resolution);
+        Ok(None)
+    }
+
+    async fn list_mobile_approvals(
+        &self,
+        tenant_id: Option<&str>,
+        state: Option<&str>,
+        limit: u32,
+    ) -> Result<Vec<MobileApprovalRequest>, StorageError> {
+        let _ = (tenant_id, state, limit);
+        Ok(Vec::new())
+    }
+
+    async fn expire_mobile_approvals(&self) -> Result<u64, StorageError> {
+        Ok(0)
+    }
+
+    // --- Commands ---
+
+    async fn create_mobile_command(&self, command: &MobileCommand) -> Result<(), StorageError> {
+        let _ = command;
+        Ok(())
+    }
+
+    async fn fetch_pending_commands(
+        &self,
+        device_id: &str,
+        limit: u32,
+    ) -> Result<Vec<MobileCommand>, StorageError> {
+        let _ = (device_id, limit);
+        Ok(Vec::new())
+    }
+
+    async fn ack_mobile_commands(
+        &self,
+        device_id: &str,
+        command_ids: &[String],
+    ) -> Result<u64, StorageError> {
+        let _ = (device_id, command_ids);
+        Ok(0)
+    }
+
+    async fn cleanup_acked_commands(&self, older_than_secs: i64) -> Result<u64, StorageError> {
+        let _ = older_than_secs;
+        Ok(0)
+    }
+
+    async fn cleanup_expired_commands(&self, ttl_secs: i64) -> Result<u64, StorageError> {
+        let _ = ttl_secs;
+        Ok(0)
+    }
+}
+
+// ============================================================================
 // StorageBackend supertrait
 // ============================================================================
 
@@ -1609,6 +1819,7 @@ pub trait StorageBackend:
     + AdminStore
     + TelemetryStore
     + ResourceStore
+    + MobileSyncStore
     + Send
     + Sync
     + 'static
@@ -1628,6 +1839,7 @@ impl<T> StorageBackend for T where
         + AdminStore
         + TelemetryStore
         + ResourceStore
+        + MobileSyncStore
         + Send
         + Sync
         + 'static

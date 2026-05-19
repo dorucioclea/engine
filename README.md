@@ -2,7 +2,7 @@
 
 A self-hosted, durable workflow orchestration engine built in Rust. Define workflows as composable JSON sequences. Orch8 guarantees every step either completes, retries, or surfaces in a dead-letter queue.
 
-Single binary. One dependency: PostgreSQL (or SQLite for dev/embedded).
+Runs on servers and mobile devices. Single binary for servers, native SDK for iOS and Android (via UniFFI). One dependency: PostgreSQL (or SQLite for dev/embedded/mobile).
 
 [Docs](https://orch8.io/docs) · [Discord](https://discord.gg/BAbx7Dshu) · [Cloud](https://cloud.orch8.io) · [Playbook](https://orch8.io/playbook)
 
@@ -13,6 +13,8 @@ Single binary. One dependency: PostgreSQL (or SQLite for dev/embedded).
 Existing durable workflow engines either ship a multi-service cluster (Temporal: Cassandra + Elasticsearch + JVM workers) or assume Python everywhere (Airflow: Celery + Redis + scheduler). Both are full-time operational jobs on a small team.
 
 Orch8 keeps the execution model — state-snapshot durability, retries, replay-on-restart — but trades the ecosystem for one Rust binary and Postgres. Workers in any language via REST long-poll. Higher-level building blocks (Parallel, Race, TryCatch, CancellationScope, plus LLM/HumanReview/ToolCall) shipped as first-class instead of patterns you build on activities.
+
+Unlike every other workflow engine, Orch8 also runs natively on mobile devices (iOS and Android) via Rust + UniFFI. Workflows execute offline-first on-device, sync status to the server when connected, and support human-in-the-loop approvals via push notifications. No other orchestration engine can do this.
 
 ## Features
 
@@ -33,6 +35,8 @@ Orch8 keeps the execution model — state-snapshot durability, retries, replay-o
 **Observability** — Prometheus metrics, structured JSON logging, audit log, execution tree visualization, Grafana dashboard template
 
 **AI Agent Support** — Unified `llm_call` handler covering all major providers (OpenAI, Anthropic, Gemini + 7 more), dynamic step injection (self_modify), human-in-the-loop with timeout/escalation, SSE streaming, query-instance handler for cross-workflow coordination
+
+**Mobile** — Native iOS and Android SDK via Rust + UniFFI, offline-first execution, battery-aware sync intervals, server-side visibility into mobile workflows, human-in-the-loop approvals via silent push notifications (APNs/FCM), single bidirectional sync endpoint
 
 **Security** — AES-256-GCM encryption at rest for context and credentials, OAuth2 credential refresh, API key authentication, CORS configuration
 
@@ -109,6 +113,12 @@ All SDKs live in their own repositories under the [orch8-io](https://github.com/
 | Go | `github.com/orch8-io/sdk-go` | `go get github.com/orch8-io/sdk-go` | [sdk-go](https://github.com/orch8-io/sdk-go) |
 
 The TypeScript SDK includes both workflow authoring (sequence builder, deploy via REST) and worker support (task polling, handler registration, concurrent execution).
+
+### Mobile SDK
+
+The engine compiles to native iOS and Android libraries via [UniFFI](https://mozilla.github.io/uniffi-rs/). Workflows execute locally on-device — offline-first, battery-aware. The server acts as a mailbox: stores status updates, queues commands, dispatches silent push notifications.
+
+See [Mobile Sync Architecture](docs/engine/MOBILE_SYNC.md) for the full design.
 
 ## Architecture
 

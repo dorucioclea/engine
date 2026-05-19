@@ -907,3 +907,122 @@ export function streamInstance(
     es.close();
   };
 }
+
+// ─── Mobile Sync ────────────────────────────────────────────────────────────
+
+export interface MobileDevice {
+  device_id: string;
+  tenant_id: string;
+  push_token: string | null;
+  platform: string;
+  app_version: string | null;
+  active: boolean;
+  last_sync_at: string | null;
+  registered_at: string;
+}
+
+export interface MobileStepEntry {
+  block_id: string;
+  block_type: string;
+  state: string;
+  handler: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+}
+
+export interface MobileInstanceStatus {
+  device_id: string;
+  instance_id: string;
+  sequence_name: string | null;
+  state: string;
+  current_step: string | null;
+  handler: string | null;
+  context_summary: string | null;
+  steps: string | null;
+  updated_at: string;
+}
+
+export interface MobileApproval {
+  id: string;
+  device_id: string;
+  tenant_id: string;
+  instance_id: string;
+  block_id: string;
+  sequence_name: string | null;
+  prompt: string | null;
+  choices: string | null;
+  store_as: string | null;
+  timeout_secs: number | null;
+  metadata: string | null;
+  state: string;
+  resolution: string | null;
+  created_at: string;
+  resolved_at: string | null;
+}
+
+export interface MobileStatusResponse {
+  items: MobileInstanceStatus[];
+  total: number;
+}
+
+export interface MobileApprovalsResponse {
+  items: MobileApproval[];
+  total: number;
+}
+
+export function listMobileStatus(
+  params?: { tenant_id?: string; device_id?: string; limit?: string },
+  signal?: AbortSignal,
+): Promise<MobileStatusResponse> {
+  return request("/mobile/status", params, signal);
+}
+
+export function listMobileApprovals(
+  params?: { tenant_id?: string; state?: string; limit?: string },
+  signal?: AbortSignal,
+): Promise<MobileApprovalsResponse> {
+  return request("/mobile/approvals", params, signal);
+}
+
+export function resolveMobileApproval(
+  id: string,
+  output: unknown,
+  signal?: AbortSignal,
+): Promise<null> {
+  return mutate(`/mobile/approvals/${encodeURIComponent(id)}/resolve`, "POST", { output }, undefined, signal);
+}
+
+export function sendMobileCommand(
+  deviceId: string,
+  commandType: string,
+  payload: unknown,
+  signal?: AbortSignal,
+): Promise<null> {
+  return mutate("/mobile/commands", "POST", {
+    device_id: deviceId,
+    command_type: commandType,
+    payload,
+  }, undefined, signal);
+}
+
+export interface MobileDeviceInfo {
+  device_id: string;
+  tenant_id: string;
+  platform: string;
+  app_version: string | null;
+  active: boolean;
+  last_sync_at: string | null;
+  registered_at: string;
+}
+
+export interface MobileDevicesResponse {
+  items: MobileDeviceInfo[];
+  total: number;
+}
+
+export function listMobileDevices(
+  params?: { tenant_id?: string; limit?: string },
+  signal?: AbortSignal,
+): Promise<MobileDevicesResponse> {
+  return request("/mobile/devices", params, signal);
+}

@@ -13,6 +13,7 @@ mod externalized;
 mod instances;
 mod kv_state;
 mod misc;
+mod mobile_sync;
 mod outputs;
 mod plugins;
 mod pools;
@@ -1796,3 +1797,5 @@ impl crate::ResourceStore for PostgresStorage {
         checkpoints::prune(self, instance_id, keep).await
     }
 }
+
+// MobileSyncStore is implemented in mobile_sync.rs

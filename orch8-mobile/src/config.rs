@@ -34,6 +34,18 @@ pub struct MobileEngineConfig {
     /// this limit, tick execution is skipped until memory drops below the threshold.
     /// Default: 0 (unlimited).
     pub memory_budget_bytes: u64,
+    /// URL to fetch sequence definitions from. The endpoint must return a JSON
+    /// array of sequence objects. If empty, no remote loading is performed.
+    /// Example: `https://api.orch8.io/api/mobile/apps/{id}/sequences`
+    pub sequences_url: String,
+    /// Server sync endpoint URL. If non-empty, the engine will periodically
+    /// POST status updates / approval requests and receive commands.
+    /// Example: `https://api.orch8.io/api/v1/mobile/sync`
+    pub sync_url: String,
+    /// Unique device identifier sent with each sync request.
+    pub device_id: String,
+    /// API key for authenticating sync requests.
+    pub sync_api_key: String,
 }
 
 impl Default for MobileEngineConfig {
@@ -54,6 +66,10 @@ impl Default for MobileEngineConfig {
             root_public_key: String::new(),
             sdk_version: env!("CARGO_PKG_VERSION").to_string(),
             memory_budget_bytes: 0,
+            sequences_url: String::new(),
+            sync_url: String::new(),
+            device_id: String::new(),
+            sync_api_key: String::new(),
         }
     }
 }

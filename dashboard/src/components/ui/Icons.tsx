@@ -190,3 +190,10 @@ export const IconDatabase = (p: P) => (
     <path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3" />
   </SVG>
 );
+
+export const IconPhone = (p: P) => (
+  <SVG {...p}>
+    <rect x="7" y="2" width="10" height="20" rx="2" />
+    <path d="M11 18h2" />
+  </SVG>
+);

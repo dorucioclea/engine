@@ -353,14 +353,19 @@ pub(super) async fn execute_step_block(
         return Ok(StepOutcome::Deferred);
     }
 
-    // Stamp per-step start time so wait_for_input timeouts are measured from
-    // when this step began waiting, not from workflow start. We set this before
-    // human-input check so the timeout baseline is correct when the instance
-    // transitions to Waiting.
-    let step_started = chrono::Utc::now();
-    storage
-        .update_instance_current_step_started_at(instance_id, step_started)
-        .await?;
+    // Stamp per-step start time and current step ID so wait_for_input
+    // timeouts are measured correctly and the mobile notifier can identify
+    // which step the instance is waiting on.
+    {
+        let step_started = chrono::Utc::now();
+        if let Some(mut inst) = storage.get_instance(instance_id).await? {
+            inst.context.runtime.current_step = Some(step_def.id.clone());
+            inst.context.runtime.current_step_started_at = Some(step_started);
+            storage
+                .update_instance_context(instance_id, &inst.context)
+                .await?;
+        }
+    }
 
     // Human-in-the-loop: if this step waits for human input, check if a response
     // signal has been delivered. If not, transition to Waiting so the approvals
