@@ -38,9 +38,22 @@ pub async fn get_outputs(
         .await
         .map_err(|e| ApiError::from_storage(e, "outputs"))?;
 
-    // Strip internal sentinel rows (in-progress markers written before handler
-    // execution for crash-recovery). They are not user-visible outputs.
-    outputs.retain(|o| o.output_ref.as_deref() != Some("__in_progress__"));
+    // Strip internal sentinel rows that are superseded by a real output for
+    // the same block. Sentinels are written before handler execution for
+    // crash-recovery; once the real output exists the sentinel is noise.
+    // However, on permanent failure the sentinel is the ONLY output for the
+    // block — keep it so callers see that the step ran.
+    {
+        let blocks_with_real_output: std::collections::HashSet<String> = outputs
+            .iter()
+            .filter(|o| o.output_ref.as_deref() != Some("__in_progress__"))
+            .map(|o| o.block_id.as_str().to_owned())
+            .collect();
+        outputs.retain(|o| {
+            o.output_ref.as_deref() != Some("__in_progress__")
+                || !blocks_with_real_output.contains(o.block_id.as_str())
+        });
+    }
 
     // Inflate externalization markers in-place so API consumers see real data.
     // See `docs/CONTEXT_MANAGEMENT.md` §8.5.
