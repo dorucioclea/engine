@@ -142,6 +142,7 @@ jobs:
           file: docker-ctx/Dockerfile
           push: true
           platforms: ${{ matrix.platform }}
+          provenance: false
           tags: |
             ghcr.io/orch8-io/engine:${{ steps.version.outputs.tag }}-${{ matrix.platform == 'linux/amd64' && 'amd64' || 'arm64' }}
 
