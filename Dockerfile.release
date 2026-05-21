@@ -1,0 +1,26 @@
+FROM debian:bookworm-slim
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN groupadd --system orch8 && useradd --system --gid orch8 orch8
+
+COPY orch8-server /usr/local/bin/orch8-server
+COPY orch8 /usr/local/bin/orch8
+
+ENV ORCH8_STORAGE_BACKEND=sqlite \
+    ORCH8_DATABASE_URL=sqlite:///data/orch8.db \
+    ORCH8_HTTP_ADDR=0.0.0.0:8080 \
+    ORCH8_GRPC_ADDR=0.0.0.0:50051
+
+RUN mkdir -p /data && chown orch8:orch8 /data
+
+EXPOSE 8080 50051
+
+HEALTHCHECK --interval=10s --timeout=3s --start-period=5s --retries=3 \
+    CMD ["/usr/local/bin/orch8", "--url", "http://127.0.0.1:8080", "health"]
+
+USER orch8
+
+ENTRYPOINT ["/usr/local/bin/orch8-server"]
