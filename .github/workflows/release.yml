@@ -25,25 +25,27 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - name: Check CI status
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
         run: |
           SHA=$(git rev-parse HEAD)
-          # Wait up to 5 minutes for CI to report
+          # Wait up to 5 minutes for CI check-runs to complete
           for i in $(seq 1 30); do
-            STATUS=$(gh api repos/${{ github.repository }}/commits/$SHA/status --jq '.state' 2>/dev/null || echo "pending")
-            if [ "$STATUS" = "success" ]; then
+            RESULT=$(gh api "repos/$REPO/commits/$SHA/check-runs" \
+              --jq '[.check_runs[] | select(.name != "Verify CI Status")] | if length == 0 then "pending" elif all(.conclusion == "success" or .conclusion == "skipped") then "success" elif any(.conclusion == "failure") then "failure" else "pending" end' 2>/dev/null || echo "pending")
+            if [ "$RESULT" = "success" ]; then
               echo "CI passed for $SHA"
               exit 0
-            elif [ "$STATUS" = "failure" ] || [ "$STATUS" = "error" ]; then
+            elif [ "$RESULT" = "failure" ]; then
               echo "CI failed for $SHA — aborting release"
               exit 1
             fi
-            echo "CI status: $STATUS (attempt $i/30)"
+            echo "CI status: $RESULT (attempt $i/30)"
             sleep 10
           done
           echo "ERROR: CI status not available after 5 minutes — aborting release"
           exit 1
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   build:
     name: Build ${{ matrix.target }}
