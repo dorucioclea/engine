@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`mcp_call` handler**: native Model Context Protocol client over the Streamable HTTP transport. Performs the `initialize` → `notifications/initialized` → request handshake per call, supports `tools/call` and `tools/list`, parses both `application/json` and `text/event-stream` (SSE) responses, and honors `Mcp-Session-Id`. Because it runs as a durable step, MCP tool calls inherit retry, rate-limiting, circuit-breaker, and crash-recovery semantics — a tool reporting `isError: true` surfaces as `is_error` rather than failing the step.
+- **`agent` handler**: a native, durable ReAct loop. Drives reason → act → observe over `llm_call` (10 providers + failover) and `tool_call`/`mcp_call` until the model stops requesting tools or `max_iterations` is hit. Tool errors become observations so the model can self-correct.
+- **Agent memory handlers** (`embed`, `memory_store`, `memory_search`): durable, semantically-searchable memory built on the existing instance KV store. Cosine ranking runs in pure Rust — no pgvector/sqlite-vec extension — so memory also works offline on the mobile (SQLite) backend.
+
 ## [0.5.0] — 2026-05-20
 
 ### Added

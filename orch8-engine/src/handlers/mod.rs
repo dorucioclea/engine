@@ -1,5 +1,6 @@
 pub mod ab_split;
 pub mod activepieces;
+pub mod agent;
 pub mod builtin;
 pub mod cancellation_scope;
 pub mod emit_event;
@@ -8,6 +9,8 @@ pub mod grpc_plugin;
 pub mod human_review;
 pub mod llm;
 pub mod loop_block;
+pub mod mcp;
+pub mod memory;
 pub mod parallel;
 pub mod param_resolve;
 pub mod query_instance;
