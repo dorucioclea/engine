@@ -50,6 +50,20 @@ const MAX_RESPONSE_BYTES: usize = 10_485_760; // 10 MB
 /// Protocol version advertised when the caller does not pin one.
 const DEFAULT_PROTOCOL_VERSION: &str = "2025-06-18";
 
+/// Canonical dry-run stub for `handle_mcp_call`, mirroring the per-action output
+/// shape so downstream templates still resolve. No network traffic.
+fn mcp_dry_run_stub(action: &str, tool_name: Option<&str>, url: &str) -> Value {
+    let would = json!({ "url": url, "action": action });
+    let shape = match action {
+        "list" => json!({ "tools": [] }),
+        _ => json!({
+            "tool_name": tool_name.map_or(Value::Null, |t| Value::String(t.to_string())),
+            "result": Value::Null,
+        }),
+    };
+    super::util::dry_run_stub("mcp_call", would, shape)
+}
+
 pub async fn handle_mcp_call(ctx: StepContext) -> Result<Value, StepError> {
     // Endpoint comes from an explicit `url`, or a named `server` resolved from
     // the read-only `context.config.mcp_servers` registry (engine-local; the
@@ -95,6 +109,12 @@ pub async fn handle_mcp_call(ctx: StepContext) -> Result<Value, StepError> {
             )))
         }
     };
+
+    // Dry-run: endpoint, URL safety, action and (for `call`) tool_name are now
+    // validated; skip only the network handshake/call.
+    if ctx.is_dry_run() {
+        return Ok(mcp_dry_run_stub(action, tool_name.as_deref(), &url));
+    }
 
     let timeout = Duration::from_millis(
         ctx.params
@@ -803,6 +823,32 @@ mod net_tests {
             storage,
             wait_for_input: None,
         }
+    }
+
+    #[test]
+    fn dry_run_stub_shapes_per_action() {
+        let call = mcp_dry_run_stub("call", Some("echo"), "https://mcp.example/api");
+        assert_eq!(call["dry_run"], true);
+        assert_eq!(call["handler"], "mcp_call");
+        assert_eq!(call["tool_name"], "echo");
+        assert!(call["result"].is_null());
+
+        let list = mcp_dry_run_stub("list", None, "https://mcp.example/api");
+        assert_eq!(list["dry_run"], true);
+        assert_eq!(list["tools"], json!([]));
+    }
+
+    #[tokio::test]
+    async fn dry_run_skips_handshake() {
+        // Closed port: a real handshake would fail to connect. Ok proves skip.
+        let mut ctx = mk_ctx(json!({
+            "url": "http://127.0.0.1:1/mcp", "tool_name": "echo", "arguments": {}
+        }))
+        .await;
+        ctx.context.runtime.dry_run = true;
+        let out = handle_mcp_call(ctx).await.unwrap();
+        assert_eq!(out["dry_run"], true);
+        assert_eq!(out["tool_name"], "echo");
     }
 
     #[tokio::test]

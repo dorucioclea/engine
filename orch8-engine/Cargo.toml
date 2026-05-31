@@ -25,6 +25,7 @@ moka.workspace = true
 dashmap.workspace = true
 reqwest.workspace = true
 url.workspace = true
+bytes.workspace = true
 tokio-stream.workspace = true
 async-nats = { workspace = true, optional = true }
 notify = { workspace = true, optional = true }

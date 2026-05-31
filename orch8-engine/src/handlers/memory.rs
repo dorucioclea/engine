@@ -57,6 +57,18 @@ pub async fn handle_embed(ctx: StepContext) -> Result<Value, StepError> {
         .get("input")
         .ok_or_else(|| permanent("embed: `input` (string or array of strings) is required"))?;
 
+    // Dry-run: `input` is validated; skip the embedding-provider call. Mirror
+    // the batch/single output shape with empty vectors.
+    if ctx.is_dry_run() {
+        let model = resolve_model(&ctx.params);
+        let shape = if input.is_array() {
+            json!({ "embeddings": [], "model": model, "dimensions": 0 })
+        } else {
+            json!({ "embedding": [], "model": model, "dimensions": 0 })
+        };
+        return Ok(super::util::dry_run_stub("embed", Value::Null, shape));
+    }
+
     let is_batch = input.is_array();
     let inputs = to_input_list(input)?;
     let embeddings = embed_inputs(&ctx.params, &inputs).await?;
@@ -87,6 +99,19 @@ pub async fn handle_memory_store(ctx: StepContext) -> Result<Value, StepError> {
         .get("text")
         .and_then(Value::as_str)
         .map(str::to_string);
+
+    // Dry-run: do not embed or persist anything.
+    if ctx.is_dry_run() {
+        let key = ctx.params.get("key").and_then(Value::as_str).map_or_else(
+            || content_key(text.as_deref().unwrap_or("")),
+            str::to_string,
+        );
+        return Ok(super::util::dry_run_stub(
+            "memory_store",
+            Value::Null,
+            json!({ "key": key, "stored": false, "dimensions": 0 }),
+        ));
+    }
 
     // Use a supplied embedding if present; otherwise embed `text`.
     let embedding: Vec<f64> =
@@ -126,6 +151,16 @@ pub async fn handle_memory_store(ctx: StepContext) -> Result<Value, StepError> {
 // ===========================================================================
 
 pub async fn handle_memory_search(ctx: StepContext) -> Result<Value, StepError> {
+    // Dry-run: skip the embedding-provider call (the query vector would
+    // otherwise be embedded via an external API). Return an empty result set.
+    if ctx.is_dry_run() {
+        return Ok(super::util::dry_run_stub(
+            "memory_search",
+            Value::Null,
+            json!({ "results": [], "count": 0 }),
+        ));
+    }
+
     let top_k_u64 = ctx
         .params
         .get("top_k")
@@ -692,6 +727,48 @@ mod net_tests {
             handle_embed(ctx).await.unwrap_err(),
             StepError::Permanent { .. }
         ));
+    }
+
+    #[tokio::test]
+    async fn dry_run_embed_skips_provider() {
+        // No mock spawned: if the handler tried to embed, it would fail to
+        // connect. Returning Ok proves the provider call was skipped.
+        let mut ctx =
+            mk_ctx(json!({ "input": "hello", "base_url": "http://127.0.0.1:1", "api_key": "k" }))
+                .await;
+        ctx.context.runtime.dry_run = true;
+        let out = handle_embed(ctx).await.unwrap();
+        assert_eq!(out["dry_run"], true);
+        assert_eq!(out["embedding"], json!([]));
+        assert_eq!(out["dimensions"], 0);
+    }
+
+    #[tokio::test]
+    async fn dry_run_memory_store_does_not_persist() {
+        let mut ctx = mk_ctx(json!({ "text": "remember me", "key": "k1" })).await;
+        ctx.context.runtime.dry_run = true;
+        let storage = ctx.storage.clone();
+        let instance_id = ctx.instance_id;
+        let out = handle_memory_store(ctx).await.unwrap();
+        assert_eq!(out["dry_run"], true);
+        assert_eq!(out["stored"], false);
+        // Nothing was written to the instance KV.
+        let stored = storage
+            .get_instance_kv(instance_id, &format!("{MEMORY_KEY_PREFIX}k1"))
+            .await
+            .unwrap();
+        assert!(stored.is_none(), "dry-run must not persist a memory record");
+    }
+
+    #[tokio::test]
+    async fn dry_run_memory_search_returns_empty() {
+        let mut ctx =
+            mk_ctx(json!({ "query": "anything", "base_url": "http://127.0.0.1:1" })).await;
+        ctx.context.runtime.dry_run = true;
+        let out = handle_memory_search(ctx).await.unwrap();
+        assert_eq!(out["dry_run"], true);
+        assert_eq!(out["results"], json!([]));
+        assert_eq!(out["count"], 0);
     }
 
     #[tokio::test]

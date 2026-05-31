@@ -44,6 +44,17 @@ pub async fn handle_self_modify(ctx: StepContext) -> Result<Value, StepError> {
         });
     }
 
+    // Dry-run: the blocks are validated; do NOT emit `_self_modify: true` (that
+    // output is the signal the executor acts on to inject) — return a stub that
+    // performs no injection but reports what would have been injected.
+    if ctx.is_dry_run() {
+        return Ok(crate::handlers::util::dry_run_stub(
+            "self_modify",
+            json!({ "inject_count": count, "position": position }),
+            json!({ "_self_modify": false, "injected_count": 0, "would_inject": count }),
+        ));
+    }
+
     // Store the injection request in the step output. The evaluator picks up
     // injected blocks from storage on the next tick. We use a special output
     // key `_self_modify` so the caller knows this step performed injection.
@@ -102,6 +113,35 @@ mod tests {
         if let StepError::Permanent { message, .. } = &err {
             assert!(message.contains("missing required param: blocks"));
         }
+    }
+
+    #[tokio::test]
+    async fn dry_run_does_not_signal_injection() {
+        let s = make_storage().await;
+        // Valid blocks so dry-run exercises the BlockDefinition validation
+        // before short-circuiting (validate-then-skip).
+        let blocks = json!([valid_step_block(), valid_step_block()]);
+        let mut ctx = mk_ctx(json!({ "blocks": blocks }), s);
+        ctx.context.runtime.dry_run = true;
+        let out = handle_self_modify(ctx).await.unwrap();
+        assert_eq!(out["dry_run"], true);
+        assert_eq!(out["handler"], "self_modify");
+        // MUST NOT emit `_self_modify: true` — that is the injection signal.
+        assert_eq!(out["_self_modify"], false);
+        assert_eq!(out["injected_count"], 0);
+        assert_eq!(out["would_inject"], 2);
+    }
+
+    #[tokio::test]
+    async fn dry_run_invalid_blocks_still_rejected() {
+        // validate-then-skip: a dry-run must still surface a bad block config.
+        let s = make_storage().await;
+        let mut ctx = mk_ctx(json!({ "blocks": [{ "not": "a block" }] }), s);
+        ctx.context.runtime.dry_run = true;
+        assert!(matches!(
+            handle_self_modify(ctx).await.unwrap_err(),
+            StepError::Permanent { .. }
+        ));
     }
 
     #[tokio::test]

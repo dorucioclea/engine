@@ -110,6 +110,98 @@ pub struct EngineConfig {
     pub api: ApiConfig,
     #[serde(default)]
     pub logging: LoggingConfig,
+    #[serde(default)]
+    pub artifacts: ArtifactConfig,
+}
+
+/// Selectable durable artifact backends. In-memory is intentionally absent —
+/// losing artifacts on restart would break the engine's durability contract.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ArtifactBackend {
+    /// Disabled — artifact ops fail loudly (`Unsupported`).
+    None,
+    /// Local filesystem. **Only durable on a persistent volume** — on ephemeral
+    /// container filesystems (Cloud Run, k8s without a PVC) artifacts are lost
+    /// on restart/redeploy. Prefer S3/R2 for cloud deployments.
+    Local,
+    /// S3-compatible object storage (AWS S3 / Cloudflare R2 / `MinIO`).
+    S3,
+}
+
+/// Durable artifact storage (binary blobs produced/consumed by steps).
+///
+/// `backend`:
+/// - `"none"` (default) — artifacts disabled; artifact ops fail loudly.
+/// - `"local"` — local filesystem at `path`. Durable **only on a persistent
+///   volume**; on ephemeral container FS it is lost on restart. See
+///   [`ArtifactBackend::Local`].
+/// - `"s3"` — S3-compatible object storage (AWS S3 / Cloudflare R2 / `MinIO`).
+///
+/// In-memory storage is deliberately not a configurable backend: losing
+/// artifacts on restart would silently break the engine's durability contract.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ArtifactConfig {
+    #[serde(default = "default_artifact_backend")]
+    pub backend: String,
+    /// Filesystem directory for `backend = "local"`.
+    #[serde(default = "default_artifact_path")]
+    pub path: String,
+    #[serde(default)]
+    pub s3_bucket: String,
+    #[serde(default)]
+    pub s3_region: String,
+    /// Custom endpoint for non-AWS S3 (R2/`MinIO`). Empty → AWS default.
+    #[serde(default)]
+    pub s3_endpoint: String,
+    #[serde(default)]
+    pub s3_access_key_id: SecretString,
+    #[serde(default)]
+    pub s3_secret_access_key: SecretString,
+    /// Allow plain HTTP for the S3 endpoint (e.g. local `MinIO`).
+    #[serde(default)]
+    pub s3_allow_http: bool,
+}
+
+impl Default for ArtifactConfig {
+    fn default() -> Self {
+        Self {
+            backend: default_artifact_backend(),
+            path: default_artifact_path(),
+            s3_bucket: String::new(),
+            s3_region: String::new(),
+            s3_endpoint: String::new(),
+            s3_access_key_id: SecretString::default(),
+            s3_secret_access_key: SecretString::default(),
+            s3_allow_http: false,
+        }
+    }
+}
+
+impl ArtifactConfig {
+    /// Parse the string `backend` into a typed [`ArtifactBackend`], rejecting
+    /// unknown values up-front so a typo fails at startup with a clear message
+    /// rather than silently disabling artifacts.
+    ///
+    /// # Errors
+    /// Returns a message naming the offending value when it isn't recognised.
+    pub fn backend_kind(&self) -> Result<ArtifactBackend, String> {
+        match self.backend.as_str() {
+            "none" | "" => Ok(ArtifactBackend::None),
+            "local" => Ok(ArtifactBackend::Local),
+            "s3" => Ok(ArtifactBackend::S3),
+            other => Err(format!(
+                "unknown artifacts.backend: {other:?} (expected none|local|s3)"
+            )),
+        }
+    }
+}
+
+fn default_artifact_backend() -> String {
+    "none".to_string()
+}
+
+fn default_artifact_path() -> String {
+    "orch8-artifacts".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -270,6 +362,14 @@ pub struct SchedulerConfig {
     /// Primarily used by the mobile SDK to prevent runaway workflows on-device.
     #[serde(default)]
     pub max_steps_per_instance: u32,
+    /// Artifact retention, in seconds. When `> 0`, the background GC sweeper
+    /// deletes the durable artifacts of instances that have been in a terminal
+    /// state for longer than this window. `0` (default) disables the sweep —
+    /// artifacts are kept until removed out-of-band (e.g. an S3 lifecycle
+    /// policy or `delete_instance_artifacts`). Set via
+    /// `ORCH8_ARTIFACT_RETENTION_SECS`.
+    #[serde(default)]
+    pub artifact_retention_secs: u64,
 }
 
 impl Default for SchedulerConfig {
@@ -292,6 +392,7 @@ impl Default for SchedulerConfig {
             node_reaper_stale_secs: default_node_reaper_stale_secs(),
             cron_tick_secs: default_cron_tick_secs(),
             max_steps_per_instance: 0,
+            artifact_retention_secs: 0,
         }
     }
 }
