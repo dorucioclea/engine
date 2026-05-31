@@ -429,6 +429,13 @@ pub struct WebhookConfig {
     pub timeout_secs: u64,
     #[serde(default = "default_webhook_max_retries")]
     pub max_retries: u32,
+    /// Optional shared secret. When set, each outbound delivery is signed:
+    /// the body is HMAC-SHA256'd over `"{timestamp}.{body}"` and sent as
+    /// `X-Orch8-Signature: sha256=<hex>` alongside `X-Orch8-Timestamp`, so the
+    /// receiver can verify authenticity and reject replays. Mirrors the
+    /// inbound trigger-secret model, in the outbound direction.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub secret: Option<String>,
 }
 
 impl Default for WebhookConfig {
@@ -437,6 +444,7 @@ impl Default for WebhookConfig {
             urls: Vec::new(),
             timeout_secs: default_webhook_timeout_secs(),
             max_retries: default_webhook_max_retries(),
+            secret: None,
         }
     }
 }

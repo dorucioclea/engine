@@ -1409,6 +1409,7 @@ fn webhook_76_emit_empty_urls() {
         urls: vec![],
         timeout_secs: 5,
         max_retries: 0,
+        secret: None,
     };
     let event = instance_event("test", InstanceId::new(), json!({}));
     webhooks::emit(&config, &event, &CancellationToken::new());
@@ -1454,6 +1455,7 @@ fn webhook_80_cancelled_token_noop() {
         urls: vec![],
         timeout_secs: 1,
         max_retries: 0,
+        secret: None,
     };
     let event = instance_event("x", InstanceId::new(), json!({}));
     let cancel = CancellationToken::new();

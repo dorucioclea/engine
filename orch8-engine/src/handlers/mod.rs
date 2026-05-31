@@ -1,6 +1,7 @@
 pub mod ab_split;
 pub mod activepieces;
 pub mod agent;
+pub mod blob;
 pub mod builtin;
 pub mod cancellation_scope;
 pub mod emit_event;

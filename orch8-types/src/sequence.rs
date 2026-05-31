@@ -612,6 +612,8 @@ pub const BUILTIN_HANDLER_NAMES: &[&str] = &[
     "transform",
     "assert",
     "merge_state",
+    "blob_put",
+    "blob_get",
 ];
 
 impl SequenceDefinition {

@@ -163,6 +163,8 @@ pub fn register_builtins(registry: &mut HandlerRegistry) {
     registry.register("transform", handle_transform);
     registry.register("assert", handle_assert);
     registry.register("merge_state", handle_merge_state);
+    registry.register("blob_put", super::blob::handle_blob_put);
+    registry.register("blob_get", super::blob::handle_blob_get);
 }
 
 /// No-op handler. Always succeeds with an empty result.
