@@ -350,8 +350,12 @@ fn is_inside_finally_branch(
                 c.state,
                 NodeState::Pending | NodeState::Running | NodeState::Waiting
             );
-            if is_active { has_active = true; }
-            if c.state != NodeState::Pending { all_pending = false; }
+            if is_active {
+                has_active = true;
+            }
+            if c.state != NodeState::Pending {
+                all_pending = false;
+            }
         }
 
         if has_active || (has_any && all_pending) {
@@ -1203,11 +1207,7 @@ mod tests {
         assert!(!is_descendant_of_any(&node_index, &root, &ancestors));
         // Unknown ancestor — returns false.
         let missing = vec![ExecutionNodeId::new()];
-        assert!(!is_descendant_of_any(
-            &node_index,
-            &grandchild,
-            &missing
-        ));
+        assert!(!is_descendant_of_any(&node_index, &grandchild, &missing));
     }
 
     // H21: pause signal on invalid state is marked delivered (no infinite retry)
