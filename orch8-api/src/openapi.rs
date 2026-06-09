@@ -112,6 +112,7 @@ use utoipa::OpenApi;
         // Instance
         orch8_types::instance::InstanceState,
         orch8_types::instance::Priority,
+        orch8_types::instance::Budget,
         orch8_types::instance::TaskInstance,
         // Context
         orch8_types::context::ExecutionContext,

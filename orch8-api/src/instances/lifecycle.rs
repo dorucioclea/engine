@@ -132,6 +132,7 @@ pub async fn create_instance(
         idempotency_key: effective_idem,
         session_id: None,
         parent_instance_id: None,
+        budget: req.budget,
         created_at: now,
         updated_at: now,
     };
@@ -242,6 +243,7 @@ pub async fn create_instances_batch(
                 idempotency_key,
                 session_id: None,
                 parent_instance_id: None,
+                budget: r.budget,
                 created_at: now,
                 updated_at: now,
             }
