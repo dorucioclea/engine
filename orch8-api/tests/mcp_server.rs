@@ -520,3 +520,37 @@ async fn tenant_isolation_hides_foreign_instances() {
     let listed = tool_json(&result);
     assert!(listed["items"].as_array().unwrap().is_empty());
 }
+
+#[tokio::test]
+async fn create_instance_passes_budget_first_class() {
+    let srv = spawn_test_server().await;
+    let client = reqwest::Client::new();
+    let v1 = srv.v1_url();
+    let tenant = "tb";
+
+    let seq_id = create_sequence(&client, &v1, tenant, "budgeted").await;
+    let inst_id = mcp_create_instance(
+        &client,
+        &v1,
+        tenant,
+        json!({
+            "sequence_id": seq_id,
+            "budget": { "max_total_tokens": 5000, "max_steps": 10 }
+        }),
+    )
+    .await;
+
+    // The budget must land on the instance itself (scheduler-enforced),
+    // not inside context.config.
+    let resp = client
+        .get(format!("{v1}/instances/{inst_id}"))
+        .header("X-Tenant-Id", tenant)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let inst: Value = resp.json().await.unwrap();
+    assert_eq!(inst["budget"]["max_total_tokens"], 5000);
+    assert_eq!(inst["budget"]["max_steps"], 10);
+    assert!(inst["context"]["config"].get("budget").is_none());
+}

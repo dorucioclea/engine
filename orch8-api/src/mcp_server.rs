@@ -264,24 +264,11 @@ async fn tool_create_instance(
         seq.id.into_uuid()
     };
 
-    // Budget-style controls have no first-class field on the create request;
-    // they ride inside the read-only `context.config` section, where step
-    // handlers (agent loops, LLM calls) can observe them.
-    let mut context = args
+    let context = args
         .get("context")
         .filter(|c| c.is_object())
         .cloned()
         .unwrap_or_else(|| json!({}));
-    if let Some(budget) = args.get("budget") {
-        let config = context
-            .as_object_mut()
-            .expect("context defaulted to an object above")
-            .entry("config")
-            .or_insert_with(|| json!({}));
-        if let Some(cfg) = config.as_object_mut() {
-            cfg.insert("budget".into(), budget.clone());
-        }
-    }
 
     let mut body = json!({
         "sequence_id": sequence_id,
@@ -289,7 +276,7 @@ async fn tool_create_instance(
         "namespace": namespace,
         "context": context,
     });
-    for key in ["metadata", "dry_run", "idempotency_key"] {
+    for key in ["metadata", "dry_run", "idempotency_key", "budget"] {
         if let Some(v) = args.get(key) {
             body[key] = v.clone();
         }
@@ -485,7 +472,9 @@ fn tool_catalog() -> Value {
                                  "description": "Initial execution context ({data, config, ...})" },
                     "metadata": { "type": "object", "description": "Opaque instance metadata" },
                     "budget": { "type": "object",
-                                "description": "Budget hints, stored under context.config.budget" },
+                                "description": "Instance budget enforced by the scheduler \
+                                                (max_input_tokens, max_output_tokens, \
+                                                max_total_tokens, max_steps)" },
                     "dry_run": { "type": "boolean",
                                  "description": "Simulate side-effecting steps (default false)" },
                     "idempotency_key": { "type": "string",
