@@ -2667,6 +2667,7 @@ dependencies = [
  "serde_json",
  "sqlx",
  "tabled",
+ "tempfile",
  "tokio",
  "toml 0.8.23",
  "uuid",
