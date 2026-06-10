@@ -40,6 +40,11 @@ pub struct CreateInstanceRequest {
     pub(crate) concurrency_key: Option<String>,
     pub(crate) max_concurrency: Option<u32>,
     pub(crate) idempotency_key: Option<String>,
+    /// Optional resource budget (token/step caps) enforced by the scheduler.
+    /// When any configured limit is exceeded the instance is paused with
+    /// `metadata.paused_reason = "budget_exceeded"`. Default: no budget.
+    #[serde(default)]
+    pub(crate) budget: Option<orch8_types::instance::Budget>,
 }
 
 pub fn default_timezone() -> String {
