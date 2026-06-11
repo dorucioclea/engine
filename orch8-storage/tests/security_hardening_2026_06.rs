@@ -19,7 +19,7 @@ use chrono::Utc;
 
 use orch8_storage::encrypting::EncryptingStorage;
 use orch8_storage::sqlite::SqliteStorage;
-use orch8_storage::{AdminStore, MobileCommand, MobileDevice, MobileSyncStore, StorageBackend};
+use orch8_storage::{AdminStore, MobileCommand, MobileDevice, MobileSyncStore};
 use orch8_types::config::SecretString;
 use orch8_types::encryption::FieldEncryptor;
 use orch8_types::ids::TenantId;

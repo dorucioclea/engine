@@ -2243,7 +2243,7 @@ mod tests {
     fn array_fns_refuse_oversized_input() {
         // DoS guard: arrays larger than MAX_ARRAY_FN_ELEMENTS short-circuit to
         // null instead of doing O(n) / O(n log n) work on attacker-sized input.
-        let big: Vec<i64> = (0..(MAX_ARRAY_FN_ELEMENTS as i64 + 1)).collect();
+        let big: Vec<u64> = (0..=(MAX_ARRAY_FN_ELEMENTS as u64)).collect();
         let ctx = ExecutionContext {
             data: json!({ "items": big }),
             config: json!({}),
