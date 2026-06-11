@@ -97,21 +97,12 @@ pub async fn handle_grpc_plugin(ctx: StepContext) -> Result<Value, StepError> {
 
     let (scheme, addr, method) = parse_endpoint(endpoint)?;
 
-    // Dry-run: endpoint parsed/validated; skip the gRPC call.
-    if ctx.is_dry_run() {
-        return Ok(crate::handlers::util::dry_run_stub(
-            "grpc_plugin",
-            json!({ "endpoint": endpoint, "method": method }),
-            json!({ "result": Value::Null }),
-        ));
-    }
-
-    // SSRF guard: the gRPC endpoint is ultimately POSTed to via reqwest, so
-    // it shares the HTTP handler's threat model. `is_url_safe` only accepts
-    // http/https schemes, so the `grpc://` prefix silently bypassed the
-    // check. `is_address_safe` resolves the host and rejects loopback,
-    // private, link-local (incl. 169.254.169.254 metadata), ULA, and
-    // unspecified targets.
+    // SSRF guard runs BEFORE the dry-run skip so a dry-run surfaces a blocked
+    // endpoint instead of a false green (validate-then-skip — the ordering
+    // every other handler uses). `is_url_safe`'s http/https-only check would
+    // let the `grpc://` prefix bypass it, so we resolve the host directly:
+    // `is_address_safe` rejects loopback, private, link-local (incl.
+    // 169.254.169.254 metadata), ULA, and unspecified targets.
     if !super::builtin::is_address_safe(addr).await {
         return Err(StepError::Permanent {
             message: format!(
@@ -119,6 +110,15 @@ pub async fn handle_grpc_plugin(ctx: StepContext) -> Result<Value, StepError> {
             ),
             details: None,
         });
+    }
+
+    // Dry-run: endpoint parsed + SSRF-validated; skip the actual gRPC call.
+    if ctx.is_dry_run() {
+        return Ok(crate::handlers::util::dry_run_stub(
+            "grpc_plugin",
+            json!({ "endpoint": endpoint, "method": method }),
+            json!({ "result": Value::Null }),
+        ));
     }
 
     debug!(

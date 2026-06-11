@@ -40,6 +40,19 @@ static AP_CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
         // Per-piece timeout is enforced sidecar-side (ORCH8_AP_TIMEOUT_MS, default 60s).
         // Our ceiling is a little higher so we don't race the sidecar's own timer.
         .timeout(Duration::from_secs(75))
+        // The sidecar URL is operator-trusted, but a compromised or
+        // misconfigured sidecar must not be able to redirect the engine into
+        // the internal network / cloud-metadata endpoint. Re-validate hops.
+        .redirect(reqwest::redirect::Policy::custom(|attempt| {
+            if attempt.previous().len() >= 10 {
+                return attempt.error("too many redirects");
+            }
+            if crate::handlers::builtin::redirect_target_allowed(attempt.url()) {
+                attempt.follow()
+            } else {
+                attempt.error("blocked: redirect targets a private/internal network address")
+            }
+        }))
         .build()
         .unwrap_or_else(|e| {
             tracing::warn!(error = %e, "failed to build activepieces HTTP client, using default");

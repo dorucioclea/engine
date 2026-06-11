@@ -16,11 +16,33 @@ use crate::proto::{self, orch8_service_server::Orch8Service};
 
 pub struct Orch8GrpcService {
     storage: Arc<dyn StorageBackend>,
+    /// Semantic cap on a single instance's serialized `ExecutionContext`.
+    /// Mirrors the HTTP path's `state.max_context_bytes`. `0` disables it.
+    max_context_bytes: u32,
 }
 
 impl Orch8GrpcService {
+    /// Construct with the default context-size cap
+    /// ([`orch8_types::context::DEFAULT_MAX_CONTEXT_BYTES`]).
     pub fn new(storage: Arc<dyn StorageBackend>) -> Self {
-        Self { storage }
+        Self {
+            storage,
+            max_context_bytes: orch8_types::context::DEFAULT_MAX_CONTEXT_BYTES,
+        }
+    }
+
+    /// Construct with an explicit context-size cap (server wires
+    /// `config.engine.max_context_bytes` so gRPC and HTTP enforce the same
+    /// limit — otherwise gRPC writes only saw the 10 MB raw-JSON guard).
+    #[must_use]
+    pub fn with_max_context_bytes(
+        storage: Arc<dyn StorageBackend>,
+        max_context_bytes: u32,
+    ) -> Self {
+        Self {
+            storage,
+            max_context_bytes,
+        }
     }
 
     /// Atomically save worker output, mark the execution node Completed, and
@@ -325,6 +347,10 @@ impl Orch8Service for Orch8GrpcService {
         let body_tenant = TenantId::unchecked(req.get_ref().tenant_id.clone());
         let tenant_id =
             scoped_tenant_id(&req, Some(&body_tenant)).unwrap_or_else(|| TenantId::unchecked(""));
+        // Capture the caller's scoped tenant (from request metadata) before
+        // `into_inner()` consumes the request, so we can post-validate the
+        // fetched row below — `None` is the unscoped root key.
+        let caller = caller_tenant(&req).cloned();
         let inner = req.into_inner();
         let namespace = orch8_types::ids::Namespace::new(inner.namespace);
         let seq = self
@@ -333,6 +359,15 @@ impl Orch8Service for Orch8GrpcService {
             .await
             .map_err(storage_err)?
             .ok_or_else(|| Status::not_found("sequence not found"))?;
+        // Defense-in-depth post-fetch check, matching every other get_* RPC
+        // and the HTTP `get_sequence_by_name` handler: the storage query is
+        // pre-filtered by tenant, but a future query bug must not let one
+        // transport leak a cross-tenant row the other would reject.
+        if let Some(caller) = caller.as_ref() {
+            if caller != &seq.tenant_id {
+                return Err(Status::not_found("sequence not found"));
+            }
+        }
         Ok(Response::new(proto::SequenceResponse {
             definition_json: to_json_string(&seq)?,
         }))
@@ -481,7 +516,12 @@ impl Orch8Service for Orch8GrpcService {
             .map_err(storage_err)?
             .ok_or_else(|| Status::not_found("instance not found"))?;
         enforce_tenant_match(&req, &inst.tenant_id, "instance")?;
-        let ctx = from_json_str(&req.get_ref().context_json)?;
+        let ctx: orch8_types::context::ExecutionContext =
+            from_json_str(&req.get_ref().context_json)?;
+        // Enforce the semantic context cap (HTTP path does this via
+        // `check_size`); from_json_str only bounds raw JSON at 10 MB.
+        ctx.check_size(self.max_context_bytes)
+            .map_err(|e| Status::invalid_argument(e.to_string()))?;
         self.storage
             .update_instance_context(id, &ctx)
             .await
@@ -839,6 +879,16 @@ impl Orch8Service for Orch8GrpcService {
                 }
                 merged_context = true;
             }
+        }
+        // A worker's output is merged into context.data; a large output would
+        // otherwise grow the instance context past the configured cap and ride
+        // along on every scheduler claim. Validate the merged size before it is
+        // persisted (the HTTP worker path is bounded by the request body limit).
+        if merged_context {
+            instance
+                .context
+                .check_size(self.max_context_bytes)
+                .map_err(|e| Status::invalid_argument(e.to_string()))?;
         }
 
         let output_json = serde_json::to_string(&output).unwrap_or_else(|_| "{}".to_string());

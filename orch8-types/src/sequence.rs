@@ -628,7 +628,7 @@ impl SequenceDefinition {
         }
         let mut seen = std::collections::HashSet::new();
         for block in &self.blocks {
-            validate_block(block, &mut seen)?;
+            validate_block(block, &mut seen, 0)?;
         }
         Ok(())
     }
@@ -818,11 +818,26 @@ fn validate_step(
     Ok(())
 }
 
+/// Maximum block-tree nesting depth accepted by validation. Legitimate
+/// workflows nest only a handful of levels; this cap (well below `serde_json`'s
+/// own ~128 deserialization recursion limit) turns a maliciously deep tree into
+/// a clean validation error instead of a stack-overflow on the worker thread
+/// that traverses it.
+const MAX_NESTING_DEPTH: usize = 64;
+
+fn depth_err() -> SequenceValidationError {
+    block_err(
+        "(nested)",
+        format!("block nesting exceeds the maximum depth of {MAX_NESTING_DEPTH}"),
+    )
+}
+
 fn validate_branches(
     id: &BlockId,
     label: &str,
     branches: &[Vec<BlockDefinition>],
     seen: &mut std::collections::HashSet<String>,
+    depth: usize,
 ) -> Result<(), SequenceValidationError> {
     check_id(id, seen)?;
     if branches.is_empty() {
@@ -833,7 +848,7 @@ fn validate_branches(
     }
     for branch in branches {
         for b in branch {
-            validate_block(b, seen)?;
+            validate_block(b, seen, depth)?;
         }
     }
     Ok(())
@@ -842,6 +857,7 @@ fn validate_branches(
 fn validate_ab_split(
     ab: &ABSplitDef,
     seen: &mut std::collections::HashSet<String>,
+    depth: usize,
 ) -> Result<(), SequenceValidationError> {
     check_id(&ab.id, seen)?;
     if ab.variants.len() < 2 {
@@ -875,7 +891,7 @@ fn validate_ab_split(
             ));
         }
         for b in &v.blocks {
-            validate_block(b, seen)?;
+            validate_block(b, seen, depth)?;
         }
     }
     Ok(())
@@ -884,9 +900,10 @@ fn validate_ab_split(
 fn validate_children(
     blocks: &[BlockDefinition],
     seen: &mut std::collections::HashSet<String>,
+    depth: usize,
 ) -> Result<(), SequenceValidationError> {
     for b in blocks {
-        validate_block(b, seen)?;
+        validate_block(b, seen, depth)?;
     }
     Ok(())
 }
@@ -895,11 +912,22 @@ fn validate_children(
 fn validate_block(
     block: &BlockDefinition,
     seen: &mut std::collections::HashSet<String>,
+    depth: usize,
 ) -> Result<(), SequenceValidationError> {
+    // Bound recursion before descending — `depth` is the level of `block`
+    // itself; children are validated at `depth + 1`.
+    if depth > MAX_NESTING_DEPTH {
+        return Err(depth_err());
+    }
+    let child_depth = depth + 1;
     match block {
         BlockDefinition::Step(s) => validate_step(s, seen),
-        BlockDefinition::Parallel(p) => validate_branches(&p.id, "parallel", &p.branches, seen),
-        BlockDefinition::Race(r) => validate_branches(&r.id, "race", &r.branches, seen),
+        BlockDefinition::Parallel(p) => {
+            validate_branches(&p.id, "parallel", &p.branches, seen, child_depth)
+        }
+        BlockDefinition::Race(r) => {
+            validate_branches(&r.id, "race", &r.branches, seen, child_depth)
+        }
 
         BlockDefinition::Loop(l) => {
             check_id(&l.id, seen)?;
@@ -912,7 +940,7 @@ fn validate_block(
             if l.max_iterations == 0 {
                 return Err(block_err(l.id.as_str(), "loop max_iterations must be > 0"));
             }
-            validate_children(&l.body, seen)
+            validate_children(&l.body, seen, child_depth)
         }
 
         BlockDefinition::ForEach(fe) => {
@@ -938,7 +966,7 @@ fn validate_block(
                     "for_each max_iterations must be > 0",
                 ));
             }
-            validate_children(&fe.body, seen)
+            validate_children(&fe.body, seen, child_depth)
         }
 
         BlockDefinition::Router(r) => {
@@ -956,10 +984,10 @@ fn validate_block(
                         "router route condition must not be empty",
                     ));
                 }
-                validate_children(&route.blocks, seen)?;
+                validate_children(&route.blocks, seen, child_depth)?;
             }
             if let Some(default) = &r.default {
-                validate_children(default, seen)?;
+                validate_children(default, seen, child_depth)?;
             }
             Ok(())
         }
@@ -972,10 +1000,10 @@ fn validate_block(
                     "try_catch try_block must not be empty",
                 ));
             }
-            validate_children(&tc.try_block, seen)?;
-            validate_children(&tc.catch_block, seen)?;
+            validate_children(&tc.try_block, seen, child_depth)?;
+            validate_children(&tc.catch_block, seen, child_depth)?;
             if let Some(finally) = &tc.finally_block {
-                validate_children(finally, seen)?;
+                validate_children(finally, seen, child_depth)?;
             }
             Ok(())
         }
@@ -991,7 +1019,7 @@ fn validate_block(
             Ok(())
         }
 
-        BlockDefinition::ABSplit(ab) => validate_ab_split(ab, seen),
+        BlockDefinition::ABSplit(ab) => validate_ab_split(ab, seen, child_depth),
 
         BlockDefinition::CancellationScope(cs) => {
             check_id(&cs.id, seen)?;
@@ -1001,7 +1029,7 @@ fn validate_block(
                     "cancellation_scope must have at least one block",
                 ));
             }
-            validate_children(&cs.blocks, seen)
+            validate_children(&cs.blocks, seen, child_depth)
         }
     }
 }
@@ -1009,6 +1037,78 @@ fn validate_block(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Build `depth` nested Loop blocks, innermost wrapping a single step, so
+    /// validation must recurse `depth` levels.
+    fn nested_loops(depth: usize) -> BlockDefinition {
+        let mut inner = BlockDefinition::Step(Box::new(StepDef {
+            id: BlockId::new("leaf"),
+            handler: "noop".into(),
+            params: serde_json::json!({}),
+            delay: None,
+            retry: None,
+            timeout: None,
+            rate_limit_key: None,
+            send_window: None,
+            context_access: None,
+            cancellable: true,
+            wait_for_input: None,
+            queue_name: None,
+            deadline: None,
+            on_deadline_breach: None,
+            fallback_handler: None,
+            cache_key: None,
+        }));
+        for i in 0..depth {
+            inner = BlockDefinition::Loop(Box::new(LoopDef {
+                id: BlockId::new(format!("loop{i}")),
+                condition: "true".into(),
+                body: vec![inner],
+                max_iterations: 1,
+                break_on: None,
+                continue_on_error: false,
+                poll_interval: None,
+            }));
+        }
+        inner
+    }
+
+    fn seq_with(block: BlockDefinition) -> SequenceDefinition {
+        SequenceDefinition {
+            id: SequenceId::new(),
+            tenant_id: TenantId::unchecked("t"),
+            namespace: Namespace::new("default"),
+            name: "s".into(),
+            version: 1,
+            deprecated: false,
+            status: SequenceStatus::default(),
+            blocks: vec![block],
+            interceptors: None,
+            created_at: Utc::now(),
+        }
+    }
+
+    #[test]
+    fn validation_accepts_reasonable_nesting() {
+        assert!(
+            seq_with(nested_loops(10)).validate().is_ok(),
+            "10 levels must validate"
+        );
+    }
+
+    #[test]
+    fn validation_rejects_pathological_nesting() {
+        // Deep enough to exceed MAX_NESTING_DEPTH but well under serde_json's
+        // own recursion limit, so it would otherwise reach the recursive
+        // validator and risk a stack overflow.
+        let err = seq_with(nested_loops(MAX_NESTING_DEPTH + 20))
+            .validate()
+            .expect_err("over-deep nesting must be rejected");
+        assert!(
+            format!("{err:?}").contains("nesting"),
+            "error should mention nesting depth, got: {err:?}"
+        );
+    }
 
     #[test]
     fn context_access_defaults() {

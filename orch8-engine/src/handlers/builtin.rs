@@ -140,6 +140,24 @@ pub(crate) fn redirect_target_allowed(next: &url::Url) -> bool {
     }
 }
 
+/// Whether a workflow-supplied HTTP header name may be set on an outbound
+/// request. Rejects:
+/// - `Host` (case-insensitive): overriding it can route a request to a
+///   different backend than the URL implies behind a shared reverse proxy.
+/// - names containing control characters (CR/LF, etc.): request-splitting /
+///   header-injection vectors. (reqwest also rejects these at send time, but
+///   filtering here keeps the behavior explicit and uniform across handlers.)
+///
+/// Header *values* are left to reqwest's `HeaderValue` parser, which rejects
+/// control characters.
+#[must_use]
+pub(crate) fn outbound_header_name_allowed(name: &str) -> bool {
+    if name.eq_ignore_ascii_case("host") {
+        return false;
+    }
+    !name.bytes().any(|b| b.is_ascii_control())
+}
+
 /// Failure modes for [`read_body_capped`].
 #[derive(Debug)]
 pub(crate) enum BodyReadError {
@@ -632,7 +650,11 @@ async fn handle_http_request(ctx: StepContext) -> Result<Value, StepError> {
     if let Some(headers) = ctx.params.get("headers").and_then(Value::as_object) {
         for (k, v) in headers {
             if let Some(val) = v.as_str() {
-                req = req.header(k.as_str(), val);
+                if outbound_header_name_allowed(k) {
+                    req = req.header(k.as_str(), val);
+                } else {
+                    debug!(header = %k, "http_request: refusing forbidden header name");
+                }
             }
         }
     }

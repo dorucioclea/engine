@@ -214,7 +214,11 @@ async fn post_jsonrpc(
     if let Some(headers) = extra_headers {
         for (k, v) in headers {
             if let Some(val) = v.as_str() {
-                req = req.header(k.as_str(), val);
+                if super::builtin::outbound_header_name_allowed(k) {
+                    req = req.header(k.as_str(), val);
+                } else {
+                    debug!(header = %k, "mcp_call: refusing forbidden header name");
+                }
             }
         }
     }

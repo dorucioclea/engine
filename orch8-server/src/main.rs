@@ -474,7 +474,8 @@ fn spawn_grpc_server(
         .parse()
         .expect("Invalid gRPC listen address");
 
-    let grpc_service = Orch8GrpcService::new(storage.clone());
+    let grpc_service =
+        Orch8GrpcService::with_max_context_bytes(storage.clone(), config.engine.max_context_bytes);
     let grpc_interceptor =
         orch8_grpc::auth::auth_interceptor(Some(storage), api_key, require_tenant);
     tokio::spawn(async move {

@@ -308,10 +308,17 @@ pub(crate) async fn list_sequences(
 /// Used by mobile SDKs via `loadSequencesFromUrl`.
 pub(crate) async fn list_sequences_array(
     State(state): State<AppState>,
+    tenant_ctx: crate::auth::OptionalTenant,
 ) -> Result<impl axum::response::IntoResponse, ApiError> {
+    // Tenant scoping: a tenant-scoped key is pinned to its own tenant; only a
+    // global/root caller (empty scope) sees across tenants. Without this a
+    // per-tenant key could read every tenant's sequence definitions — block
+    // logic, prompts, integration params — via this endpoint, which the
+    // paginated `GET /sequences` already guards.
+    let tenant = crate::auth::scoped_tenant_id(&tenant_ctx, None);
     let sequences = state
         .storage
-        .list_sequences(None, None, 1000, 0)
+        .list_sequences(tenant.as_ref(), None, 1000, 0)
         .await
         .map_err(|e| ApiError::from_storage(e, "sequence"))?;
 

@@ -334,6 +334,13 @@ fn tokenize_word(chars: &[char], start: usize, tokens: &mut Vec<Token>) -> usize
 
 const MAX_PARSE_DEPTH: u32 = 64;
 
+/// Upper bound on the element count an array-scanning built-in (`unique`,
+/// `sort`, `count`) will process. Expressions run synchronously on the async
+/// runtime thread and operate on prior-step outputs, which an attacker-authored
+/// workflow controls; an unbounded array — especially inside a loop condition —
+/// otherwise pins a worker. Above this the function returns `null`.
+const MAX_ARRAY_FN_ELEMENTS: usize = 100_000;
+
 struct Parser<'a> {
     tokens: &'a [Token],
     pos: usize,
@@ -803,7 +810,7 @@ impl<'a> Parser<'a> {
                     .and_then(|v| v.as_str())
                     .unwrap_or("asc");
                 match arg {
-                    serde_json::Value::Array(a) => {
+                    serde_json::Value::Array(a) if a.len() <= MAX_ARRAY_FN_ELEMENTS => {
                         let mut sorted = a.clone();
                         sorted.sort_by(|a, b| {
                             let cmp = json_cmp(a, b).unwrap_or(std::cmp::Ordering::Equal);
@@ -819,14 +826,20 @@ impl<'a> Parser<'a> {
                 }
             }
             "unique" => match arg {
-                serde_json::Value::Array(a) => {
-                    let mut seen = Vec::new();
+                serde_json::Value::Array(a) if a.len() <= MAX_ARRAY_FN_ELEMENTS => {
+                    // O(n) dedup keyed on canonical serialization (serde_json
+                    // Maps are sorted, so the string is stable per logical
+                    // value). The previous Vec + linear scan was O(n²) and a
+                    // DoS on attacker-sized arrays.
+                    let mut seen_keys = std::collections::HashSet::new();
+                    let mut out = Vec::new();
                     for v in a {
-                        if !seen.iter().any(|s| json_eq(s, v)) {
-                            seen.push(v.clone());
+                        let key = serde_json::to_string(v).unwrap_or_default();
+                        if seen_keys.insert(key) {
+                            out.push(v.clone());
                         }
                     }
-                    serde_json::Value::Array(seen)
+                    serde_json::Value::Array(out)
                 }
                 _ => serde_json::Value::Null,
             },
@@ -2209,6 +2222,35 @@ mod tests {
             evaluate("unique(items)", &ctx, &json!({})),
             json!(["a", "b", "c"])
         );
+    }
+
+    #[test]
+    fn eval_unique_preserves_first_seen_order_on_objects() {
+        // The HashSet rewrite keys on canonical serialization; objects with the
+        // same logical content must dedup, and first-seen order is preserved.
+        let ctx = ExecutionContext {
+            data: json!({"items": [{"a": 1}, {"a": 2}, {"a": 1}]}),
+            config: json!({}),
+            ..Default::default()
+        };
+        assert_eq!(
+            evaluate("unique(items)", &ctx, &json!({})),
+            json!([{"a": 1}, {"a": 2}])
+        );
+    }
+
+    #[test]
+    fn array_fns_refuse_oversized_input() {
+        // DoS guard: arrays larger than MAX_ARRAY_FN_ELEMENTS short-circuit to
+        // null instead of doing O(n) / O(n log n) work on attacker-sized input.
+        let big: Vec<i64> = (0..(MAX_ARRAY_FN_ELEMENTS as i64 + 1)).collect();
+        let ctx = ExecutionContext {
+            data: json!({ "items": big }),
+            config: json!({}),
+            ..Default::default()
+        };
+        assert_eq!(evaluate("unique(items)", &ctx, &json!({})), json!(null));
+        assert_eq!(evaluate("sort(items)", &ctx, &json!({})), json!(null));
     }
 
     // --- count() ---

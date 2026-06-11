@@ -108,7 +108,11 @@ pub async fn handle_tool_call(ctx: StepContext) -> Result<Value, StepError> {
     if let Some(headers) = ctx.params.get("headers").and_then(Value::as_object) {
         for (k, v) in headers {
             if let Some(val) = v.as_str() {
-                req = req.header(k.as_str(), val);
+                if super::builtin::outbound_header_name_allowed(k) {
+                    req = req.header(k.as_str(), val);
+                } else {
+                    debug!(header = %k, "tool_call: refusing forbidden header name");
+                }
             }
         }
     }

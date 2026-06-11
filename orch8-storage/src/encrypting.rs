@@ -111,21 +111,29 @@ impl EncryptingStorage {
     ) -> Result<orch8_types::credential::CredentialDef, StorageError> {
         let mut cred = credential.clone();
         let plain_value = serde_json::Value::String(cred.value.expose().to_string());
-        let encrypted_value = self
-            .encryptor
-            .encrypt_value(&plain_value)
-            .map_err(|e| StorageError::Query(format!("credential encryption: {e}")))?;
-        if let serde_json::Value::String(s) = encrypted_value {
-            cred.value = orch8_types::config::SecretString::new(s);
+        // Guard against double-encryption (parity with encrypt_instance /
+        // encrypt_context): a value already carrying the `enc:` magic must not
+        // be wrapped again, or decrypt_credential would hand the handler an
+        // `enc:…` blob as a live credential and the third-party call fails.
+        if !orch8_types::encryption::FieldEncryptor::is_encrypted(&plain_value) {
+            let encrypted_value = self
+                .encryptor
+                .encrypt_value(&plain_value)
+                .map_err(|e| StorageError::Query(format!("credential encryption: {e}")))?;
+            if let serde_json::Value::String(s) = encrypted_value {
+                cred.value = orch8_types::config::SecretString::new(s);
+            }
         }
         if let Some(ref rt) = cred.refresh_token {
             let plain_rt = serde_json::Value::String(rt.expose().to_string());
-            let encrypted_rt = self
-                .encryptor
-                .encrypt_value(&plain_rt)
-                .map_err(|e| StorageError::Query(format!("credential encryption: {e}")))?;
-            if let serde_json::Value::String(s) = encrypted_rt {
-                cred.refresh_token = Some(orch8_types::config::SecretString::new(s));
+            if !orch8_types::encryption::FieldEncryptor::is_encrypted(&plain_rt) {
+                let encrypted_rt = self
+                    .encryptor
+                    .encrypt_value(&plain_rt)
+                    .map_err(|e| StorageError::Query(format!("credential encryption: {e}")))?;
+                if let serde_json::Value::String(s) = encrypted_rt {
+                    cred.refresh_token = Some(orch8_types::config::SecretString::new(s));
+                }
             }
         }
         Ok(cred)
@@ -159,6 +167,69 @@ impl EncryptingStorage {
             }
         }
         Ok(())
+    }
+
+    /// Encrypt `TriggerDef.secret` (HMAC webhook key) before write. Other
+    /// fields are returned unchanged.
+    fn encrypt_trigger(
+        &self,
+        trigger: &orch8_types::trigger::TriggerDef,
+    ) -> Result<orch8_types::trigger::TriggerDef, StorageError> {
+        let mut t = trigger.clone();
+        if let Some(secret) = t.secret.as_ref() {
+            let enc = self.encrypt_string_field(secret.expose())?;
+            t.secret = Some(orch8_types::config::SecretString::new(enc));
+        }
+        Ok(t)
+    }
+
+    /// Decrypt `TriggerDef.secret` after read (no-op if it was stored before
+    /// encryption was enabled).
+    fn decrypt_trigger(
+        &self,
+        trigger: &mut orch8_types::trigger::TriggerDef,
+    ) -> Result<(), StorageError> {
+        if let Some(secret) = trigger.secret.as_ref() {
+            let dec = self.decrypt_string_field(secret.expose())?;
+            trigger.secret = Some(orch8_types::config::SecretString::new(dec));
+        }
+        Ok(())
+    }
+
+    /// Encrypt a plaintext string field for at-rest storage. No-op (returns the
+    /// input) if it is already encrypted. Used for opaque secret-bearing string
+    /// columns (trigger secrets, mobile-command payloads).
+    fn encrypt_string_field(&self, plain: &str) -> Result<String, StorageError> {
+        let val = serde_json::Value::String(plain.to_string());
+        if orch8_types::encryption::FieldEncryptor::is_encrypted(&val) {
+            return Ok(plain.to_string());
+        }
+        match self
+            .encryptor
+            .encrypt_value(&val)
+            .map_err(|e| StorageError::Query(format!("field encryption: {e}")))?
+        {
+            serde_json::Value::String(s) => Ok(s),
+            _ => Ok(plain.to_string()),
+        }
+    }
+
+    /// Decrypt a string field encrypted by [`Self::encrypt_string_field`].
+    /// Returns the input unchanged if it was not encrypted (blobs written
+    /// before encryption was enabled stay readable).
+    fn decrypt_string_field(&self, stored: &str) -> Result<String, StorageError> {
+        let val = serde_json::Value::String(stored.to_string());
+        if !orch8_types::encryption::FieldEncryptor::is_encrypted(&val) {
+            return Ok(stored.to_string());
+        }
+        match self
+            .encryptor
+            .decrypt_value(&val)
+            .map_err(|e| StorageError::Query(format!("field decryption: {e}")))?
+        {
+            serde_json::Value::String(s) => Ok(s),
+            _ => Ok(stored.to_string()),
+        }
     }
 }
 
@@ -1186,31 +1257,47 @@ impl crate::AdminStore for EncryptingStorage {
         self.inner.delete_plugin(name).await
     }
 
-    // --- Triggers (pass-through) ---
+    // --- Triggers (secret encrypted at rest) ---
+    // `TriggerDef.secret` is the HMAC key used to authenticate inbound webhook
+    // payloads; persisting it in plaintext means a DB leak lets an attacker
+    // forge signed webhooks. Encrypt on write, decrypt on read — same shape as
+    // credentials. Other fields are pass-through.
     async fn create_trigger(
         &self,
         trigger: &orch8_types::trigger::TriggerDef,
     ) -> Result<(), StorageError> {
-        self.inner.create_trigger(trigger).await
+        self.inner
+            .create_trigger(&self.encrypt_trigger(trigger)?)
+            .await
     }
     async fn get_trigger(
         &self,
         slug: &str,
     ) -> Result<Option<orch8_types::trigger::TriggerDef>, StorageError> {
-        self.inner.get_trigger(slug).await
+        let mut trigger = self.inner.get_trigger(slug).await?;
+        if let Some(t) = trigger.as_mut() {
+            self.decrypt_trigger(t)?;
+        }
+        Ok(trigger)
     }
     async fn list_triggers(
         &self,
         tenant_id: Option<&orch8_types::ids::TenantId>,
         limit: u32,
     ) -> Result<Vec<orch8_types::trigger::TriggerDef>, StorageError> {
-        self.inner.list_triggers(tenant_id, limit).await
+        let mut triggers = self.inner.list_triggers(tenant_id, limit).await?;
+        for t in &mut triggers {
+            self.decrypt_trigger(t)?;
+        }
+        Ok(triggers)
     }
     async fn update_trigger(
         &self,
         trigger: &orch8_types::trigger::TriggerDef,
     ) -> Result<(), StorageError> {
-        self.inner.update_trigger(trigger).await
+        self.inner
+            .update_trigger(&self.encrypt_trigger(trigger)?)
+            .await
     }
     async fn delete_trigger(&self, slug: &str) -> Result<(), StorageError> {
         self.inner.delete_trigger(slug).await
@@ -1753,7 +1840,151 @@ impl crate::ResourceStore for EncryptingStorage {
 }
 
 #[async_trait]
-impl crate::MobileSyncStore for EncryptingStorage {}
+impl crate::MobileSyncStore for EncryptingStorage {
+    // Device/status/approval methods are pass-through (no secret-bearing
+    // columns). Only command payloads can carry resolved credentials, so those
+    // are encrypted at rest and decrypted on the way out to the device (which
+    // receives plaintext over TLS).
+
+    async fn register_mobile_device(
+        &self,
+        device: &crate::MobileDevice,
+    ) -> Result<(), StorageError> {
+        self.inner.register_mobile_device(device).await
+    }
+
+    async fn get_mobile_device(
+        &self,
+        device_id: &str,
+    ) -> Result<Option<crate::MobileDevice>, StorageError> {
+        self.inner.get_mobile_device(device_id).await
+    }
+
+    async fn update_device_last_sync(&self, device_id: &str) -> Result<(), StorageError> {
+        self.inner.update_device_last_sync(device_id).await
+    }
+
+    async fn list_mobile_devices(
+        &self,
+        tenant_id: Option<&str>,
+        limit: u32,
+    ) -> Result<Vec<crate::MobileDevice>, StorageError> {
+        self.inner.list_mobile_devices(tenant_id, limit).await
+    }
+
+    async fn mark_stale_devices_inactive(
+        &self,
+        stale_after_secs: i64,
+    ) -> Result<u64, StorageError> {
+        self.inner
+            .mark_stale_devices_inactive(stale_after_secs)
+            .await
+    }
+
+    async fn upsert_mobile_instance_status(
+        &self,
+        status: &crate::MobileInstanceStatus,
+    ) -> Result<(), StorageError> {
+        self.inner.upsert_mobile_instance_status(status).await
+    }
+
+    async fn upsert_mobile_instance_status_batch(
+        &self,
+        statuses: &[crate::MobileInstanceStatus],
+    ) -> Result<(), StorageError> {
+        self.inner
+            .upsert_mobile_instance_status_batch(statuses)
+            .await
+    }
+
+    async fn list_mobile_instance_status(
+        &self,
+        tenant_id: Option<&str>,
+        device_id: Option<&str>,
+        limit: u32,
+    ) -> Result<Vec<crate::MobileInstanceStatus>, StorageError> {
+        self.inner
+            .list_mobile_instance_status(tenant_id, device_id, limit)
+            .await
+    }
+
+    async fn insert_mobile_approval(
+        &self,
+        approval: &crate::MobileApprovalRequest,
+    ) -> Result<bool, StorageError> {
+        self.inner.insert_mobile_approval(approval).await
+    }
+
+    async fn get_mobile_approval(
+        &self,
+        id: &str,
+    ) -> Result<Option<crate::MobileApprovalRequest>, StorageError> {
+        self.inner.get_mobile_approval(id).await
+    }
+
+    async fn resolve_mobile_approval(
+        &self,
+        id: &str,
+        resolution: &str,
+    ) -> Result<Option<crate::MobileApprovalRequest>, StorageError> {
+        self.inner.resolve_mobile_approval(id, resolution).await
+    }
+
+    async fn list_mobile_approvals(
+        &self,
+        tenant_id: Option<&str>,
+        state: Option<&str>,
+        limit: u32,
+    ) -> Result<Vec<crate::MobileApprovalRequest>, StorageError> {
+        self.inner
+            .list_mobile_approvals(tenant_id, state, limit)
+            .await
+    }
+
+    async fn expire_mobile_approvals(&self) -> Result<u64, StorageError> {
+        self.inner.expire_mobile_approvals().await
+    }
+
+    async fn create_mobile_command(
+        &self,
+        command: &crate::MobileCommand,
+    ) -> Result<(), StorageError> {
+        // Encrypt the payload at rest — it can contain resolved credentials
+        // (a step delegation's params). The plaintext only ever lives in the
+        // HTTPS sync response after fetch_pending_commands decrypts it.
+        let mut encrypted = command.clone();
+        encrypted.payload = self.encrypt_string_field(&command.payload)?;
+        self.inner.create_mobile_command(&encrypted).await
+    }
+
+    async fn fetch_pending_commands(
+        &self,
+        device_id: &str,
+        limit: u32,
+    ) -> Result<Vec<crate::MobileCommand>, StorageError> {
+        let mut commands = self.inner.fetch_pending_commands(device_id, limit).await?;
+        for cmd in &mut commands {
+            cmd.payload = self.decrypt_string_field(&cmd.payload)?;
+        }
+        Ok(commands)
+    }
+
+    async fn ack_mobile_commands(
+        &self,
+        device_id: &str,
+        command_ids: &[String],
+    ) -> Result<u64, StorageError> {
+        self.inner.ack_mobile_commands(device_id, command_ids).await
+    }
+
+    async fn cleanup_acked_commands(&self, older_than_secs: i64) -> Result<u64, StorageError> {
+        self.inner.cleanup_acked_commands(older_than_secs).await
+    }
+
+    async fn cleanup_expired_commands(&self, ttl_secs: i64) -> Result<u64, StorageError> {
+        self.inner.cleanup_expired_commands(ttl_secs).await
+    }
+}
 
 #[cfg(test)]
 mod tests {

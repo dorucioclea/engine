@@ -88,15 +88,12 @@ pub async fn handle_human_review(ctx: StepContext) -> Result<Value, StepError> {
         "human_review: pending"
     );
 
-    // Send notification if configured. Skipped in dry-run — it is this
-    // handler's only external side effect. The pending/pause itself is control
-    // flow and is intentionally preserved so a dry-run still surfaces the gate.
-    if let Some(notify_url) = ctx
-        .params
-        .get("notify_url")
-        .and_then(Value::as_str)
-        .filter(|_| !ctx.is_dry_run())
-    {
+    // Send notification if configured. The SSRF check runs regardless of
+    // dry-run (validate-then-skip) so a dry-run flags a blocked notify_url
+    // instead of a false green; only the actual send is skipped in dry-run.
+    // The pending/pause itself is control flow and is preserved so a dry-run
+    // still surfaces the gate.
+    if let Some(notify_url) = ctx.params.get("notify_url").and_then(Value::as_str) {
         if !super::builtin::is_url_safe(notify_url).await {
             return Err(StepError::Permanent {
                 message: "blocked: URL targets a private/internal network address".into(),
@@ -104,37 +101,45 @@ pub async fn handle_human_review(ctx: StepContext) -> Result<Value, StepError> {
             });
         }
 
-        let payload = json!({
-            "type": "human_review_pending",
-            "instance_id": ctx.instance_id.into_uuid().to_string(),
-            "block_id": ctx.block_id.as_str(),
-            "reviewer": reviewer,
-            "instructions": instructions,
-            "review_data": review_data,
-            "choices": choices_json.clone(),
-        });
+        // URL validated above. In dry-run, skip only the actual send and fall
+        // through to the canonical pending result below.
+        if !ctx.is_dry_run() {
+            let payload = json!({
+                "type": "human_review_pending",
+                "instance_id": ctx.instance_id.into_uuid().to_string(),
+                "block_id": ctx.block_id.as_str(),
+                "reviewer": reviewer,
+                "instructions": instructions,
+                "review_data": review_data,
+                "choices": choices_json.clone(),
+            });
 
-        let client = super::llm::http_client();
-        let mut req = client
-            .post(notify_url)
-            .header("Content-Type", "application/json")
-            .timeout(std::time::Duration::from_secs(10))
-            .json(&payload);
+            let client = super::llm::http_client();
+            let mut req = client
+                .post(notify_url)
+                .header("Content-Type", "application/json")
+                .timeout(std::time::Duration::from_secs(10))
+                .json(&payload);
 
-        if let Some(headers) = ctx.params.get("notify_headers").and_then(Value::as_object) {
-            for (k, v) in headers {
-                if let Some(val) = v.as_str() {
-                    req = req.header(k.as_str(), val);
+            if let Some(headers) = ctx.params.get("notify_headers").and_then(Value::as_object) {
+                for (k, v) in headers {
+                    if let Some(val) = v.as_str() {
+                        if super::builtin::outbound_header_name_allowed(k) {
+                            req = req.header(k.as_str(), val);
+                        } else {
+                            warn!(header = %k, "human_review: refusing forbidden header name");
+                        }
+                    }
                 }
             }
-        }
 
-        if let Err(e) = req.send().await {
-            warn!(
-                url = %notify_url,
-                error = %e,
-                "human_review: notification failed (non-blocking)"
-            );
+            if let Err(e) = req.send().await {
+                warn!(
+                    url = %notify_url,
+                    error = %e,
+                    "human_review: notification failed (non-blocking)"
+                );
+            }
         }
     }
 
