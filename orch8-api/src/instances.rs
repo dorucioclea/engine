@@ -53,7 +53,7 @@ pub(crate) use outputs::{
 pub(crate) use signals::{__path_send_signal, send_signal};
 pub(crate) use timeline::{__path_get_timeline, get_timeline};
 pub use timeline::{TimelineEntry, TimelineInstance, TimelineResponse, TimelineStateTransition};
-pub use types::ForkRequest;
+pub use types::{ForkRequest, InjectedSignal, ResumeFromRequest};
 // Request/query types the MCP server reuses so its tools/call dispatch goes
 // through the exact same wire shapes as the REST endpoints.
 pub(crate) use types::{CreateInstanceRequest, ListQuery, SendSignalRequest};

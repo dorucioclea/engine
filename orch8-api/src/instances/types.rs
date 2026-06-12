@@ -67,14 +67,28 @@ pub struct UpdateContextRequest {
     pub(crate) context: ExecutionContext,
 }
 
+/// A signal enqueued atomically with a resume-from or fork, so it is already
+/// pending when the instance becomes claimable. Closes the race window of the
+/// separate "reset, then signal" two-call pattern.
+#[derive(Deserialize, ToSchema)]
+pub struct InjectedSignal {
+    pub(crate) signal_type: SignalType,
+    #[serde(default)]
+    pub(crate) payload: serde_json::Value,
+}
+
 /// Body for `POST /instances/{id}/resume-from/{block_id}`. The whole body is
 /// optional; when present, `context` must be a JSON object whose top-level
 /// keys are shallow-merged into `context.data` (same per-key semantics as
 /// `StorageBackend::merge_context_data`) before the instance is re-scheduled.
+/// `signals` are enqueued before the wake transition — they are pending by
+/// the time the instance can run again.
 #[derive(Default, Deserialize, ToSchema)]
 pub struct ResumeFromRequest {
     #[serde(default)]
     pub(crate) context: Option<serde_json::Value>,
+    #[serde(default)]
+    pub(crate) signals: Vec<InjectedSignal>,
 }
 
 /// Body for `POST /instances/{id}/fork`. `from_block_id` must be a top-level
@@ -82,6 +96,7 @@ pub struct ResumeFromRequest {
 /// into the fork's `context.data` with the same per-key semantics as
 /// resume-from; `dry_run` defaults to **true** so a forked production
 /// workflow does not re-fire side effects unless explicitly asked to.
+/// `signals` are enqueued on the fork before it becomes claimable.
 #[derive(Deserialize, ToSchema)]
 pub struct ForkRequest {
     pub(crate) from_block_id: String,
@@ -89,6 +104,8 @@ pub struct ForkRequest {
     pub(crate) context: Option<serde_json::Value>,
     #[serde(default = "default_true")]
     pub(crate) dry_run: bool,
+    #[serde(default)]
+    pub(crate) signals: Vec<InjectedSignal>,
 }
 
 pub const fn default_true() -> bool {

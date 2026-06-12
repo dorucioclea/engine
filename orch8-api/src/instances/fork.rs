@@ -210,7 +210,11 @@ pub async fn fork_instance(
         tenant_id: source.tenant_id.clone(),
         namespace: source.namespace.clone(),
         state: InstanceState::Scheduled,
-        next_fire_at: Some(now),
+        // Created un-claimable (no fire time): the claim predicate is
+        // `next_fire_at <= now()`, so the scheduler cannot pick the fork up
+        // until the output copy and injected signals below have landed. The
+        // final transition arms it.
+        next_fire_at: None,
         priority: source.priority,
         timezone: source.timezone.clone(),
         metadata: serde_json::Value::Object(metadata),
@@ -241,6 +245,34 @@ pub async fn fork_instance(
         .await
         .map_err(|e| ApiError::from_storage(e, "block_outputs"))?;
 
+    // Enqueue injected signals while the fork is still un-claimable, so they
+    // are pending before its first claim — the atomic alternative to the
+    // racy "fork, then signal" two-call pattern.
+    let signals_enqueued = req.signals.len();
+    for injected in req.signals {
+        let signal = orch8_types::signal::Signal {
+            id: Uuid::now_v7(),
+            instance_id: fork.id,
+            signal_type: injected.signal_type,
+            payload: injected.payload,
+            delivered: false,
+            created_at: Utc::now(),
+            delivered_at: None,
+        };
+        state
+            .storage
+            .enqueue_signal(&signal)
+            .await
+            .map_err(|e| ApiError::from_storage(e, "signal"))?;
+    }
+
+    // Arm the fork: outputs and signals are in place, make it claimable.
+    state
+        .storage
+        .update_instance_state(fork.id, InstanceState::Scheduled, Some(Utc::now()))
+        .await
+        .map_err(|e| ApiError::from_storage(e, "instance"))?;
+
     tracing::info!(
         source_id = %source_id,
         fork_id = %fork.id,
@@ -248,6 +280,7 @@ pub async fn fork_instance(
         copied_blocks = copied_blocks,
         copied_rows = copied_rows,
         rerun_blocks = rerun_blocks.len(),
+        signals_enqueued = signals_enqueued,
         dry_run = req.dry_run,
         "instance forked"
     );

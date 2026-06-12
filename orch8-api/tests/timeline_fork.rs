@@ -574,3 +574,52 @@ async fn fork_unknown_instance_returns_404_via_v1_prefix() {
         .unwrap();
     assert_eq!(resp.status(), StatusCode::NOT_FOUND);
 }
+
+#[tokio::test]
+async fn fork_with_injected_signals_enqueues_before_arming() {
+    use orch8_storage::SignalStore;
+
+    let srv = spawn_test_server().await;
+    let client = reqwest::Client::new();
+    let seq_id = create_sequence(&client, &srv.base_url).await;
+    let inst = create_instance(&client, &srv.base_url, seq_id).await;
+
+    srv.storage
+        .save_block_output(&mk_output_at(inst, "s1", 0))
+        .await
+        .unwrap();
+
+    let resp = client
+        .post(format!("{}/instances/{inst}/fork", srv.base_url))
+        .header("X-Tenant-Id", "t1")
+        .json(&json!({
+            "from_block_id": "s2",
+            "signals": [
+                { "signal_type": "update_context", "payload": { "data": { "injected": true } } }
+            ]
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::CREATED);
+    let body: serde_json::Value = resp.json().await.unwrap();
+    let fork_id: Uuid = body["id"].as_str().unwrap().parse().unwrap();
+
+    // Signal already pending on the fork.
+    let pending = srv
+        .storage
+        .get_pending_signals(InstanceId::from_uuid(fork_id))
+        .await
+        .unwrap();
+    assert_eq!(pending.len(), 1);
+
+    // The fork is armed: scheduled with a concrete fire time.
+    let fork = srv
+        .storage
+        .get_instance(InstanceId::from_uuid(fork_id))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(fork.state, InstanceState::Scheduled);
+    assert!(fork.next_fire_at.is_some(), "fork must be claimable after arming");
+}

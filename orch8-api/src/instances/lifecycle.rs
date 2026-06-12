@@ -763,6 +763,29 @@ pub async fn resume_from_block(
             .map_err(|e| ApiError::from_storage(e, "instance"))?;
     }
 
+    // Enqueue injected signals BEFORE the wake transition so they are
+    // already pending when the instance becomes claimable — the atomic
+    // alternative to the racy "resume, then signal" two-call pattern.
+    // Plain `enqueue_signal` (not `_if_active`): the instance may still be
+    // in a terminal state here; it is about to be revived.
+    let signals_enqueued = req.signals.len();
+    for injected in req.signals {
+        let signal = orch8_types::signal::Signal {
+            id: Uuid::now_v7(),
+            instance_id,
+            signal_type: injected.signal_type,
+            payload: injected.payload,
+            delivered: false,
+            created_at: Utc::now(),
+            delivered_at: None,
+        };
+        state
+            .storage
+            .enqueue_signal(&signal)
+            .await
+            .map_err(|e| ApiError::from_storage(e, "signal"))?;
+    }
+
     state
         .storage
         .update_instance_state(instance_id, InstanceState::Scheduled, Some(Utc::now()))
@@ -773,6 +796,7 @@ pub async fn resume_from_block(
         instance_id = %instance_id,
         resumed_from = %block_id,
         outputs_deleted = outputs_deleted,
+        signals_enqueued = signals_enqueued,
         "instance resumed from block"
     );
 
@@ -783,6 +807,7 @@ pub async fn resume_from_block(
             "state": "scheduled",
             "resumed_from": block_id,
             "outputs_deleted": outputs_deleted,
+            "signals_enqueued": signals_enqueued,
         })),
     ))
 }

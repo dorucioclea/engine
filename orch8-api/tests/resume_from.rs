@@ -368,3 +368,48 @@ async fn resume_from_paused_instance_works_via_v1_prefix() {
     assert_eq!(body["state"], "scheduled");
     assert_eq!(body["outputs_deleted"], 0);
 }
+
+#[tokio::test]
+async fn resume_from_with_injected_signals_enqueues_before_wake() {
+    use orch8_storage::SignalStore;
+
+    let srv = spawn_test_server().await;
+    let client = reqwest::Client::new();
+    let seq_id = create_sequence(&client, &srv.base_url).await;
+    let inst = create_instance(&client, &srv.base_url, seq_id).await;
+
+    srv.storage
+        .save_block_output(&mk_output(inst, "s1"))
+        .await
+        .unwrap();
+    srv.storage
+        .update_instance_state(InstanceId::from_uuid(inst), InstanceState::Failed, None)
+        .await
+        .unwrap();
+
+    let resp = client
+        .post(format!("{}/instances/{inst}/resume-from/s2", srv.base_url))
+        .header("X-Tenant-Id", "t1")
+        .json(&json!({
+            "context": { "fixed": true },
+            "signals": [
+                { "signal_type": "update_context", "payload": { "data": { "injected": 1 } } },
+                { "signal_type": { "custom": "human_input:s2" }, "payload": "approve" }
+            ]
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(body["state"], "scheduled");
+    assert_eq!(body["signals_enqueued"], 2);
+
+    // Both signals must already be pending on the revived instance.
+    let pending = srv
+        .storage
+        .get_pending_signals(InstanceId::from_uuid(inst))
+        .await
+        .unwrap();
+    assert_eq!(pending.len(), 2);
+}

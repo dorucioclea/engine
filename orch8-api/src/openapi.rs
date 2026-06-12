@@ -183,6 +183,8 @@ use utoipa::OpenApi;
         crate::instances::TimelineEntry,
         crate::instances::TimelineStateTransition,
         crate::instances::ForkRequest,
+        crate::instances::ResumeFromRequest,
+        crate::instances::InjectedSignal,
         crate::instances::ForkResponse,
         crate::instances::SaveCheckpointRequest,
         crate::instances::PruneCheckpointsRequest,
