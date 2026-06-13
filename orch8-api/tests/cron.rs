@@ -238,3 +238,65 @@ async fn list_cron_filters_by_tenant() {
     let list: Vec<serde_json::Value> = resp.json().await.unwrap();
     assert_eq!(list.len(), 0);
 }
+
+#[tokio::test]
+async fn next_fires_returns_n_ascending_instants() {
+    let srv = spawn_test_server().await;
+    let client = reqwest::Client::new();
+    let seq_id = create_sequence(&client, &srv.base_url).await;
+
+    let body = json!({
+        "tenant_id": "t1",
+        "namespace": "ns1",
+        "sequence_id": seq_id,
+        "cron_expr": "0 * * * *",
+        "timezone": "America/New_York",
+        "enabled": true,
+        "metadata": {}
+    });
+    let resp = client
+        .post(format!("{}/cron", srv.base_url))
+        .header("X-Tenant-Id", "t1")
+        .json(&body)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::CREATED);
+    let cron_id = resp.json::<serde_json::Value>().await.unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let resp = client
+        .get(format!("{}/cron/{cron_id}/next-fires?n=5", srv.base_url))
+        .header("X-Tenant-Id", "t1")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let out: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(out["timezone"], "America/New_York");
+    let fires = out["fires"].as_array().unwrap();
+    assert_eq!(fires.len(), 5);
+    // Strictly ascending — proves the iterative bound advances.
+    let parsed: Vec<chrono::DateTime<chrono::Utc>> = fires
+        .iter()
+        .map(|v| v.as_str().unwrap().parse().unwrap())
+        .collect();
+    for w in parsed.windows(2) {
+        assert!(w[0] < w[1], "fires must be strictly ascending");
+    }
+}
+
+#[tokio::test]
+async fn next_fires_unknown_id_returns_404() {
+    let srv = spawn_test_server().await;
+    let client = reqwest::Client::new();
+    let resp = client
+        .get(format!("{}/cron/{}/next-fires", srv.base_url, Uuid::now_v7()))
+        .header("X-Tenant-Id", "t1")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+}

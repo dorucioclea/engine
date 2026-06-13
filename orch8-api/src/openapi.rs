@@ -59,6 +59,7 @@ use utoipa::OpenApi;
         crate::cron::list_cron,
         crate::cron::update_cron,
         crate::cron::delete_cron,
+        crate::cron::next_fires,
         // Workers
         crate::workers::poll_tasks,
         crate::workers::poll_tasks_from_queue,

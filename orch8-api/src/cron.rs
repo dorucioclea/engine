@@ -21,6 +21,7 @@ pub fn routes() -> Router<AppState> {
             "/cron/{id}",
             get(get_cron).put(update_cron).delete(delete_cron),
         )
+        .route("/cron/{id}/next-fires", get(next_fires))
 }
 
 #[derive(Deserialize, ToSchema)]
@@ -67,6 +68,43 @@ pub(crate) struct ListCronQuery {
 
 fn default_limit() -> u32 {
     100
+}
+
+#[derive(Deserialize)]
+pub(crate) struct NextFiresQuery {
+    #[serde(default = "default_next_fires_n")]
+    n: u32,
+}
+
+fn default_next_fires_n() -> u32 {
+    5
+}
+
+/// Iteratively compute the next `n` fire instants (UTC) for a schedule,
+/// starting strictly after `now`. Each instant is fed back as the new "after"
+/// bound, so the DST-correct [`calculate_next_fire_after`] governs every step —
+/// gap occurrences clamp, ambiguous occurrences fire once. Stops early if the
+/// expression has no further occurrences.
+fn compute_next_fires(
+    schedule: &CronSchedule,
+    now: chrono::DateTime<Utc>,
+    n: u32,
+) -> Vec<chrono::DateTime<Utc>> {
+    let mut out = Vec::with_capacity(n as usize);
+    let mut after = now;
+    for _ in 0..n {
+        let Some(next) = orch8_engine::cron::calculate_next_fire_after(schedule, after) else {
+            break;
+        };
+        // Defensive: a non-advancing result would loop forever. `.after()` is
+        // exclusive so this should never trip, but guard anyway.
+        if next <= after {
+            break;
+        }
+        out.push(next);
+        after = next;
+    }
+    out
 }
 
 #[cfg(test)]
@@ -169,6 +207,44 @@ pub(crate) async fn get_cron(
     )?;
 
     Ok(Json(schedule))
+}
+
+#[utoipa::path(get, path = "/cron/{id}/next-fires", tag = "cron",
+    params(
+        ("id" = Uuid, Path, description = "Cron schedule ID"),
+        ("n" = Option<u32>, Query, description = "How many upcoming fires to preview (default 5, max 50)"),
+    ),
+    responses(
+        (status = 200, description = "Upcoming fire instants (UTC, DST-correct)", body = serde_json::Value),
+        (status = 404, description = "Cron schedule not found"),
+    )
+)]
+pub(crate) async fn next_fires(
+    State(state): State<AppState>,
+    tenant_ctx: crate::auth::OptionalTenant,
+    Path(id): Path<Uuid>,
+    Query(q): Query<NextFiresQuery>,
+) -> Result<impl IntoResponse, ApiError> {
+    let schedule = state
+        .storage
+        .get_cron_schedule(id)
+        .await
+        .map_err(|e| ApiError::from_storage(e, "cron_schedule"))?
+        .ok_or_else(|| ApiError::NotFound(format!("cron_schedule {id}")))?;
+
+    crate::auth::enforce_tenant_access(
+        &tenant_ctx,
+        &schedule.tenant_id,
+        &format!("cron_schedule {id}"),
+    )?;
+
+    let n = q.n.clamp(1, 50);
+    let fires = compute_next_fires(&schedule, Utc::now(), n);
+
+    Ok(Json(serde_json::json!({
+        "timezone": schedule.timezone,
+        "fires": fires,
+    })))
 }
 
 #[utoipa::path(get, path = "/cron", tag = "cron",

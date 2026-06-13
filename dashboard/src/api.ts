@@ -469,6 +469,8 @@ export function drainClusterNode(id: string, signal?: AbortSignal): Promise<null
 
 // ─── Cron schedules ──────────────────────────────────────────────────────────
 
+export type OverlapPolicy = "allow" | "skip" | "buffer_one" | "cancel_previous";
+
 export interface CronSchedule {
   id: string;
   tenant_id: string;
@@ -478,10 +480,18 @@ export interface CronSchedule {
   timezone: string;
   enabled: boolean;
   metadata: Record<string, unknown>;
+  overlap_policy: OverlapPolicy;
+  skipped_fires: number;
+  last_skipped_at: string | null;
   last_triggered_at: string | null;
   next_fire_at: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface NextFiresResponse {
+  timezone: string;
+  fires: string[];
 }
 
 export interface CreateCronRequest {
@@ -492,6 +502,7 @@ export interface CreateCronRequest {
   timezone?: string;
   metadata?: Record<string, unknown>;
   enabled?: boolean;
+  overlap_policy?: OverlapPolicy;
 }
 
 export interface UpdateCronRequest {
@@ -499,6 +510,7 @@ export interface UpdateCronRequest {
   timezone?: string;
   enabled?: boolean;
   metadata?: Record<string, unknown>;
+  overlap_policy?: OverlapPolicy;
 }
 
 export function listCronSchedules(
@@ -529,6 +541,14 @@ export function updateCronSchedule(
 
 export function deleteCronSchedule(id: string, signal?: AbortSignal): Promise<null> {
   return mutate(`/cron/${encodeURIComponent(id)}`, "DELETE", undefined, undefined, signal);
+}
+
+export function cronNextFires(
+  id: string,
+  n = 5,
+  signal?: AbortSignal,
+): Promise<NextFiresResponse> {
+  return request(`/cron/${encodeURIComponent(id)}/next-fires`, { n: String(n) }, signal);
 }
 
 // ─── Triggers ────────────────────────────────────────────────────────────────

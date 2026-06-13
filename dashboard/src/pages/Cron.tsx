@@ -4,6 +4,7 @@ import {
   createCronSchedule,
   updateCronSchedule,
   deleteCronSchedule,
+  cronNextFires,
   type CronSchedule,
 } from "../api";
 import { usePolling } from "../hooks/usePolling";
@@ -17,7 +18,14 @@ import { Button } from "../components/ui/Button";
 import { Input, FieldLabel } from "../components/ui/Input";
 import { Badge } from "../components/ui/Badge";
 import { Relative } from "../components/ui/Relative";
-import { IconPlus, IconTrash, IconPause, IconPlay } from "../components/ui/Icons";
+import {
+  IconPlus,
+  IconTrash,
+  IconPause,
+  IconPlay,
+  IconChevronDown,
+  IconChevronRight,
+} from "../components/ui/Icons";
 
 const PAGE_GLOSSARY: GlossaryItem[] = [
   {
@@ -56,6 +64,25 @@ const PAGE_GLOSSARY: GlossaryItem[] = [
     term: "enabled / disabled",
     definition:
       "Disabled schedules are frozen — the engine stops evaluating them. Disabling is reversible and does not delete any execution history.",
+  },
+  {
+    term: "Overlap policy",
+    definition: (
+      <>
+        What happens when a fire is due while a previous run from the same
+        schedule is still active. <code className="font-mono text-ink">allow</code>{" "}
+        starts a concurrent run; <code className="font-mono text-ink">skip</code>{" "}
+        counts the fire and moves on; <code className="font-mono text-ink">buffer_one</code>{" "}
+        defers one fire until the previous finishes;{" "}
+        <code className="font-mono text-ink">cancel_previous</code> cancels the
+        in-flight run first.
+      </>
+    ),
+  },
+  {
+    term: "Preview",
+    definition:
+      "Expand a row to see the next five fire times, computed server-side in the schedule's timezone with DST gaps and fall-back ambiguity resolved exactly as the engine will fire them.",
   },
 ];
 
@@ -171,6 +198,7 @@ export default function Cron() {
               <TH>Tenant / Namespace</TH>
               <TH>Sequence</TH>
               <TH>Expression</TH>
+              <TH>Overlap</TH>
               <TH>Timezone</TH>
               <TH>Next fire</TH>
               <TH>Last fired</TH>
@@ -178,90 +206,12 @@ export default function Cron() {
             </THead>
             <tbody>
               {data.map((c) => (
-                <TR key={c.id}>
-                  <TD>
-                    <Badge tone={c.enabled ? "ok" : "dim"} dot>
-                      {c.enabled ? "enabled" : "disabled"}
-                    </Badge>
-                  </TD>
-                  <TD className="font-mono text-[12px]">
-                    {c.tenant_id}
-                    <span className="text-faint"> / </span>
-                    {c.namespace}
-                  </TD>
-                  <TD
-                    className="font-mono text-[12px] text-muted"
-                    title={c.sequence_id}
-                  >
-                    {c.sequence_id.slice(0, 8)}…
-                  </TD>
-                  <TD
-                    className="font-mono text-[12px]"
-                    title="min hour day-of-month month day-of-week"
-                  >
-                    {c.cron_expr}
-                  </TD>
-                  <TD className="font-mono text-[12px] text-muted">
-                    {c.timezone}
-                  </TD>
-                  <TD>
-                    {c.next_fire_at ? (
-                      <span
-                        className="tabular text-[12px]"
-                        title={`In ${c.timezone}`}
-                      >
-                        {new Date(c.next_fire_at).toLocaleString()}
-                      </span>
-                    ) : (
-                      <span
-                        className="text-faint"
-                        title="No next fire — cron is disabled or expression has no future matches"
-                      >
-                        —
-                      </span>
-                    )}
-                  </TD>
-                  <TD>
-                    {c.last_triggered_at ? (
-                      <Relative at={c.last_triggered_at} />
-                    ) : (
-                      <span
-                        className="text-faint"
-                        title="This cron has not fired yet"
-                      >
-                        never
-                      </span>
-                    )}
-                  </TD>
-                  <TD className="text-right">
-                    <div className="inline-flex gap-1">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => toggle(c)}
-                        title={
-                          c.enabled
-                            ? "Pause this cron — reversible, no data loss"
-                            : "Resume this cron"
-                        }
-                      >
-                        {c.enabled ? (
-                          <IconPause size={13} />
-                        ) : (
-                          <IconPlay size={13} />
-                        )}
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => remove(c)}
-                        title="Delete this cron permanently"
-                      >
-                        <IconTrash size={13} />
-                      </Button>
-                    </div>
-                  </TD>
-                </TR>
+                <ScheduleRow
+                  key={c.id}
+                  c={c}
+                  onToggle={() => toggle(c)}
+                  onRemove={() => remove(c)}
+                />
               ))}
               {data.length === 0 && (
                 <Empty colSpan={99}>
@@ -274,6 +224,182 @@ export default function Cron() {
         )}
       </Section>
     </div>
+  );
+}
+
+function ScheduleRow({
+  c,
+  onToggle,
+  onRemove,
+}: {
+  c: CronSchedule;
+  onToggle: () => void;
+  onRemove: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [fires, setFires] = useState<string[] | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const toggleOpen = async () => {
+    const next = !open;
+    setOpen(next);
+    if (next && fires === null && !loading) {
+      setLoading(true);
+      try {
+        const res = await cronNextFires(c.id, 5);
+        setFires(res.fires);
+      } catch (e) {
+        setPreviewError(e instanceof Error ? e.message : String(e));
+      } finally {
+        setLoading(false);
+      }
+    }
+  };
+
+  return (
+    <>
+      <TR>
+        <TD>
+          <button
+            onClick={toggleOpen}
+            className="inline-flex items-center gap-1.5 text-left"
+            title="Preview the next five fires"
+          >
+            <span className="text-muted">
+              {open ? <IconChevronDown size={12} /> : <IconChevronRight size={12} />}
+            </span>
+            <Badge tone={c.enabled ? "ok" : "dim"} dot>
+              {c.enabled ? "enabled" : "disabled"}
+            </Badge>
+          </button>
+        </TD>
+        <TD className="font-mono text-[12px]">
+          {c.tenant_id}
+          <span className="text-faint"> / </span>
+          {c.namespace}
+        </TD>
+        <TD className="font-mono text-[12px] text-muted" title={c.sequence_id}>
+          {c.sequence_id.slice(0, 8)}…
+        </TD>
+        <TD
+          className="font-mono text-[12px]"
+          title="min hour day-of-month month day-of-week"
+        >
+          {c.cron_expr}
+        </TD>
+        <TD>
+          <span
+            className="bg-sunken border border-rule text-muted text-[10px] font-mono uppercase tracking-wider px-1.5 py-0.5"
+            title="Overlap policy — behavior when a fire is due while a previous run is still active"
+          >
+            {c.overlap_policy}
+          </span>
+          {c.skipped_fires > 0 && (
+            <span
+              className="ml-1.5 text-[11px] text-warn font-mono"
+              title={
+                c.last_skipped_at
+                  ? `Last skipped ${new Date(c.last_skipped_at).toLocaleString()}`
+                  : "Fires skipped under the skip policy"
+              }
+            >
+              {c.skipped_fires} skipped
+            </span>
+          )}
+        </TD>
+        <TD className="font-mono text-[12px] text-muted">{c.timezone}</TD>
+        <TD>
+          {c.next_fire_at ? (
+            <span className="tabular text-[12px]" title={`In ${c.timezone}`}>
+              {new Date(c.next_fire_at).toLocaleString()}
+            </span>
+          ) : (
+            <span
+              className="text-faint"
+              title="No next fire — cron is disabled or expression has no future matches"
+            >
+              —
+            </span>
+          )}
+        </TD>
+        <TD>
+          {c.last_triggered_at ? (
+            <Relative at={c.last_triggered_at} />
+          ) : (
+            <span className="text-faint" title="This cron has not fired yet">
+              never
+            </span>
+          )}
+        </TD>
+        <TD className="text-right">
+          <div className="inline-flex gap-1">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onToggle}
+              title={
+                c.enabled
+                  ? "Pause this cron — reversible, no data loss"
+                  : "Resume this cron"
+              }
+            >
+              {c.enabled ? <IconPause size={13} /> : <IconPlay size={13} />}
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onRemove}
+              title="Delete this cron permanently"
+            >
+              <IconTrash size={13} />
+            </Button>
+          </div>
+        </TD>
+      </TR>
+      {open && (
+        <TR>
+          <TD colSpan={99} className="bg-sunken/40">
+            <div className="px-6 py-3">
+              <div className="field-label mb-2">
+                Next 5 fires · <span className="font-mono">{c.timezone}</span>
+              </div>
+              {loading && (
+                <div className="text-muted text-[12px] font-mono">Computing…</div>
+              )}
+              {previewError && (
+                <div className="notice notice-warn">{previewError}</div>
+              )}
+              {fires && fires.length === 0 && (
+                <div className="text-faint text-[12px] font-mono">
+                  No upcoming fires — the expression has no future matches.
+                </div>
+              )}
+              {fires && fires.length > 0 && (
+                <ol className="space-y-1">
+                  {fires.map((f, i) => (
+                    <li
+                      key={f}
+                      className="flex items-baseline gap-3 text-[12px] font-mono tabular"
+                    >
+                      <span className="text-faint w-5 text-right">{i + 1}.</span>
+                      <span className="text-ink">
+                        {new Date(f).toLocaleString(undefined, {
+                          timeZone: c.timezone,
+                        })}
+                      </span>
+                      <span className="text-faint">
+                        ({new Date(f).toISOString()})
+                      </span>
+                    </li>
+                  ))}
+                </ol>
+              )}
+            </div>
+          </TD>
+        </TR>
+      )}
+    </>
   );
 }
 
