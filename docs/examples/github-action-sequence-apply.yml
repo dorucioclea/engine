@@ -1,0 +1,35 @@
+# GitOps for Orch8 sequences.
+#
+# Copy this into your sequence repo as `.github/workflows/orch8-apply.yml`.
+# On every push to `main` that touches `sequences/`, it diffs each local
+# sequence JSON against the server and applies (version-bumped) any that
+# changed. `orch8 sequence apply` is idempotent — unchanged sequences are
+# left alone — so re-running is safe.
+#
+# Required repo secrets: ORCH8_URL, ORCH8_API_KEY, ORCH8_TENANT_ID.
+name: orch8 sequence apply
+
+on:
+  push:
+    branches: [main]
+    paths: ["sequences/**"]
+  workflow_dispatch: {}
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the orch8 CLI
+        run: cargo install --git https://github.com/orch8-io/engine orch8-cli
+
+      # Dry-run on pull requests / preview; apply for real on main.
+      - name: Apply sequences
+        env:
+          ORCH8_URL: ${{ secrets.ORCH8_URL }}
+          ORCH8_API_KEY: ${{ secrets.ORCH8_API_KEY }}
+          ORCH8_TENANT_ID: ${{ secrets.ORCH8_TENANT_ID }}
+        run: |
+          orch8 --url "$ORCH8_URL" --api-key "$ORCH8_API_KEY" --tenant-id "$ORCH8_TENANT_ID" \
+            sequence apply sequences/
