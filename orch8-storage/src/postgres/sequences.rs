@@ -14,6 +14,8 @@ pub(super) async fn create(
         "interceptors": seq.interceptors,
         "input_schema": seq.input_schema,
         "sla": seq.sla,
+        "on_failure": seq.on_failure,
+        "on_cancel": seq.on_cancel,
     });
     sqlx::query(
         r"

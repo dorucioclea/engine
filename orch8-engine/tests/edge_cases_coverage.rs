@@ -520,6 +520,8 @@ async fn sub_sequence_inside_for_each_iteration() {
         interceptors: None,
         input_schema: None,
         sla: None,
+        on_failure: None,
+        on_cancel: None,
         created_at: Utc::now(),
     };
     storage.create_sequence(&child_seq).await.unwrap();
@@ -548,6 +550,8 @@ async fn sub_sequence_inside_for_each_iteration() {
         interceptors: None,
         input_schema: None,
         sla: None,
+        on_failure: None,
+        on_cancel: None,
         created_at: Utc::now(),
     };
     storage.create_sequence(&parent_seq).await.unwrap();
@@ -1169,6 +1173,8 @@ async fn sub_sequence_output_propagates_to_parent() {
         interceptors: None,
         input_schema: None,
         sla: None,
+        on_failure: None,
+        on_cancel: None,
         created_at: Utc::now(),
     };
     storage.create_sequence(&child_seq).await.unwrap();
@@ -1190,6 +1196,8 @@ async fn sub_sequence_output_propagates_to_parent() {
         interceptors: None,
         input_schema: None,
         sla: None,
+        on_failure: None,
+        on_cancel: None,
         created_at: Utc::now(),
     };
     storage.create_sequence(&parent_seq).await.unwrap();
@@ -2147,6 +2155,8 @@ async fn waiting_instance_not_terminal() {
         interceptors: None,
         input_schema: None,
         sla: None,
+        on_failure: None,
+        on_cancel: None,
         created_at: Utc::now(),
     };
     storage.create_sequence(&child_seq).await.unwrap();
@@ -2168,6 +2178,8 @@ async fn waiting_instance_not_terminal() {
         interceptors: None,
         input_schema: None,
         sla: None,
+        on_failure: None,
+        on_cancel: None,
         created_at: Utc::now(),
     };
     storage.create_sequence(&parent_seq).await.unwrap();

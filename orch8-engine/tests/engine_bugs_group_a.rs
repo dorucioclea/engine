@@ -121,6 +121,8 @@ async fn setup_tree(
         interceptors: None,
         input_schema: None,
         sla: None,
+        on_failure: None,
+        on_cancel: None,
         created_at: Utc::now(),
     };
     storage.create_sequence(&seq).await.unwrap();
@@ -1368,6 +1370,8 @@ async fn a6_reap_stale_worker_tasks_honours_small_threshold() {
         interceptors: None,
         input_schema: None,
         sla: None,
+        on_failure: None,
+        on_cancel: None,
         created_at: Utc::now(),
     };
     storage.create_sequence(&seq).await.unwrap();
@@ -1654,6 +1658,8 @@ async fn a10_sub_sequence_links_parent_and_propagates_outputs() {
         interceptors: None,
         input_schema: None,
         sla: None,
+        on_failure: None,
+        on_cancel: None,
         created_at: Utc::now(),
     };
 
@@ -1677,6 +1683,8 @@ async fn a10_sub_sequence_links_parent_and_propagates_outputs() {
         interceptors: None,
         input_schema: None,
         sla: None,
+        on_failure: None,
+        on_cancel: None,
         created_at: Utc::now(),
     };
 
@@ -1914,6 +1922,8 @@ async fn a11_sla_breach_records_block_output() {
         interceptors: None,
         input_schema: None,
         sla: None,
+        on_failure: None,
+        on_cancel: None,
         created_at: Utc::now(),
     };
 
@@ -2205,6 +2215,8 @@ async fn a15_workers_receive_fair_share_under_load() {
         interceptors: None,
         input_schema: None,
         sla: None,
+        on_failure: None,
+        on_cancel: None,
         created_at: Utc::now(),
     };
     storage.create_sequence(&seq).await.unwrap();

@@ -84,6 +84,16 @@ pub struct SequenceDefinition {
     /// failed or paused.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sla: Option<SlaPolicy>,
+    /// Best-effort cleanup blocks run when the instance reaches terminal
+    /// `Failed`. Each top-level step block is dispatched once; errors are
+    /// swallowed (the instance is already failing). Use to release resources,
+    /// send a death notification, etc. — so a failed run doesn't "just die".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_failure: Option<Vec<BlockDefinition>>,
+    /// Best-effort cleanup blocks run when the instance reaches terminal
+    /// `Cancelled`. Same semantics as `on_failure`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_cancel: Option<Vec<BlockDefinition>>,
     pub created_at: DateTime<Utc>,
 }
 
@@ -1123,6 +1133,8 @@ mod tests {
             interceptors: None,
             input_schema: None,
             sla: None,
+            on_failure: None,
+            on_cancel: None,
             created_at: Utc::now(),
         }
     }
@@ -1349,6 +1361,8 @@ mod tests {
             interceptors: None,
             input_schema: None,
             sla: None,
+            on_failure: None,
+            on_cancel: None,
             created_at: chrono::Utc::now(),
         }
     }

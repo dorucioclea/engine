@@ -637,6 +637,8 @@ mod tests {
                 interceptors: None,
                 input_schema: None,
                 sla: None,
+                on_failure: None,
+                on_cancel: None,
                 created_at: chrono::Utc::now(),
             })
             .await

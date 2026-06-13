@@ -48,6 +48,8 @@ fn make_sequence() -> SequenceDefinition {
         interceptors: None,
         input_schema: None,
         sla: None,
+        on_failure: None,
+        on_cancel: None,
         created_at: Utc::now(),
     }
 }
@@ -536,6 +538,8 @@ fn bench_evaluate_deep_tree(c: &mut Criterion) {
                     interceptors: None,
                     input_schema: None,
                     sla: None,
+                    on_failure: None,
+                    on_cancel: None,
                     created_at: Utc::now(),
                 };
                 rt.block_on(s.create_sequence(&seq)).unwrap();

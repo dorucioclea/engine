@@ -107,6 +107,8 @@ Omit `input_schema` (or set it to `null`) to accept any `context.data` unchecked
 
 **`sla`** (optional): an alert-only SLA policy `{ "max_runtime": <ms>, "max_step_runtime": <ms> }` (both fields optional, milliseconds). When an active instance's wall-clock lifetime exceeds `max_runtime`, or its current step's runtime exceeds `max_step_runtime`, the scheduler emits an `instance.sla_breached` webhook and increments the `orch8_sla_breached_total{type=...}` metric — **once per breach** (de-duplicated). The instance is **not** paused or failed; this is an alert, not a state change. (For a hard per-step deadline that fails the step, use `deadline` on a step instead.)
 
+**`on_failure` / `on_cancel`** (optional): block lists run **best-effort** when the instance reaches terminal `Failed` / `Cancelled`. Each top-level **step** block is dispatched once with the instance's final context (its output is recorded under the step's block id); errors are swallowed (the instance is already terminal). Use to release a lock, post a death notification, etc. — so a failed/cancelled run doesn't silently vanish. v1 runs step blocks only (non-step blocks are skipped with a warning). `on_cancel` fires on both signal-driven cancellation and cancellation that completes through evaluation.
+
 **Response:** `201 Created`
 
 ```json

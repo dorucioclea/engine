@@ -114,7 +114,14 @@ pub async fn tick_once(
         let _ = handle.await;
     }
 
-    process_signalled_instances(storage, config.batch_size, &config.clock).await?;
+    process_signalled_instances(
+        storage,
+        handlers,
+        sequence_cache,
+        config.batch_size,
+        &config.clock,
+    )
+    .await?;
 
     process_waiting_deadlines(
         storage,
@@ -254,7 +261,15 @@ pub async fn run_tick_loop(
                 // picked up by claim_due_instances (which only claims
                 // scheduled instances). Without this, resume/cancel signals
                 // on paused instances would never be processed.
-                if let Err(e) = process_signalled_instances(&storage, batch_size, &config.clock).await {
+                if let Err(e) = process_signalled_instances(
+                    &storage,
+                    &handlers,
+                    &sequence_cache,
+                    batch_size,
+                    &config.clock,
+                )
+                .await
+                {
                     error!(error = %e, "signalled instance processing failed");
                 }
                 // Check SLA deadlines for waiting instances (external worker
@@ -619,6 +634,8 @@ async fn enforce_concurrency_limits(
 /// no such signals exist (single indexed query returning empty).
 async fn process_signalled_instances(
     storage: &Arc<dyn StorageBackend>,
+    handlers: &HandlerRegistry,
+    sequence_cache: &SequenceCache,
     batch_size: u32,
     clock: &SharedClock,
 ) -> Result<(), EngineError> {
@@ -678,6 +695,26 @@ async fn process_signalled_instances(
                 from_state = %current_state,
                 "signal processed for non-scheduled instance"
             );
+            // A cancel signal may have just driven this instance terminal.
+            // Run the sequence's best-effort `on_cancel` cleanup if so — this
+            // covers the immediate (unscoped) cancel path that bypasses tree
+            // evaluation. (Scoped cancellations complete through the evaluator,
+            // whose terminal path runs the same hook.)
+            if current_state != InstanceState::Cancelled {
+                if let Ok(Some(inst)) = storage.get_instance(instance_id).await {
+                    if inst.state == InstanceState::Cancelled {
+                        if let Ok(seq) = sequence_cache
+                            .get_by_id(storage.as_ref(), inst.sequence_id)
+                            .await
+                        {
+                            if let Some(ref blocks) = seq.on_cancel {
+                                run_cleanup_hooks(storage, handlers, &inst, blocks, "on_cancel")
+                                    .await;
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -826,6 +863,86 @@ async fn process_waiting_deadlines(
         let _ = handled;
     }
     Ok(())
+}
+
+/// Run a sequence's best-effort cleanup hook (`on_failure` / `on_cancel`) as
+/// the instance reaches its terminal state. Each top-level `Step` block is
+/// dispatched once with the instance's final context; its output is recorded
+/// under the step's block id. Errors are **swallowed** — the instance is
+/// already terminal and cleanup must never resurrect, wedge, or re-fail it.
+/// Non-step blocks are skipped with a warning (v1 supports step hooks only).
+async fn run_cleanup_hooks(
+    storage: &Arc<dyn StorageBackend>,
+    handlers: &HandlerRegistry,
+    instance: &orch8_types::instance::TaskInstance,
+    blocks: &[orch8_types::sequence::BlockDefinition],
+    hook: &'static str,
+) {
+    use orch8_types::sequence::BlockDefinition;
+    for block in blocks {
+        let BlockDefinition::Step(step) = block else {
+            warn!(
+                instance_id = %instance.id,
+                hook,
+                "cleanup hook skipped a non-step block (v1 runs step blocks only)"
+            );
+            continue;
+        };
+        let Some(handler) = handlers.get(&step.handler) else {
+            warn!(
+                instance_id = %instance.id,
+                hook,
+                handler = %step.handler,
+                "cleanup handler not registered — skipping"
+            );
+            continue;
+        };
+        let ctx = crate::handlers::StepContext {
+            instance_id: instance.id,
+            tenant_id: instance.tenant_id.clone(),
+            block_id: step.id.clone(),
+            params: step.params.clone(),
+            context: instance.context.clone(),
+            attempt: 0,
+            storage: Arc::clone(storage),
+            wait_for_input: None,
+        };
+        match handler(ctx).await {
+            Ok(output) => {
+                let output_size = u32::try_from(
+                    serde_json::to_vec(&output).map(|v| v.len()).unwrap_or(0),
+                )
+                .unwrap_or(u32::MAX);
+                let bo = orch8_types::output::BlockOutput {
+                    id: uuid::Uuid::now_v7(),
+                    instance_id: instance.id,
+                    block_id: step.id.clone(),
+                    output,
+                    output_ref: None,
+                    output_size,
+                    attempt: 0,
+                    created_at: Utc::now(),
+                };
+                if let Err(e) = storage.save_block_output(&bo).await {
+                    warn!(
+                        instance_id = %instance.id,
+                        hook,
+                        error = %e,
+                        "failed to persist cleanup hook output (swallowed)"
+                    );
+                }
+            }
+            Err(e) => {
+                warn!(
+                    instance_id = %instance.id,
+                    hook,
+                    block_id = %step.id,
+                    error = %e,
+                    "cleanup hook step failed (swallowed)"
+                );
+            }
+        }
+    }
 }
 
 /// Alert-only SLA sweep. For every non-terminal instance whose sequence
@@ -1436,6 +1553,10 @@ async fn process_instance(
                 }
             }
             StepOutcome::Failed => {
+                // Best-effort cleanup: on_failure (fast-path step failure).
+                if let Some(ref blocks) = sequence.on_failure {
+                    run_cleanup_hooks(storage, handlers, &instance, blocks, "on_failure").await;
+                }
                 // Interceptor: on_failure
                 if let Some(ref interceptors) = sequence.interceptors {
                     crate::interceptors::emit_on_failure(
@@ -1704,9 +1825,19 @@ async fn process_instance_tree(
             } else {
                 match target {
                     InstanceState::Cancelled => {
+                        // Best-effort cleanup: on_cancel.
+                        if let Some(ref blocks) = sequence.on_cancel {
+                            run_cleanup_hooks(storage, handlers, instance, blocks, "on_cancel")
+                                .await;
+                        }
                         info!(instance_id = %instance_id, "instance cancelled (tree evaluation)");
                     }
                     InstanceState::Failed => {
+                        // Best-effort cleanup: on_failure.
+                        if let Some(ref blocks) = sequence.on_failure {
+                            run_cleanup_hooks(storage, handlers, instance, blocks, "on_failure")
+                                .await;
+                        }
                         // Interceptor: on_failure
                         if let Some(ref interceptors) = sequence.interceptors {
                             crate::interceptors::emit_on_failure(
@@ -1772,6 +1903,10 @@ async fn process_instance_tree(
                 None,
             )
             .await?;
+            // Best-effort cleanup: on_failure (tree evaluation blew up).
+            if let Some(ref blocks) = sequence.on_failure {
+                run_cleanup_hooks(storage, handlers, instance, blocks, "on_failure").await;
+            }
             // Interceptor: on_failure
             if let Some(ref interceptors) = sequence.interceptors {
                 crate::interceptors::emit_on_failure(storage.as_ref(), interceptors, instance_id)

@@ -425,6 +425,8 @@ fn mk_sequence(blocks: Vec<BlockDefinition>) -> SequenceDefinition {
         interceptors: None,
         input_schema: None,
         sla: None,
+        on_failure: None,
+        on_cancel: None,
         created_at: Utc::now(),
     }
 }

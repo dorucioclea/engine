@@ -90,6 +90,8 @@ async fn seed_instance(storage: &SqliteStorage, instance_id: InstanceId) {
         interceptors: None,
         input_schema: None,
         sla: None,
+        on_failure: None,
+        on_cancel: None,
         created_at: Utc::now(),
     };
     storage.create_sequence(&seq).await.unwrap();
@@ -122,6 +124,8 @@ async fn setup_single_step(
         interceptors: None,
         input_schema: None,
         sla: None,
+        on_failure: None,
+        on_cancel: None,
         created_at: Utc::now(),
     };
     storage.create_sequence(&seq).await.unwrap();
@@ -336,6 +340,8 @@ async fn save_output_complete_node_and_transition_is_atomic() {
         interceptors: None,
         input_schema: None,
         sla: None,
+        on_failure: None,
+        on_cancel: None,
         created_at: Utc::now(),
     };
     storage.create_sequence(&seq).await.unwrap();
@@ -416,6 +422,8 @@ async fn save_output_complete_node_and_transition_rejects_terminal_instance() {
         interceptors: None,
         input_schema: None,
         sla: None,
+        on_failure: None,
+        on_cancel: None,
         created_at: Utc::now(),
     };
     storage.create_sequence(&seq).await.unwrap();

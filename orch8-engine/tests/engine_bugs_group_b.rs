@@ -130,6 +130,8 @@ async fn setup_single_step(
         interceptors: None,
         input_schema: None,
         sla: None,
+        on_failure: None,
+        on_cancel: None,
         created_at: Utc::now(),
     };
     storage.create_sequence(&seq).await.unwrap();
@@ -347,6 +349,8 @@ async fn b28_apply_self_modify_append_preserves_prior_blocks() {
         interceptors: None,
         input_schema: None,
         sla: None,
+        on_failure: None,
+        on_cancel: None,
         created_at: Utc::now(),
     };
     storage_dyn.create_sequence(&seq).await.unwrap();
@@ -428,6 +432,8 @@ async fn b28_apply_self_modify_position_still_preserves_prior() {
         interceptors: None,
         input_schema: None,
         sla: None,
+        on_failure: None,
+        on_cancel: None,
         created_at: Utc::now(),
     };
     storage_dyn.create_sequence(&seq).await.unwrap();

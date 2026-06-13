@@ -68,6 +68,8 @@ fn make_sequence(tenant: &str) -> SequenceDefinition {
         interceptors: None,
         input_schema: None,
         sla: None,
+        on_failure: None,
+        on_cancel: None,
         created_at: Utc::now(),
     }
 }
