@@ -28,8 +28,8 @@ pub(crate) use artifacts::{
 };
 pub(crate) use audit::{__path_list_audit_log, list_audit_log};
 pub(crate) use bulk::{
-    __path_bulk_reschedule, __path_bulk_update_state, __path_list_dlq, bulk_reschedule,
-    bulk_update_state, list_dlq,
+    __path_batch_action, __path_bulk_reschedule, __path_bulk_update_state, __path_list_dlq,
+    batch_action, bulk_reschedule, bulk_update_state, list_dlq,
 };
 pub(crate) use checkpoints::{
     __path_get_latest_checkpoint, __path_list_checkpoints, __path_prune_checkpoints,
@@ -53,7 +53,10 @@ pub(crate) use outputs::{
 pub(crate) use signals::{__path_send_signal, send_signal};
 pub(crate) use timeline::{__path_get_timeline, get_timeline};
 pub use timeline::{TimelineEntry, TimelineInstance, TimelineResponse, TimelineStateTransition};
-pub use types::{ForkRequest, InjectedSignal, ResumeFromRequest};
+pub use types::{
+    BatchAction, BatchActionRequest, BatchActionResponse, BulkFilter, ForkRequest, InjectedSignal,
+    ResumeFromRequest,
+};
 // Request/query types the MCP server reuses so its tools/call dispatch goes
 // through the exact same wire shapes as the REST endpoints.
 pub(crate) use types::{CreateInstanceRequest, ListQuery, SendSignalRequest};
@@ -94,5 +97,6 @@ pub fn routes() -> Router<AppState> {
         )
         .route("/instances/bulk/state", patch(bulk_update_state))
         .route("/instances/bulk/reschedule", patch(bulk_reschedule))
+        .route("/instances/batch-action", post(batch_action))
         .route("/instances/dlq", get(list_dlq))
 }

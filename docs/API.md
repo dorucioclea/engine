@@ -297,6 +297,50 @@ GET /instances?metadata.env=prod&metadata.team=core
 
 ---
 
+### Batch Action
+
+```
+POST /instances/batch-action
+```
+
+Apply one control action to every instance matching a filter. Always tenant-scoped (a `tenant_id` in the filter is required). Capped and audited.
+
+**Request Body:**
+
+```json
+{
+  "filter": {
+    "tenant_id": "acme",
+    "namespace": "default",
+    "states": ["failed"],
+    "metadata": { "env": "prod" }
+  },
+  "action": "retry",
+  "signal_type": null,
+  "payload": {},
+  "dry_run": false,
+  "limit": 1000
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `filter` | Same shape as the list filters: `tenant_id` (required), `namespace`, `sequence_id`, `states`, and `metadata` (top-level equality map). |
+| `action` | One of `retry`, `pause`, `resume`, `cancel`, `signal`. `retry` re-runs `Failed` instances; `pause`/`resume`/`cancel` enqueue the matching control signal; `signal` enqueues a custom signal named by `signal_type` carrying `payload`. |
+| `signal_type` | Required when `action` is `signal` (the custom name, no `custom:` prefix). |
+| `dry_run` | When `true`, only count matching instances; apply nothing. |
+| `limit` | Hard cap on instances acted on. Default `1000`, max `10000`. |
+
+**Response:** `200 OK`
+
+```json
+{ "matched": 42, "applied": 40, "skipped": 2, "failed": 0, "dry_run": false }
+```
+
+`skipped` counts instances the action did not apply to (e.g. `retry` of a non-`Failed` instance, or a signal to a terminal instance); `failed` counts storage errors. Every applied action writes a `batch_action` audit-log entry.
+
+---
+
 ### Update Instance State
 
 ```

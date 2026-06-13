@@ -3,7 +3,14 @@ import { useNavigate } from "react-router-dom";
 import { usePolling } from "../hooks/usePolling";
 import { usePageTitle } from "../hooks/usePageTitle";
 import { useDebounce } from "../hooks/useDebounce";
-import { listInstances, type TaskInstance, type InstanceState } from "../api";
+import {
+  listInstances,
+  batchAction,
+  type TaskInstance,
+  type InstanceState,
+  type BatchActionKind,
+} from "../api";
+import { Button } from "../components/ui/Button";
 import { PageHeader } from "../components/ui/PageHeader";
 import { PageMeta } from "../components/ui/PageMeta";
 import { Section } from "../components/ui/Section";
@@ -120,6 +127,48 @@ export default function Instances() {
   const hasFilters = Boolean(
     stateFilter || namespaceFilter || tenantFilter || (metadataKey && metadataValue),
   );
+
+  // ── Batch actions over the current filter ────────────────────────────────
+  const [pending, setPending] = useState<{ kind: BatchActionKind; matched: number } | null>(null);
+  const [batchBusy, setBatchBusy] = useState(false);
+  const [batchToast, setBatchToast] = useState<string | null>(null);
+
+  const buildBatchFilter = () => ({
+    tenant_id: tenantFilter || undefined,
+    namespace: namespaceFilter || undefined,
+    states: stateFilter ? [stateFilter] : undefined,
+    metadata: metadataKey && metadataValue ? { [metadataKey]: metadataValue } : undefined,
+  });
+
+  const previewBatch = async (kind: BatchActionKind) => {
+    setBatchBusy(true);
+    setBatchToast(null);
+    try {
+      const res = await batchAction({ filter: buildBatchFilter(), action: kind, dry_run: true });
+      setPending({ kind, matched: res.matched });
+    } catch (e) {
+      setBatchToast(`Failed: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setBatchBusy(false);
+    }
+  };
+
+  const applyBatch = async () => {
+    if (!pending) return;
+    setBatchBusy(true);
+    try {
+      const res = await batchAction({ filter: buildBatchFilter(), action: pending.kind });
+      setBatchToast(
+        `${pending.kind}: ${res.applied} applied, ${res.skipped} skipped, ${res.failed} failed`,
+      );
+      setPending(null);
+      refresh();
+    } catch (e) {
+      setBatchToast(`Failed: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setBatchBusy(false);
+    }
+  };
 
   const stateSummary = useMemo<StateSegment[] | null>(() => {
     if (!instances) return null;
@@ -242,6 +291,53 @@ export default function Instances() {
               Both fields required — served by the GIN index, no Elasticsearch.
             </p>
           </div>
+        </div>
+
+        <div className="mt-6 border-t border-hairline pt-4">
+          <div className="field-label mb-2">Batch action over this filter</div>
+          {!tenantFilter ? (
+            <p className="annotation">
+              Set a <strong className="text-ink">Tenant ID</strong> above to enable batch
+              actions — they are always tenant-scoped.
+            </p>
+          ) : pending ? (
+            <div className="flex items-center gap-3 flex-wrap">
+              <span className="text-[13px]">
+                <strong className="text-ink font-mono">{pending.matched}</strong> instance
+                {pending.matched === 1 ? "" : "s"} match. Apply{" "}
+                <strong className="text-ink font-mono">{pending.kind}</strong>?
+              </span>
+              <Button
+                variant="danger"
+                size="sm"
+                disabled={batchBusy || pending.matched === 0}
+                onClick={applyBatch}
+              >
+                Confirm {pending.kind}
+              </Button>
+              <Button variant="ghost" size="sm" disabled={batchBusy} onClick={() => setPending(null)}>
+                Cancel
+              </Button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 flex-wrap">
+              {(["retry", "pause", "resume", "cancel"] as BatchActionKind[]).map((k) => (
+                <Button
+                  key={k}
+                  size="sm"
+                  variant={k === "cancel" ? "danger" : "default"}
+                  disabled={batchBusy}
+                  onClick={() => previewBatch(k)}
+                >
+                  {k}
+                </Button>
+              ))}
+              <span className="annotation ml-1">
+                Previews the match count before applying. Capped at 1000.
+              </span>
+            </div>
+          )}
+          {batchToast && <div className="notice notice-ok mt-3">{batchToast}</div>}
         </div>
       </Section>
 

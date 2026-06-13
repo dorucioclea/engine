@@ -500,3 +500,94 @@ async fn list_instances_filters_by_metadata_key_value() {
     let page: serde_json::Value = resp.json().await.unwrap();
     assert_eq!(page["items"].as_array().unwrap().len(), 0);
 }
+
+#[tokio::test]
+async fn batch_action_dry_run_and_apply_with_metadata_filter() {
+    let srv = spawn_test_server().await;
+    let client = reqwest::Client::new();
+    let seq_id = create_sequence(&client, &srv.base_url).await;
+
+    // Two instances tagged grp=a, one grp=b.
+    for grp in ["a", "a", "b"] {
+        let body = json!({
+            "sequence_id": seq_id,
+            "tenant_id": "t1",
+            "namespace": "ns1",
+            "metadata": { "grp": grp },
+            "context": { "data": {}, "config": {}, "audit": [] }
+        });
+        let resp = client
+            .post(format!("{}/instances", srv.base_url))
+            .header("X-Tenant-Id", "t1")
+            .json(&body)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::CREATED);
+    }
+
+    // Dry-run cancel scoped to grp=a -> matched 2, applied 0.
+    let action = json!({
+        "filter": { "tenant_id": "t1", "metadata": { "grp": "a" } },
+        "action": "cancel",
+        "dry_run": true
+    });
+    let resp = client
+        .post(format!("{}/instances/batch-action", srv.base_url))
+        .header("X-Tenant-Id", "t1")
+        .json(&action)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let out: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(out["matched"], 2);
+    assert_eq!(out["applied"], 0);
+    assert_eq!(out["dry_run"], true);
+
+    // Real cancel -> applied 2 (signals enqueued to active instances).
+    let action = json!({
+        "filter": { "tenant_id": "t1", "metadata": { "grp": "a" } },
+        "action": "cancel"
+    });
+    let resp = client
+        .post(format!("{}/instances/batch-action", srv.base_url))
+        .header("X-Tenant-Id", "t1")
+        .json(&action)
+        .send()
+        .await
+        .unwrap();
+    let out: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(out["matched"], 2);
+    assert_eq!(out["applied"], 2);
+    assert_eq!(out["failed"], 0);
+}
+
+#[tokio::test]
+async fn batch_action_requires_tenant() {
+    let srv = spawn_test_server().await;
+    let client = reqwest::Client::new();
+    let action = json!({ "filter": {}, "action": "pause" });
+    let resp = client
+        .post(format!("{}/instances/batch-action", srv.base_url))
+        .json(&action)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn batch_action_signal_requires_signal_type() {
+    let srv = spawn_test_server().await;
+    let client = reqwest::Client::new();
+    let action = json!({ "filter": { "tenant_id": "t1" }, "action": "signal" });
+    let resp = client
+        .post(format!("{}/instances/batch-action", srv.base_url))
+        .header("X-Tenant-Id", "t1")
+        .json(&action)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+}

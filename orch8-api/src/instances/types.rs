@@ -141,6 +141,63 @@ pub struct BulkFilter {
     pub(crate) namespace: Option<String>,
     pub(crate) sequence_id: Option<Uuid>,
     pub(crate) states: Option<Vec<InstanceState>>,
+    /// Top-level `metadata` equality filters (key → value), ANDed. Served by
+    /// the same indexed path as `GET /instances?metadata.k=v`.
+    #[serde(default)]
+    pub(crate) metadata: Option<std::collections::HashMap<String, String>>,
+}
+
+/// The operation a batch action applies to every matched instance.
+#[derive(Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum BatchAction {
+    /// Re-run a `Failed` instance (clears the stale tree + sentinel outputs).
+    Retry,
+    /// Enqueue a `pause` control signal.
+    Pause,
+    /// Enqueue a `resume` control signal.
+    Resume,
+    /// Enqueue a `cancel` control signal.
+    Cancel,
+    /// Enqueue a custom signal named by `signal_type`, carrying `payload`.
+    Signal,
+}
+
+#[derive(Deserialize, ToSchema)]
+pub struct BatchActionRequest {
+    pub(crate) filter: BulkFilter,
+    pub(crate) action: BatchAction,
+    /// Custom signal name for the `signal` action (no `custom:` prefix). Ignored
+    /// for the other actions.
+    #[serde(default)]
+    pub(crate) signal_type: Option<String>,
+    /// Payload for the `signal` action.
+    #[serde(default)]
+    pub(crate) payload: serde_json::Value,
+    /// When true, count matching instances and apply nothing.
+    #[serde(default)]
+    pub(crate) dry_run: bool,
+    /// Hard cap on how many instances are acted on. Default 1000, max 10000.
+    #[serde(default = "default_batch_action_limit")]
+    pub(crate) limit: u32,
+}
+
+fn default_batch_action_limit() -> u32 {
+    1000
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct BatchActionResponse {
+    /// Instances matched by the filter (capped by `limit`).
+    pub(crate) matched: u64,
+    /// Instances the action was successfully applied to.
+    pub(crate) applied: u64,
+    /// Instances the action did not apply to (e.g. retry of a non-Failed
+    /// instance, or a signal to a terminal instance).
+    pub(crate) skipped: u64,
+    /// Instances where applying the action errored.
+    pub(crate) failed: u64,
+    pub(crate) dry_run: bool,
 }
 
 #[derive(Deserialize, ToSchema)]

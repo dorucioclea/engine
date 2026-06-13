@@ -296,6 +296,38 @@ export async function retryInstance(
   return mutate(`/instances/${encodeURIComponent(id)}/retry`, "POST", undefined, undefined, signal);
 }
 
+export type BatchActionKind = "retry" | "pause" | "resume" | "cancel" | "signal";
+
+export interface BatchActionBody {
+  filter: {
+    tenant_id?: string;
+    namespace?: string;
+    sequence_id?: string;
+    states?: string[];
+    metadata?: Record<string, string>;
+  };
+  action: BatchActionKind;
+  signal_type?: string;
+  payload?: unknown;
+  dry_run?: boolean;
+  limit?: number;
+}
+
+export interface BatchActionResult {
+  matched: number;
+  applied: number;
+  skipped: number;
+  failed: number;
+  dry_run: boolean;
+}
+
+export function batchAction(
+  body: BatchActionBody,
+  signal?: AbortSignal,
+): Promise<BatchActionResult> {
+  return mutate("/instances/batch-action", "POST", body, undefined, signal);
+}
+
 export interface CreateInstanceBody {
   sequence_id: string;
   tenant_id: string;
