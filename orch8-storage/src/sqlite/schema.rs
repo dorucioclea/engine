@@ -505,9 +505,23 @@ CREATE TABLE IF NOT EXISTS webhook_outbox (
     created_at  TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_webhook_outbox_created ON webhook_outbox(created_at DESC);
+
+CREATE TABLE IF NOT EXISTS queue_routing_rules (
+    id             TEXT PRIMARY KEY,
+    tenant_id      TEXT NOT NULL,
+    handler_name   TEXT NOT NULL,
+    match_queue    TEXT,
+    queue_override TEXT NOT NULL,
+    priority       INTEGER NOT NULL DEFAULT 0,
+    enabled        INTEGER NOT NULL DEFAULT 1,
+    created_at     TEXT NOT NULL,
+    updated_at     TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_queue_routing_tenant_handler
+    ON queue_routing_rules (tenant_id, handler_name, priority DESC);
 ";
 
 /// Current bundled schema version. Bump when the `SCHEMA` string above is
 /// edited in a non-idempotent way (e.g. adding a new column whose default
 /// matters for code that reads the column).
-pub(super) const SCHEMA_VERSION: i64 = 13;
+pub(super) const SCHEMA_VERSION: i64 = 14;

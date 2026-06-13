@@ -1076,12 +1076,22 @@ pub(super) async fn dispatch_to_external_worker(
 ) -> Result<StepOutcome, EngineError> {
     use orch8_types::worker::{WorkerTask, WorkerTaskState};
 
+    // Apply dynamic queue routing: a (tenant, handler) rule may override the
+    // step's declared queue at enqueue time.
+    let queue_name = crate::queue_routing::resolve_queue(
+        storage,
+        &instance.tenant_id,
+        &step_def.handler,
+        step_def.queue_name.clone(),
+    )
+    .await;
+
     let task = WorkerTask {
         id: uuid::Uuid::now_v7(),
         instance_id: instance.id,
         block_id: step_def.id.clone(),
         handler_name: step_def.handler.clone(),
-        queue_name: step_def.queue_name.clone(),
+        queue_name,
         params: resolved_params,
         // Context has already had `context_access` filtering and
         // externalization-marker inflation applied upstream — the remote

@@ -1141,6 +1141,32 @@ pub trait WorkerStore: Send + Sync + 'static {
 
     /// Remove a parked delivery (after a successful redelivery or a discard).
     async fn delete_webhook_outbox(&self, id: Uuid) -> Result<(), StorageError>;
+
+    // === Queue Routing Rules ===
+
+    /// Create a queue routing rule.
+    async fn create_queue_routing_rule(
+        &self,
+        rule: &orch8_types::queue_routing::QueueRoutingRule,
+    ) -> Result<(), StorageError>;
+
+    /// List routing rules, optionally filtered by tenant and/or handler,
+    /// ordered by `priority` DESC then `created_at` ASC. The enqueue path
+    /// passes both filters; the API passes whatever the caller specifies.
+    async fn list_queue_routing_rules(
+        &self,
+        tenant_id: Option<&TenantId>,
+        handler_name: Option<&str>,
+    ) -> Result<Vec<orch8_types::queue_routing::QueueRoutingRule>, StorageError>;
+
+    /// Fetch one routing rule by id.
+    async fn get_queue_routing_rule(
+        &self,
+        id: Uuid,
+    ) -> Result<Option<orch8_types::queue_routing::QueueRoutingRule>, StorageError>;
+
+    /// Delete a routing rule.
+    async fn delete_queue_routing_rule(&self, id: Uuid) -> Result<(), StorageError>;
 }
 
 // ============================================================================

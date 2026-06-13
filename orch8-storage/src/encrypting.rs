@@ -1150,6 +1150,32 @@ impl crate::WorkerStore for EncryptingStorage {
     async fn delete_webhook_outbox(&self, id: Uuid) -> Result<(), StorageError> {
         self.inner.delete_webhook_outbox(id).await
     }
+
+    async fn create_queue_routing_rule(
+        &self,
+        rule: &orch8_types::queue_routing::QueueRoutingRule,
+    ) -> Result<(), StorageError> {
+        self.inner.create_queue_routing_rule(rule).await
+    }
+
+    async fn list_queue_routing_rules(
+        &self,
+        tenant_id: Option<&orch8_types::ids::TenantId>,
+        handler_name: Option<&str>,
+    ) -> Result<Vec<orch8_types::queue_routing::QueueRoutingRule>, StorageError> {
+        self.inner.list_queue_routing_rules(tenant_id, handler_name).await
+    }
+
+    async fn get_queue_routing_rule(
+        &self,
+        id: Uuid,
+    ) -> Result<Option<orch8_types::queue_routing::QueueRoutingRule>, StorageError> {
+        self.inner.get_queue_routing_rule(id).await
+    }
+
+    async fn delete_queue_routing_rule(&self, id: Uuid) -> Result<(), StorageError> {
+        self.inner.delete_queue_routing_rule(id).await
+    }
 }
 
 // ============================================================================

@@ -1282,6 +1282,21 @@ DELETE /webhooks/outbox/{id}             # discard a parked delivery
 
 ---
 
+## Queue Routing Rules
+
+Override the queue an external-worker task lands on, per `(tenant, handler)`, evaluated at enqueue time — move a handler's traffic to a dedicated queue without redeploying the sequence.
+
+```
+POST   /routing-rules                                  # create
+GET    /routing-rules?tenant_id=acme&handler_name=x    # list (filters optional)
+GET    /routing-rules/{id}                             # get
+DELETE /routing-rules/{id}                             # delete
+```
+
+A rule body is `{ tenant_id, handler_name, queue_override, match_queue?, priority?, enabled? }`. `match_queue` (optional) makes the rule apply only when the task's declared queue equals that value (remap X→Y); omit it to match any. The highest-`priority` enabled matching rule wins; if none match, the step's own `queue_name` is used.
+
+---
+
 ## Additional Endpoints
 
 The following endpoint groups are available via the OpenAPI spec (Swagger UI at `/swagger-ui/`) but not yet fully documented here:

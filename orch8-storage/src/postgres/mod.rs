@@ -23,6 +23,7 @@ mod rows;
 mod sequences;
 mod sessions;
 mod signals;
+mod queue_routing;
 mod triggers;
 mod webhook_outbox;
 mod workers;
@@ -939,6 +940,32 @@ impl crate::WorkerStore for PostgresStorage {
 
     async fn delete_webhook_outbox(&self, id: Uuid) -> Result<(), StorageError> {
         webhook_outbox::delete(self, id).await
+    }
+
+    async fn create_queue_routing_rule(
+        &self,
+        rule: &orch8_types::queue_routing::QueueRoutingRule,
+    ) -> Result<(), StorageError> {
+        queue_routing::create(self, rule).await
+    }
+
+    async fn list_queue_routing_rules(
+        &self,
+        tenant_id: Option<&TenantId>,
+        handler_name: Option<&str>,
+    ) -> Result<Vec<orch8_types::queue_routing::QueueRoutingRule>, StorageError> {
+        queue_routing::list(self, tenant_id, handler_name).await
+    }
+
+    async fn get_queue_routing_rule(
+        &self,
+        id: Uuid,
+    ) -> Result<Option<orch8_types::queue_routing::QueueRoutingRule>, StorageError> {
+        queue_routing::get(self, id).await
+    }
+
+    async fn delete_queue_routing_rule(&self, id: Uuid) -> Result<(), StorageError> {
+        queue_routing::delete(self, id).await
     }
 }
 

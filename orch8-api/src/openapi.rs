@@ -66,6 +66,11 @@ use utoipa::OpenApi;
         crate::webhook_outbox::list_outbox,
         crate::webhook_outbox::redeliver_outbox,
         crate::webhook_outbox::discard_outbox,
+        // Queue routing
+        crate::queue_routing::create_rule,
+        crate::queue_routing::list_rules,
+        crate::queue_routing::get_rule,
+        crate::queue_routing::delete_rule,
         // Workers
         crate::workers::poll_tasks,
         crate::workers::poll_tasks_from_queue,
@@ -167,6 +172,8 @@ use utoipa::OpenApi;
         orch8_types::cron::OverlapPolicy,
         orch8_types::webhook_outbox::WebhookOutboxEntry,
         crate::webhook_outbox::RedeliverResponse,
+        orch8_types::queue_routing::QueueRoutingRule,
+        crate::queue_routing::CreateRoutingRuleRequest,
         // Worker
         orch8_types::worker::WorkerTask,
         orch8_types::worker::WorkerTaskState,

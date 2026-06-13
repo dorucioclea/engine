@@ -46,6 +46,7 @@ mod rate_limits;
 mod schema;
 mod sequences;
 mod sessions;
+mod queue_routing;
 mod signals;
 mod triggers;
 mod webhook_outbox;
@@ -1079,6 +1080,32 @@ impl crate::WorkerStore for SqliteStorage {
 
     async fn delete_webhook_outbox(&self, id: Uuid) -> Result<(), StorageError> {
         webhook_outbox::delete(self, id).await
+    }
+
+    async fn create_queue_routing_rule(
+        &self,
+        rule: &orch8_types::queue_routing::QueueRoutingRule,
+    ) -> Result<(), StorageError> {
+        queue_routing::create(self, rule).await
+    }
+
+    async fn list_queue_routing_rules(
+        &self,
+        tenant_id: Option<&TenantId>,
+        handler_name: Option<&str>,
+    ) -> Result<Vec<orch8_types::queue_routing::QueueRoutingRule>, StorageError> {
+        queue_routing::list(self, tenant_id, handler_name).await
+    }
+
+    async fn get_queue_routing_rule(
+        &self,
+        id: Uuid,
+    ) -> Result<Option<orch8_types::queue_routing::QueueRoutingRule>, StorageError> {
+        queue_routing::get(self, id).await
+    }
+
+    async fn delete_queue_routing_rule(&self, id: Uuid) -> Result<(), StorageError> {
+        queue_routing::delete(self, id).await
     }
 }
 
