@@ -1176,6 +1176,24 @@ impl crate::WorkerStore for EncryptingStorage {
     async fn delete_queue_routing_rule(&self, id: Uuid) -> Result<(), StorageError> {
         self.inner.delete_queue_routing_rule(id).await
     }
+
+    async fn enqueue_worker_command(
+        &self,
+        command: &orch8_types::worker::WorkerCommand,
+    ) -> Result<(), StorageError> {
+        self.inner.enqueue_worker_command(command).await
+    }
+
+    async fn list_worker_commands(
+        &self,
+        worker_id: &str,
+    ) -> Result<Vec<orch8_types::worker::WorkerCommand>, StorageError> {
+        self.inner.list_worker_commands(worker_id).await
+    }
+
+    async fn delete_worker_command(&self, id: Uuid) -> Result<(), StorageError> {
+        self.inner.delete_worker_command(id).await
+    }
 }
 
 // ============================================================================

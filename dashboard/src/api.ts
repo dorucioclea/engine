@@ -146,6 +146,29 @@ export function listHandlers(signal?: AbortSignal): Promise<HandlerCatalog> {
   return request("/handlers", undefined, signal);
 }
 
+export type WorkerCommandKind = "drain" | "reload" | "ping";
+
+export interface WorkerCommand {
+  id: string;
+  worker_id: string;
+  command: WorkerCommandKind;
+  payload: unknown;
+  created_at: string;
+}
+
+export function enqueueWorkerCommand(
+  worker_id: string,
+  command: WorkerCommandKind,
+  payload?: unknown,
+  signal?: AbortSignal,
+): Promise<WorkerCommand> {
+  return mutate("/workers/commands", "POST", { worker_id, command, payload: payload ?? {} }, undefined, signal);
+}
+
+export function listWorkerCommands(worker_id: string, signal?: AbortSignal): Promise<WorkerCommand[]> {
+  return request(`/workers/${encodeURIComponent(worker_id)}/commands`, undefined, signal);
+}
+
 export function checkHealth(signal?: AbortSignal): Promise<void> {
   return request("/health/live", undefined, signal);
 }

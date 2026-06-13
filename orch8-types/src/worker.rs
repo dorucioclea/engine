@@ -156,3 +156,51 @@ pub struct WorkerRegistration {
     pub tenant_id: Option<String>,
     pub last_seen_at: DateTime<Utc>,
 }
+
+/// A control command queued for a specific worker, delivered via the worker
+/// control channel (`GET /workers/{id}/commands`). The worker acts on pending
+/// commands and acks them (`DELETE /workers/commands/{id}`).
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct WorkerCommand {
+    pub id: uuid::Uuid,
+    /// The worker this command targets.
+    pub worker_id: String,
+    /// `drain` (stop claiming new tasks, finish in-flight), `reload`
+    /// (re-read config / re-register handlers), or `ping` (liveness probe).
+    pub command: WorkerCommandKind,
+    /// Optional command parameters (e.g. a drain deadline).
+    #[serde(default)]
+    pub payload: serde_json::Value,
+    pub created_at: DateTime<Utc>,
+}
+
+/// The kind of a [`WorkerCommand`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkerCommandKind {
+    Drain,
+    Reload,
+    Ping,
+}
+
+impl std::fmt::Display for WorkerCommandKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Drain => f.write_str("drain"),
+            Self::Reload => f.write_str("reload"),
+            Self::Ping => f.write_str("ping"),
+        }
+    }
+}
+
+impl std::str::FromStr for WorkerCommandKind {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "drain" => Ok(Self::Drain),
+            "reload" => Ok(Self::Reload),
+            "ping" => Ok(Self::Ping),
+            other => Err(format!("unknown worker command: {other}")),
+        }
+    }
+}

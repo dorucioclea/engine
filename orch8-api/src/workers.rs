@@ -29,6 +29,80 @@ pub fn routes() -> Router<AppState> {
         .route("/workers/tasks/{id}/complete", post(complete_task))
         .route("/workers/tasks/{id}/fail", post(fail_task))
         .route("/workers/tasks/{id}/heartbeat", post(heartbeat_task))
+        .route("/workers/commands", post(enqueue_command))
+        .route("/workers/commands/{id}", axum::routing::delete(ack_command))
+        .route("/workers/{worker_id}/commands", get(list_commands))
+}
+
+#[derive(Deserialize, ToSchema)]
+pub(crate) struct EnqueueCommandRequest {
+    worker_id: String,
+    /// `drain`, `reload`, or `ping`.
+    command: orch8_types::worker::WorkerCommandKind,
+    #[serde(default)]
+    payload: serde_json::Value,
+}
+
+/// Queue a control command for a worker. The worker picks it up via
+/// `GET /workers/{worker_id}/commands` and acks it after acting.
+#[utoipa::path(post, path = "/workers/commands", tag = "workers",
+    request_body = EnqueueCommandRequest,
+    responses((status = 201, description = "Command queued", body = orch8_types::worker::WorkerCommand))
+)]
+pub(crate) async fn enqueue_command(
+    State(state): State<AppState>,
+    Json(req): Json<EnqueueCommandRequest>,
+) -> Result<impl IntoResponse, ApiError> {
+    if req.worker_id.trim().is_empty() {
+        return Err(ApiError::InvalidArgument("worker_id is required".into()));
+    }
+    let cmd = orch8_types::worker::WorkerCommand {
+        id: Uuid::now_v7(),
+        worker_id: req.worker_id,
+        command: req.command,
+        payload: req.payload,
+        created_at: chrono::Utc::now(),
+    };
+    state
+        .storage
+        .enqueue_worker_command(&cmd)
+        .await
+        .map_err(|e| ApiError::from_storage(e, "worker_command"))?;
+    Ok((StatusCode::CREATED, Json(cmd)))
+}
+
+/// List a worker's pending control commands (the worker control channel).
+#[utoipa::path(get, path = "/workers/{worker_id}/commands", tag = "workers",
+    params(("worker_id" = String, Path, description = "Worker id")),
+    responses((status = 200, description = "Pending commands", body = Vec<orch8_types::worker::WorkerCommand>))
+)]
+pub(crate) async fn list_commands(
+    State(state): State<AppState>,
+    Path(worker_id): Path<String>,
+) -> Result<impl IntoResponse, ApiError> {
+    let commands = state
+        .storage
+        .list_worker_commands(&worker_id)
+        .await
+        .map_err(|e| ApiError::from_storage(e, "worker_command"))?;
+    Ok(Json(commands))
+}
+
+/// Acknowledge (delete) a delivered command.
+#[utoipa::path(delete, path = "/workers/commands/{id}", tag = "workers",
+    params(("id" = Uuid, Path, description = "Command id")),
+    responses((status = 204, description = "Acknowledged"))
+)]
+pub(crate) async fn ack_command(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> Result<impl IntoResponse, ApiError> {
+    state
+        .storage
+        .delete_worker_command(id)
+        .await
+        .map_err(|e| ApiError::from_storage(e, "worker_command"))?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 #[derive(Deserialize, ToSchema)]

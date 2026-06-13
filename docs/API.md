@@ -1282,6 +1282,20 @@ DELETE /webhooks/outbox/{id}             # discard a parked delivery
 
 ---
 
+## Worker Control Channel
+
+Queue control commands for a specific worker. The worker polls its channel and acts on pending commands.
+
+```
+POST   /workers/commands              # { worker_id, command: "drain"|"reload"|"ping", payload? }
+GET    /workers/{worker_id}/commands  # the worker's pending commands, oldest first
+DELETE /workers/commands/{id}         # ack a delivered command
+```
+
+`drain` asks the worker to stop claiming new tasks and finish in-flight ones; `reload` to re-read config / re-register handlers; `ping` is a liveness probe. Commands are delivered via this dedicated channel rather than piggybacking the task-poll response, so the task-poll contract is unchanged.
+
+---
+
 ## Queue Routing Rules
 
 Override the queue an external-worker task lands on, per `(tenant, handler)`, evaluated at enqueue time — move a handler's traffic to a dedicated queue without redeploying the sequence.

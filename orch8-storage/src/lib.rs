@@ -1167,6 +1167,23 @@ pub trait WorkerStore: Send + Sync + 'static {
 
     /// Delete a routing rule.
     async fn delete_queue_routing_rule(&self, id: Uuid) -> Result<(), StorageError>;
+
+    // === Worker Control Channel ===
+
+    /// Queue a control command for a worker.
+    async fn enqueue_worker_command(
+        &self,
+        command: &orch8_types::worker::WorkerCommand,
+    ) -> Result<(), StorageError>;
+
+    /// List pending commands for a worker, oldest first.
+    async fn list_worker_commands(
+        &self,
+        worker_id: &str,
+    ) -> Result<Vec<orch8_types::worker::WorkerCommand>, StorageError>;
+
+    /// Acknowledge (delete) a delivered command.
+    async fn delete_worker_command(&self, id: Uuid) -> Result<(), StorageError>;
 }
 
 // ============================================================================

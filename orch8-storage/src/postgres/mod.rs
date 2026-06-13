@@ -26,6 +26,7 @@ mod signals;
 mod queue_routing;
 mod triggers;
 mod webhook_outbox;
+mod worker_commands;
 mod workers;
 
 use async_trait::async_trait;
@@ -966,6 +967,24 @@ impl crate::WorkerStore for PostgresStorage {
 
     async fn delete_queue_routing_rule(&self, id: Uuid) -> Result<(), StorageError> {
         queue_routing::delete(self, id).await
+    }
+
+    async fn enqueue_worker_command(
+        &self,
+        command: &orch8_types::worker::WorkerCommand,
+    ) -> Result<(), StorageError> {
+        worker_commands::enqueue(self, command).await
+    }
+
+    async fn list_worker_commands(
+        &self,
+        worker_id: &str,
+    ) -> Result<Vec<orch8_types::worker::WorkerCommand>, StorageError> {
+        worker_commands::list(self, worker_id).await
+    }
+
+    async fn delete_worker_command(&self, id: Uuid) -> Result<(), StorageError> {
+        worker_commands::delete(self, id).await
     }
 }
 

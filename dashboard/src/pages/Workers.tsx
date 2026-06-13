@@ -4,9 +4,12 @@ import { usePageTitle } from "../hooks/usePageTitle";
 import {
   listWorkers,
   listHandlers,
+  enqueueWorkerCommand,
   type WorkerInfo,
   type HandlerCatalog,
+  type WorkerCommandKind,
 } from "../api";
+import { Button } from "../components/ui/Button";
 import { PageHeader } from "../components/ui/PageHeader";
 import { PageMeta } from "../components/ui/PageMeta";
 import { Section } from "../components/ui/Section";
@@ -77,6 +80,23 @@ export default function Workers() {
   );
   const { data: catalog } = usePolling<HandlerCatalog>(handlersFetcher, 30000);
 
+  const [toast, setToast] = useState<string | null>(null);
+  const [busyWorker, setBusyWorker] = useState<string | null>(null);
+
+  const sendCommand = async (workerId: string, command: WorkerCommandKind) => {
+    setBusyWorker(workerId);
+    try {
+      await enqueueWorkerCommand(workerId, command);
+      setToast(`Queued ${command} for ${workerId.slice(0, 12)}…`);
+      setTimeout(() => setToast(null), 2500);
+    } catch (e) {
+      setToast(`Failed: ${e instanceof Error ? e.message : String(e)}`);
+      setTimeout(() => setToast(null), 3500);
+    } finally {
+      setBusyWorker(null);
+    }
+  };
+
   return (
     <div className="space-y-12">
       <PageHeader
@@ -88,9 +108,10 @@ export default function Workers() {
 
       <Glossary items={PAGE_GLOSSARY} />
 
+      {toast && <div className="notice notice-ok">{toast}</div>}
       {error && <div className="notice notice-warn">{error.message}</div>}
 
-      {loading && !workers && <SkeletonTable rows={5} cols={7} />}
+      {loading && !workers && <SkeletonTable rows={5} cols={8} />}
 
       {workers && (
         <Section
@@ -123,10 +144,11 @@ export default function Workers() {
               <TH>Version</TH>
               <TH>In flight</TH>
               <TH>Last seen</TH>
+              <TH className="text-right">Control</TH>
             </THead>
             <tbody>
               {workers.length === 0 && (
-                <Empty colSpan={7}>
+                <Empty colSpan={8}>
                   No workers registered yet. Workers appear here automatically
                   on their first poll of /workers/tasks/poll.
                 </Empty>
@@ -177,6 +199,22 @@ export default function Workers() {
                   <TD>{w.in_flight}</TD>
                   <TD>
                     <Relative at={w.last_seen_at} />
+                  </TD>
+                  <TD className="text-right">
+                    <div className="inline-flex gap-1">
+                      {(["drain", "reload", "ping"] as WorkerCommandKind[]).map((c) => (
+                        <Button
+                          key={c}
+                          variant="ghost"
+                          size="sm"
+                          disabled={busyWorker === w.worker_id}
+                          onClick={() => sendCommand(w.worker_id, c)}
+                          title={`Queue a ${c} command for this worker (picked up on its next command poll)`}
+                        >
+                          {c}
+                        </Button>
+                      ))}
+                    </div>
                   </TD>
                 </TR>
               ))}
