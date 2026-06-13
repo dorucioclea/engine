@@ -33,6 +33,7 @@ use utoipa::OpenApi;
         crate::instances::list_instances,
         crate::instances::create_instances_batch,
         crate::instances::get_instance,
+        crate::instances::get_instance_children,
         crate::instances::update_state,
         crate::instances::update_context,
         crate::instances::send_signal,

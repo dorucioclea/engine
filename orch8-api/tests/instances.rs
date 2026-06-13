@@ -1,6 +1,7 @@
 //! E2E tests for the Instances API.
 
 use orch8_api::test_harness::spawn_test_server;
+use orch8_storage::InstanceStore;
 use reqwest::StatusCode;
 use serde_json::json;
 use uuid::Uuid;
@@ -590,4 +591,87 @@ async fn batch_action_signal_requires_signal_type() {
         .await
         .unwrap();
     assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn get_children_returns_child_instances() {
+    use orch8_types::context::{ExecutionContext, RuntimeContext};
+    use orch8_types::ids::{InstanceId, Namespace, SequenceId, TenantId};
+    use orch8_types::instance::{InstanceState, Priority, TaskInstance};
+
+    let srv = spawn_test_server().await;
+    let client = reqwest::Client::new();
+    let seq_id = create_sequence(&client, &srv.base_url).await;
+
+    // Parent instance via the API.
+    let body = json!({
+        "sequence_id": seq_id, "tenant_id": "t1", "namespace": "ns1",
+        "context": { "data": {}, "config": {}, "audit": [] }
+    });
+    let resp = client
+        .post(format!("{}/instances", srv.base_url))
+        .header("X-Tenant-Id", "t1")
+        .json(&body)
+        .send()
+        .await
+        .unwrap();
+    let parent_id: String = resp.json::<serde_json::Value>().await.unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let parent_uuid = uuid::Uuid::parse_str(&parent_id).unwrap();
+
+    // Seed two children directly in storage (the engine sets parent_instance_id
+    // for sub-sequences; here we link them explicitly).
+    let mk_child = || TaskInstance {
+        id: InstanceId::new(),
+        sequence_id: SequenceId::from_uuid(seq_id),
+        tenant_id: TenantId::unchecked("t1"),
+        namespace: Namespace::new("ns1"),
+        state: InstanceState::Scheduled,
+        next_fire_at: None,
+        priority: Priority::Normal,
+        timezone: "UTC".into(),
+        metadata: json!({}),
+        context: ExecutionContext {
+            data: json!({}),
+            config: json!({}),
+            audit: vec![],
+            runtime: RuntimeContext::default(),
+        },
+        concurrency_key: None,
+        max_concurrency: None,
+        idempotency_key: None,
+        session_id: None,
+        parent_instance_id: Some(InstanceId::from_uuid(parent_uuid)),
+        budget: None,
+        created_at: chrono::Utc::now(),
+        updated_at: chrono::Utc::now(),
+    };
+    srv.storage.create_instance(&mk_child()).await.unwrap();
+    srv.storage.create_instance(&mk_child()).await.unwrap();
+
+    let resp = client
+        .get(format!("{}/instances/{parent_id}/children", srv.base_url))
+        .header("X-Tenant-Id", "t1")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let children: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(children.as_array().unwrap().len(), 2);
+    assert_eq!(children[0]["parent_instance_id"], parent_id);
+}
+
+#[tokio::test]
+async fn get_children_unknown_parent_returns_404() {
+    let srv = spawn_test_server().await;
+    let client = reqwest::Client::new();
+    let resp = client
+        .get(format!("{}/instances/{}/children", srv.base_url, uuid::Uuid::now_v7()))
+        .header("X-Tenant-Id", "t1")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
 }

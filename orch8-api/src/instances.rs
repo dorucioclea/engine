@@ -43,9 +43,10 @@ pub use inject::InjectBlocksRequest;
 pub(crate) use inject::{__path_inject_blocks, inject_blocks};
 pub(crate) use lifecycle::{
     __path_create_instance, __path_create_instances_batch, __path_get_instance,
-    __path_list_instances, __path_resume_from_block, __path_retry_instance, __path_update_context,
-    __path_update_state, create_instance, create_instances_batch, get_instance, list_instances,
-    resume_from_block, retry_instance, update_context, update_state,
+    __path_get_instance_children, __path_list_instances, __path_resume_from_block,
+    __path_retry_instance, __path_update_context, __path_update_state, create_instance,
+    create_instances_batch, get_instance, get_instance_children, list_instances, resume_from_block,
+    retry_instance, update_context, update_state,
 };
 pub(crate) use outputs::{
     __path_get_execution_tree, __path_get_outputs, get_execution_tree, get_outputs,
@@ -66,6 +67,7 @@ pub fn routes() -> Router<AppState> {
         .route("/instances", post(create_instance).get(list_instances))
         .route("/instances/batch", post(create_instances_batch))
         .route("/instances/{id}", get(get_instance))
+        .route("/instances/{id}/children", get(get_instance_children))
         .route("/instances/{id}/state", patch(update_state))
         .route("/instances/{id}/context", patch(update_context))
         .route("/instances/{id}/signals", post(send_signal))

@@ -264,6 +264,10 @@ export function getInstance(id: string, signal?: AbortSignal): Promise<TaskInsta
   return request(`/instances/${encodeURIComponent(id)}`, undefined, signal);
 }
 
+export function getInstanceChildren(id: string, signal?: AbortSignal): Promise<TaskInstance[]> {
+  return request(`/instances/${encodeURIComponent(id)}/children`, undefined, signal);
+}
+
 export function getExecutionTree(id: string, signal?: AbortSignal): Promise<ExecutionNode[]> {
   return request(`/instances/${encodeURIComponent(id)}/tree`, undefined, signal);
 }

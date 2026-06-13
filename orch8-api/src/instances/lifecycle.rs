@@ -331,6 +331,44 @@ pub async fn get_instance(
     Ok(Json(instance))
 }
 
+#[utoipa::path(get, path = "/instances/{id}/children", tag = "instances",
+    params(("id" = Uuid, Path, description = "Parent instance ID")),
+    responses(
+        (status = 200, description = "Child instances spawned by this instance", body = Vec<TaskInstance>),
+        (status = 404, description = "Parent instance not found"),
+    )
+)]
+pub async fn get_instance_children(
+    State(state): State<AppState>,
+    tenant_ctx: Option<axum::Extension<crate::auth::TenantContext>>,
+    Path(id): Path<Uuid>,
+) -> Result<impl IntoResponse, ApiError> {
+    let parent_id = InstanceId::from_uuid(id);
+
+    // Resolve the parent first so a missing parent is a 404 and tenant
+    // isolation is enforced against the parent's owner.
+    let parent = state
+        .storage
+        .get_instance(parent_id)
+        .await
+        .map_err(|e| ApiError::from_storage(e, "instance"))?
+        .ok_or_else(|| ApiError::NotFound(format!("instance {id}")))?;
+
+    if let Some(axum::Extension(ctx)) = &tenant_ctx {
+        if parent.tenant_id != ctx.tenant_id {
+            return Err(ApiError::NotFound(format!("instance {id}")));
+        }
+    }
+
+    let children = state
+        .storage
+        .get_child_instances(parent_id)
+        .await
+        .map_err(|e| ApiError::from_storage(e, "instances"))?;
+
+    Ok(Json(children))
+}
+
 #[utoipa::path(get, path = "/instances", tag = "instances",
     params(
         ("tenant_id" = Option<String>, Query, description = "Filter by tenant"),

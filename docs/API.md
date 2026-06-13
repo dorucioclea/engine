@@ -297,6 +297,18 @@ GET /instances?metadata.env=prod&metadata.team=core
 
 ---
 
+### List Child Instances
+
+```
+GET /instances/{id}/children
+```
+
+Returns the instances spawned by `{id}` as sub-sequences (those whose `parent_instance_id` equals `{id}`). `parent_instance_id` is already present on every `TaskInstance` response, so a child can link back to its parent and a parent can enumerate its children. `404` if the parent does not exist (or is owned by another tenant).
+
+**Response:** `200 OK` — array of `TaskInstance` objects.
+
+---
+
 ### Batch Action
 
 ```

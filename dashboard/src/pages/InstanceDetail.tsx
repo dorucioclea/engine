@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams, useNavigate } from "react-router-dom";
 import { usePageTitle } from "../hooks/usePageTitle";
 import {
   getInstance,
+  getInstanceChildren,
   getExecutionTree,
   getInstanceOutputs,
   listWorkerTasks,
@@ -23,6 +24,7 @@ import { Section } from "../components/ui/Section";
 import { Glossary, type GlossaryItem } from "../components/ui/Glossary";
 import { Badge, INSTANCE_TONE, NODE_TONE } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
+import { Relative } from "../components/ui/Relative";
 import { Input } from "../components/ui/Input";
 import { StatusDot } from "../components/ui/StatusDot";
 import { SkeletonLine } from "../components/ui/Skeleton";
@@ -319,10 +321,12 @@ function LoadingSkeleton() {
 export default function InstanceDetail() {
   usePageTitle("Execution");
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const [instance, setInstance] = useState<TaskInstance | null>(null);
   const [tree, setTree] = useState<ExecutionNode[]>([]);
   const [outputs, setOutputs] = useState<BlockOutput[]>([]);
   const [tasks, setTasks] = useState<WorkerTask[]>([]);
+  const [children, setChildren] = useState<TaskInstance[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [notFound, setNotFound] = useState(false);
   const [initialized, setInitialized] = useState(false);
@@ -340,7 +344,7 @@ export default function InstanceDetail() {
     if (!id) return;
     try {
       const inst = await getInstance(id);
-      const [t, o, failed] = await Promise.all([
+      const [t, o, failed, kids] = await Promise.all([
         getExecutionTree(id),
         getInstanceOutputs(id).catch(() => [] as BlockOutput[]),
         // The tasks endpoint doesn't support filtering by instance_id, so we
@@ -348,11 +352,13 @@ export default function InstanceDetail() {
         listWorkerTasks({ state: "failed", tenant_id: inst.tenant_id, limit: "200" }).catch(
           () => [] as WorkerTask[],
         ),
+        getInstanceChildren(id).catch(() => [] as TaskInstance[]),
       ]);
       setInstance(inst);
       setTree(t);
       setOutputs(o);
       setTasks(failed.filter((t2) => t2.instance_id === id));
+      setChildren(kids);
       setError(null);
       setNotFound(false);
     } catch (e) {
@@ -478,12 +484,23 @@ export default function InstanceDetail() {
     <div className="space-y-12">
       <PageHeader
         eyebrow={
-          <Link
-            to="/instances"
-            className="hover:text-ink transition-colors"
-          >
-            ← Executions
-          </Link>
+          <span className="flex items-center gap-2">
+            <Link to="/instances" className="hover:text-ink transition-colors">
+              ← Executions
+            </Link>
+            {instance?.parent_instance_id && (
+              <>
+                <span className="text-faint">/</span>
+                <Link
+                  to={`/instances/${instance.parent_instance_id}`}
+                  className="font-mono text-signal hover:text-ink transition-colors"
+                  title="This is a child execution — open its parent"
+                >
+                  ↑ parent {instance.parent_instance_id.slice(0, 8)}…
+                </Link>
+              </>
+            )}
+          </span>
         }
         title={
           <span className="font-mono text-[28px] tracking-tight">
@@ -556,6 +573,45 @@ export default function InstanceDetail() {
                   );
                 })}
               </ul>
+            </Section>
+          )}
+
+          {children.length > 0 && (
+            <Section
+              eyebrow="Sub-executions"
+              title={`Child executions (${children.length})`}
+              description="Instances this execution spawned as sub-sequences. Click a row to open it."
+            >
+              <table className="w-full text-[13px]">
+                <thead>
+                  <tr className="text-faint text-[11px] uppercase tracking-wider text-left">
+                    <th className="py-1.5 font-medium">State</th>
+                    <th className="py-1.5 font-medium">ID</th>
+                    <th className="py-1.5 font-medium">Namespace</th>
+                    <th className="py-1.5 font-medium">Updated</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {children.map((c) => (
+                    <tr
+                      key={c.id}
+                      onClick={() => navigate(`/instances/${c.id}`)}
+                      className="cursor-pointer border-t border-hairline hover:bg-surface"
+                    >
+                      <td className="py-2">
+                        <Badge tone={INSTANCE_TONE[c.state] ?? "dim"} dot>
+                          {c.state}
+                        </Badge>
+                      </td>
+                      <td className="py-2 font-mono text-[12px]">{c.id.slice(0, 8)}…</td>
+                      <td className="py-2 font-mono text-[12px] text-muted">{c.namespace}</td>
+                      <td className="py-2">
+                        <Relative at={c.updated_at} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </Section>
           )}
 
