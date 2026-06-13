@@ -50,6 +50,12 @@ pub(crate) async fn create_sequence(
     seq.validate()
         .map_err(|e| ApiError::InvalidArgument(e.to_string()))?;
 
+    // Reject a malformed `input_schema` at authoring time, not on the first
+    // instance create.
+    if let Some(schema) = &seq.input_schema {
+        crate::input_schema::validate_schema_is_well_formed(schema)?;
+    }
+
     let mut warnings = seq.unknown_handler_warnings();
 
     let template_warnings = orch8_engine::template::validate_sequence_templates(&seq);

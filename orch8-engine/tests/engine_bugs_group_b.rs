@@ -128,6 +128,7 @@ async fn setup_single_step(
         status: SequenceStatus::default(),
         blocks: vec![BlockDefinition::Step(Box::new(step.clone()))],
         interceptors: None,
+        input_schema: None,
         created_at: Utc::now(),
     };
     storage.create_sequence(&seq).await.unwrap();
@@ -343,6 +344,7 @@ async fn b28_apply_self_modify_append_preserves_prior_blocks() {
         status: SequenceStatus::default(),
         blocks: vec![],
         interceptors: None,
+        input_schema: None,
         created_at: Utc::now(),
     };
     storage_dyn.create_sequence(&seq).await.unwrap();
@@ -422,6 +424,7 @@ async fn b28_apply_self_modify_position_still_preserves_prior() {
         status: SequenceStatus::default(),
         blocks: vec![],
         interceptors: None,
+        input_schema: None,
         created_at: Utc::now(),
     };
     storage_dyn.create_sequence(&seq).await.unwrap();

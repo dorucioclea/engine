@@ -124,6 +124,12 @@ pub(super) fn row_to_sequence(
         interceptors: row
             .get::<Option<String>, _>("interceptors")
             .and_then(|s| serde_json::from_str(&s).ok()),
+        // try_get: tolerate rows from pre-input_schema databases (column absent).
+        input_schema: row
+            .try_get::<Option<String>, _>("input_schema")
+            .ok()
+            .flatten()
+            .and_then(|s| serde_json::from_str(&s).ok()),
         created_at: parse_ts(row.get::<&str, _>("created_at"))?,
     })
 }

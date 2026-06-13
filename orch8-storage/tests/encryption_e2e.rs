@@ -41,6 +41,7 @@ fn make_sequence() -> SequenceDefinition {
             cache_key: None,
         }))],
         interceptors: None,
+        input_schema: None,
         created_at: chrono::Utc::now(),
     }
 }

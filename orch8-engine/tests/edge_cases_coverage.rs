@@ -518,6 +518,7 @@ async fn sub_sequence_inside_for_each_iteration() {
         status: SequenceStatus::Production,
         blocks: vec![mk_step("child_step", "noop")],
         interceptors: None,
+        input_schema: None,
         created_at: Utc::now(),
     };
     storage.create_sequence(&child_seq).await.unwrap();
@@ -544,6 +545,7 @@ async fn sub_sequence_inside_for_each_iteration() {
             max_iterations: 100,
         }))],
         interceptors: None,
+        input_schema: None,
         created_at: Utc::now(),
     };
     storage.create_sequence(&parent_seq).await.unwrap();
@@ -1163,6 +1165,7 @@ async fn sub_sequence_output_propagates_to_parent() {
         status: SequenceStatus::Production,
         blocks: vec![mk_step("child_s1", "noop")],
         interceptors: None,
+        input_schema: None,
         created_at: Utc::now(),
     };
     storage.create_sequence(&child_seq).await.unwrap();
@@ -1182,6 +1185,7 @@ async fn sub_sequence_output_propagates_to_parent() {
             input: json!({"key": "value"}),
         }))],
         interceptors: None,
+        input_schema: None,
         created_at: Utc::now(),
     };
     storage.create_sequence(&parent_seq).await.unwrap();
@@ -2137,6 +2141,7 @@ async fn waiting_instance_not_terminal() {
         status: SequenceStatus::Production,
         blocks: vec![mk_step("child_s", "noop")],
         interceptors: None,
+        input_schema: None,
         created_at: Utc::now(),
     };
     storage.create_sequence(&child_seq).await.unwrap();
@@ -2156,6 +2161,7 @@ async fn waiting_instance_not_terminal() {
             input: json!({}),
         }))],
         interceptors: None,
+        input_schema: None,
         created_at: Utc::now(),
     };
     storage.create_sequence(&parent_seq).await.unwrap();

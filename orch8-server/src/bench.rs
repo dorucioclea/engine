@@ -64,6 +64,7 @@ fn make_sequence(tenant: &str, num_steps: usize) -> SequenceDefinition {
         status: SequenceStatus::default(),
         blocks,
         interceptors: None,
+        input_schema: None,
         created_at: Utc::now(),
     }
 }

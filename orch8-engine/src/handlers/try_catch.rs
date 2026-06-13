@@ -182,6 +182,7 @@ mod tests {
                 cache_key: None,
             }))],
             interceptors: None,
+            input_schema: None,
             created_at: now,
         };
         s.create_sequence(&seq).await.unwrap();

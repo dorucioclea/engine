@@ -635,6 +635,7 @@ mod tests {
                 status: SequenceStatus::default(),
                 blocks: vec![],
                 interceptors: None,
+                input_schema: None,
                 created_at: chrono::Utc::now(),
             })
             .await

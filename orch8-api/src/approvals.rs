@@ -405,6 +405,7 @@ mod tests {
             status: SequenceStatus::default(),
             blocks: vec![BlockDefinition::Step(Box::new(step))],
             interceptors: None,
+            input_schema: None,
             created_at: Utc::now(),
         }
     }

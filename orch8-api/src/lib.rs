@@ -7,6 +7,7 @@ pub mod credentials;
 pub mod cron;
 pub mod error;
 pub mod health;
+pub mod input_schema;
 pub mod instances;
 pub mod mcp_server;
 pub mod metrics;

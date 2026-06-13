@@ -448,3 +448,95 @@ async fn promote_sequence_works() {
     let created: serde_json::Value = resp.json().await.unwrap();
     assert_eq!(created["version"], 2);
 }
+
+#[tokio::test]
+async fn input_schema_rejects_bad_instance_data_with_422() {
+    let srv = spawn_test_server().await;
+    let client = reqwest::Client::new();
+
+    let seq_id = Uuid::now_v7();
+    let body = json!({
+        "id": seq_id,
+        "tenant_id": "t1",
+        "namespace": "ns1",
+        "name": "schema-seq",
+        "version": 1,
+        "deprecated": false,
+        "blocks": [{ "type": "step", "id": "s1", "handler": "noop", "params": {}, "cancellable": true }],
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "email": { "type": "string" },
+                "age": { "type": "integer", "minimum": 0 }
+            },
+            "required": ["email"]
+        },
+        "created_at": chrono::Utc::now().to_rfc3339()
+    });
+    let resp = client
+        .post(format!("{}/sequences", srv.base_url))
+        .header("X-Tenant-Id", "t1")
+        .json(&body)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::CREATED);
+
+    // Missing required `email` -> 422.
+    let bad = json!({
+        "sequence_id": seq_id,
+        "tenant_id": "t1",
+        "namespace": "ns1",
+        "context": { "data": { "age": 30 }, "config": {}, "audit": [] }
+    });
+    let resp = client
+        .post(format!("{}/instances", srv.base_url))
+        .header("X-Tenant-Id", "t1")
+        .json(&bad)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::UNPROCESSABLE_ENTITY);
+
+    // Valid payload -> 201.
+    let good = json!({
+        "sequence_id": seq_id,
+        "tenant_id": "t1",
+        "namespace": "ns1",
+        "context": { "data": { "email": "a@b.com", "age": 30 }, "config": {}, "audit": [] }
+    });
+    let resp = client
+        .post(format!("{}/instances", srv.base_url))
+        .header("X-Tenant-Id", "t1")
+        .json(&good)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::CREATED);
+}
+
+#[tokio::test]
+async fn create_sequence_with_malformed_input_schema_returns_400() {
+    let srv = spawn_test_server().await;
+    let client = reqwest::Client::new();
+
+    let body = json!({
+        "id": Uuid::now_v7(),
+        "tenant_id": "t1",
+        "namespace": "ns1",
+        "name": "bad-schema-seq",
+        "version": 1,
+        "deprecated": false,
+        "blocks": [{ "type": "step", "id": "s1", "handler": "noop", "params": {}, "cancellable": true }],
+        "input_schema": { "type": "not-a-real-type" },
+        "created_at": chrono::Utc::now().to_rfc3339()
+    });
+    let resp = client
+        .post(format!("{}/sequences", srv.base_url))
+        .header("X-Tenant-Id", "t1")
+        .json(&body)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+}

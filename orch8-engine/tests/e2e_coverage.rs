@@ -243,6 +243,7 @@ async fn sub_sequence_spawns_child_and_enters_waiting() {
         status: SequenceStatus::default(),
         blocks: vec![mk_step("child_s1", "noop")],
         interceptors: None,
+        input_schema: None,
         created_at: Utc::now(),
     };
     storage.create_sequence(&child_seq).await.unwrap();
@@ -263,6 +264,7 @@ async fn sub_sequence_spawns_child_and_enters_waiting() {
             input: json!({}),
         }))],
         interceptors: None,
+        input_schema: None,
         created_at: Utc::now(),
     };
     storage.create_sequence(&parent_seq).await.unwrap();
@@ -1268,6 +1270,7 @@ fn mk_sequence_with_interceptors(
         deprecated: false,
         blocks,
         interceptors: Some(interceptors),
+        input_schema: None,
         created_at: Utc::now(),
         status: orch8_types::sequence::SequenceStatus::Production,
     }

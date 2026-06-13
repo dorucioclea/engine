@@ -34,6 +34,9 @@ pub enum ApiError {
 
     #[error("payload too large: {0}")]
     PayloadTooLarge(String),
+
+    #[error("unprocessable entity: {0}")]
+    UnprocessableEntity(String),
 }
 
 impl ApiError {
@@ -67,6 +70,7 @@ impl IntoResponse for ApiError {
             Self::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
             Self::Unavailable(_) => StatusCode::SERVICE_UNAVAILABLE,
             Self::PayloadTooLarge(_) => StatusCode::PAYLOAD_TOO_LARGE,
+            Self::UnprocessableEntity(_) => StatusCode::UNPROCESSABLE_ENTITY,
         };
         let body = match &self {
             Self::Internal(msg) => {

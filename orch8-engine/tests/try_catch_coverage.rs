@@ -61,6 +61,7 @@ async fn setup(
         status: SequenceStatus::default(),
         blocks: vec![block.clone()],
         interceptors: None,
+        input_schema: None,
         created_at: Utc::now(),
     };
     storage.create_sequence(&seq).await.unwrap();

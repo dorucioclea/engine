@@ -2868,6 +2868,7 @@ version = "0.5.0"
 dependencies = [
  "axum 0.8.9",
  "chrono",
+ "jsonschema",
  "metrics-exporter-prometheus",
  "moka",
  "orch8-engine",

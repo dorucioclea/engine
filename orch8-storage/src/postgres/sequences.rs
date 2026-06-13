@@ -12,6 +12,7 @@ pub(super) async fn create(
     let definition = serde_json::json!({
         "blocks": seq.blocks,
         "interceptors": seq.interceptors,
+        "input_schema": seq.input_schema,
     });
     sqlx::query(
         r"

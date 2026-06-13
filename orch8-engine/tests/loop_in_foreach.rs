@@ -78,6 +78,7 @@ fn build_sequence() -> SequenceDefinition {
         status: SequenceStatus::default(),
         blocks: vec![outer],
         interceptors: None,
+        input_schema: None,
         created_at: Utc::now(),
     }
 }

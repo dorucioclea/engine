@@ -72,6 +72,12 @@ pub struct SequenceDefinition {
     /// Lifecycle interceptors (before/after step, on-signal, on-complete, on-failure).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub interceptors: Option<crate::interceptor::InterceptorDef>,
+    /// Optional JSON Schema validated against `context.data` at instance
+    /// create. When present, a create whose data fails validation is
+    /// rejected (HTTP 422) before the instance is persisted. Doubles as the
+    /// contract the dashboard renders an input form from.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input_schema: Option<serde_json::Value>,
     pub created_at: DateTime<Utc>,
 }
 
@@ -1084,6 +1090,7 @@ mod tests {
             status: SequenceStatus::default(),
             blocks: vec![block],
             interceptors: None,
+            input_schema: None,
             created_at: Utc::now(),
         }
     }
@@ -1308,6 +1315,7 @@ mod tests {
             status: SequenceStatus::default(),
             blocks,
             interceptors: None,
+            input_schema: None,
             created_at: chrono::Utc::now(),
         }
     }

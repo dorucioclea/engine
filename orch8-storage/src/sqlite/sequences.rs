@@ -14,8 +14,13 @@ pub(super) async fn create(
         .as_ref()
         .map(serde_json::to_string)
         .transpose()?;
+    let input_schema = seq
+        .input_schema
+        .as_ref()
+        .map(serde_json::to_string)
+        .transpose()?;
     sqlx::query(
-        "INSERT INTO sequences (id, tenant_id, namespace, name, version, deprecated, status, blocks, interceptors, created_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)"
+        "INSERT INTO sequences (id, tenant_id, namespace, name, version, deprecated, status, blocks, interceptors, input_schema, created_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)"
     )
     .bind(seq.id.into_uuid().to_string())
     .bind(seq.tenant_id.as_str())
@@ -26,6 +31,7 @@ pub(super) async fn create(
     .bind(seq.status.to_string())
     .bind(&blocks)
     .bind(&interceptors)
+    .bind(&input_schema)
     .bind(ts(seq.created_at))
     .execute(&storage.pool).await?;
     Ok(())

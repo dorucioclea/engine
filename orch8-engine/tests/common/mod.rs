@@ -386,6 +386,7 @@ pub fn mk_sequence(blocks: Vec<BlockDefinition>) -> SequenceDefinition {
         deprecated: false,
         blocks,
         interceptors: None,
+        input_schema: None,
         created_at: Utc::now(),
         status: SequenceStatus::Production,
     }

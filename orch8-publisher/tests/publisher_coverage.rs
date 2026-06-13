@@ -123,6 +123,7 @@ fn make_sequence_definition(name: &str, version: i32) -> SequenceDefinition {
             cache_key: None,
         }))],
         interceptors: None,
+        input_schema: None,
         created_at: chrono::DateTime::parse_from_rfc3339("2025-06-01T00:00:00Z")
             .unwrap()
             .with_timezone(&Utc),
@@ -1200,6 +1201,7 @@ async fn test_100_publisher_required_handlers_extracted_from_sequence() {
             })),
         ],
         interceptors: None,
+        input_schema: None,
         created_at: Utc::now(),
     };
 

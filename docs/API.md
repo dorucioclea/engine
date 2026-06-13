@@ -85,9 +85,25 @@ POST /sequences
       ]
     }
   ],
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "email": { "type": "string" },
+      "age": { "type": "integer", "minimum": 0 }
+    },
+    "required": ["email"]
+  },
   "created_at": "2024-01-15T10:00:00Z"
 }
 ```
+
+**`input_schema`** (optional): a [JSON Schema](https://json-schema.org/) object describing the shape of `context.data` for instances of this sequence. When present:
+
+- The schema itself is checked for well-formedness at sequence-create time — a broken schema is rejected with `400 Bad Request`.
+- Every instance create (single and batch) validates its `context.data` against the schema. A payload that fails validation is rejected with `422 Unprocessable Entity` (the body lists each violation with its JSON-pointer path) **before** the instance is persisted.
+- The schema doubles as the contract the dashboard renders a Run form from.
+
+Omit `input_schema` (or set it to `null`) to accept any `context.data` unchecked.
 
 **Response:** `201 Created`
 

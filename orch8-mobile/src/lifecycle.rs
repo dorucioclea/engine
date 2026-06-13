@@ -424,6 +424,7 @@ mod tests {
                 },
             ))],
             interceptors: None,
+            input_schema: None,
             created_at: chrono::Utc::now(),
         };
         storage.create_sequence(&seq).await.unwrap();

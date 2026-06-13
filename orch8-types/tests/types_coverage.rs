@@ -53,6 +53,7 @@ fn make_seq(blocks: Vec<BlockDefinition>) -> SequenceDefinition {
         status: SequenceStatus::default(),
         blocks,
         interceptors: None,
+        input_schema: None,
         created_at: Utc::now(),
     }
 }

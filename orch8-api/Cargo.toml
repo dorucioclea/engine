@@ -20,6 +20,7 @@ metrics-exporter-prometheus.workspace = true
 uuid.workspace = true
 chrono.workspace = true
 utoipa.workspace = true
+jsonschema.workspace = true
 moka.workspace = true
 tokio-stream.workspace = true
 tokio-util.workspace = true

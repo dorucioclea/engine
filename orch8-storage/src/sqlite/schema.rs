@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS sequences (
     status TEXT NOT NULL DEFAULT 'production',
     blocks TEXT NOT NULL,
     interceptors TEXT,
+    input_schema TEXT,
     created_at TEXT NOT NULL
 );
 
@@ -494,4 +495,4 @@ CREATE INDEX IF NOT EXISTS idx_api_keys_tenant ON api_keys(tenant_id);
 /// Current bundled schema version. Bump when the `SCHEMA` string above is
 /// edited in a non-idempotent way (e.g. adding a new column whose default
 /// matters for code that reads the column).
-pub(super) const SCHEMA_VERSION: i64 = 9;
+pub(super) const SCHEMA_VERSION: i64 = 10;

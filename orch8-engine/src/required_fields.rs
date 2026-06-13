@@ -181,6 +181,7 @@ mod tests {
             status: SequenceStatus::default(),
             blocks,
             interceptors: None,
+            input_schema: None,
             created_at: Utc::now(),
         }
     }

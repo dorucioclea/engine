@@ -74,12 +74,16 @@ pub async fn create_instance(
     // Resolve the target sequence up-front and surface "not found" as 404 —
     // otherwise the insert would bottom out on a Postgres FK violation and
     // bubble up as a generic 500.
-    let _sequence = state
+    let sequence = state
         .storage
         .get_sequence(req.sequence_id)
         .await
         .map_err(|e| ApiError::from_storage(e, "sequence"))?
         .ok_or_else(|| ApiError::NotFound(format!("sequence {}", req.sequence_id.into_uuid())))?;
+
+    // Validate input against the sequence's optional `input_schema` (422 on
+    // failure) before anything is persisted.
+    crate::input_schema::validate_input(sequence.input_schema.as_ref(), &req.context.data)?;
 
     // Reject oversized contexts before they hit the DB.
     req.context.check_size(state.max_context_bytes)?;
@@ -206,14 +210,29 @@ pub async fn create_instances_batch(
         sequence_ids.insert(r.sequence_id);
     }
 
-    // Validate all referenced sequences exist.
+    // Validate all referenced sequences exist, keeping each one's optional
+    // `input_schema` for per-item input validation below.
+    let mut input_schemas: std::collections::HashMap<_, Option<serde_json::Value>> =
+        std::collections::HashMap::new();
     for seq_id in &sequence_ids {
-        state
+        let seq = state
             .storage
             .get_sequence(*seq_id)
             .await
             .map_err(|e| ApiError::from_storage(e, "sequence"))?
             .ok_or_else(|| ApiError::NotFound(format!("sequence {}", seq_id.into_uuid())))?;
+        input_schemas.insert(*seq_id, seq.input_schema);
+    }
+
+    // Validate each item's data against its sequence's input_schema (422).
+    for (i, r) in req.instances.iter().enumerate() {
+        let schema = input_schemas.get(&r.sequence_id).and_then(Option::as_ref);
+        crate::input_schema::validate_input(schema, &r.context.data).map_err(|e| match e {
+            ApiError::UnprocessableEntity(msg) => {
+                ApiError::UnprocessableEntity(format!("instances[{i}]: {msg}"))
+            }
+            other => other,
+        })?;
     }
 
     let now = Utc::now();
