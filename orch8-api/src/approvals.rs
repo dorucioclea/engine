@@ -406,6 +406,7 @@ mod tests {
             blocks: vec![BlockDefinition::Step(Box::new(step))],
             interceptors: None,
             input_schema: None,
+            sla: None,
             created_at: Utc::now(),
         }
     }

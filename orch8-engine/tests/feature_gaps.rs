@@ -89,6 +89,7 @@ async fn seed_instance(storage: &SqliteStorage, instance_id: InstanceId) {
         blocks: vec![BlockDefinition::Step(Box::new(mk_step("s", "h")))],
         interceptors: None,
         input_schema: None,
+        sla: None,
         created_at: Utc::now(),
     };
     storage.create_sequence(&seq).await.unwrap();
@@ -120,6 +121,7 @@ async fn setup_single_step(
         blocks: vec![BlockDefinition::Step(Box::new(step.clone()))],
         interceptors: None,
         input_schema: None,
+        sla: None,
         created_at: Utc::now(),
     };
     storage.create_sequence(&seq).await.unwrap();
@@ -333,6 +335,7 @@ async fn save_output_complete_node_and_transition_is_atomic() {
         blocks: vec![BlockDefinition::Step(Box::new(mk_step("s1", "noop")))],
         interceptors: None,
         input_schema: None,
+        sla: None,
         created_at: Utc::now(),
     };
     storage.create_sequence(&seq).await.unwrap();
@@ -412,6 +415,7 @@ async fn save_output_complete_node_and_transition_rejects_terminal_instance() {
         blocks: vec![BlockDefinition::Step(Box::new(mk_step("s1", "noop")))],
         interceptors: None,
         input_schema: None,
+        sla: None,
         created_at: Utc::now(),
     };
     storage.create_sequence(&seq).await.unwrap();

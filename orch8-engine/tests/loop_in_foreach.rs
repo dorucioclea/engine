@@ -79,6 +79,7 @@ fn build_sequence() -> SequenceDefinition {
         blocks: vec![outer],
         interceptors: None,
         input_schema: None,
+        sla: None,
         created_at: Utc::now(),
     }
 }

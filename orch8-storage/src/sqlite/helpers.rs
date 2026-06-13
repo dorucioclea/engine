@@ -130,6 +130,12 @@ pub(super) fn row_to_sequence(
             .ok()
             .flatten()
             .and_then(|s| serde_json::from_str(&s).ok()),
+        // try_get: tolerate rows from pre-sla databases (column absent).
+        sla: row
+            .try_get::<Option<String>, _>("sla")
+            .ok()
+            .flatten()
+            .and_then(|s| serde_json::from_str(&s).ok()),
         created_at: parse_ts(row.get::<&str, _>("created_at"))?,
     })
 }

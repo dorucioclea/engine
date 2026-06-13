@@ -13,6 +13,7 @@ pub(super) async fn create(
         "blocks": seq.blocks,
         "interceptors": seq.interceptors,
         "input_schema": seq.input_schema,
+        "sla": seq.sla,
     });
     sqlx::query(
         r"

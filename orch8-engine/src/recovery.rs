@@ -101,6 +101,7 @@ mod tests {
             }))],
             interceptors: None,
             input_schema: None,
+            sla: None,
             created_at: Utc::now(),
         };
         storage.create_sequence(&seq).await.unwrap();
@@ -176,6 +177,7 @@ mod tests {
             }))],
             interceptors: None,
             input_schema: None,
+            sla: None,
             created_at: Utc::now(),
         };
         storage.create_sequence(&seq).await.unwrap();

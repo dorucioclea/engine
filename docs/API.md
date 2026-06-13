@@ -105,6 +105,8 @@ POST /sequences
 
 Omit `input_schema` (or set it to `null`) to accept any `context.data` unchecked.
 
+**`sla`** (optional): an alert-only SLA policy `{ "max_runtime": <ms>, "max_step_runtime": <ms> }` (both fields optional, milliseconds). When an active instance's wall-clock lifetime exceeds `max_runtime`, or its current step's runtime exceeds `max_step_runtime`, the scheduler emits an `instance.sla_breached` webhook and increments the `orch8_sla_breached_total{type=...}` metric — **once per breach** (de-duplicated). The instance is **not** paused or failed; this is an alert, not a state change. (For a hard per-step deadline that fails the step, use `deadline` on a step instead.)
+
 **Response:** `201 Created`
 
 ```json

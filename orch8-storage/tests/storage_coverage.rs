@@ -67,6 +67,7 @@ fn make_sequence(tenant: &str) -> SequenceDefinition {
         }))],
         interceptors: None,
         input_schema: None,
+        sla: None,
         created_at: Utc::now(),
     }
 }

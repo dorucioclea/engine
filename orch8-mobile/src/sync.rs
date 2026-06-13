@@ -935,6 +935,7 @@ mod tests {
             blocks: vec![],
             interceptors: None,
             input_schema: None,
+            sla: None,
             created_at,
         }
     }

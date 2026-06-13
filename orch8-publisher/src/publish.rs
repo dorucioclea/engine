@@ -196,6 +196,7 @@ mod tests {
             ))],
             interceptors: None,
             input_schema: None,
+            sla: None,
             created_at: chrono::Utc::now(),
         };
 
@@ -223,6 +224,7 @@ mod tests {
             blocks: vec![],
             interceptors: None,
             input_schema: None,
+            sla: None,
             created_at: chrono::Utc::now(),
         };
 
@@ -303,6 +305,7 @@ mod tests {
             ],
             interceptors: None,
             input_schema: None,
+            sla: None,
             created_at: chrono::Utc::now(),
         };
 
@@ -341,6 +344,7 @@ mod tests {
             ))],
             interceptors: None,
             input_schema: None,
+            sla: None,
             created_at: chrono::DateTime::parse_from_rfc3339("2025-01-01T00:00:00Z")
                 .unwrap()
                 .with_timezone(&chrono::Utc),

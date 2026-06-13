@@ -66,6 +66,7 @@ fn mk_sequence(blocks: Vec<BlockDefinition>) -> SequenceDefinition {
         blocks,
         interceptors: None,
         input_schema: None,
+        sla: None,
         created_at: Utc::now(),
         status: orch8_types::sequence::SequenceStatus::Production,
     }

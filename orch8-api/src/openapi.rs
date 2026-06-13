@@ -131,6 +131,7 @@ use utoipa::OpenApi;
         orch8_types::execution::ExecutionNode,
         // Sequence
         orch8_types::sequence::SequenceDefinition,
+        orch8_types::sequence::SlaPolicy,
         orch8_types::sequence::BlockDefinition,
         orch8_types::sequence::StepDef,
         orch8_types::sequence::SubSequenceDef,

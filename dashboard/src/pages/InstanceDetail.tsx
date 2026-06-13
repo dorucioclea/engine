@@ -393,6 +393,13 @@ export default function InstanceDetail() {
     return m;
   }, [outputs]);
 
+  // SLA breach sentinels are recorded as block outputs with reserved
+  // `_sla:*` ids by the alert-only scheduler sweep. Surface them as a badge.
+  const slaBreaches = useMemo(
+    () => outputs.filter((o) => o.block_id.startsWith("_sla:")),
+    [outputs],
+  );
+
   const tasksByBlock = useMemo(() => {
     const m = new Map<string, WorkerTask[]>();
     for (const t of tasks) {
@@ -490,13 +497,20 @@ export default function InstanceDetail() {
         }
         actions={
           instance && (
-            <Badge
-              tone={INSTANCE_TONE[instance.state] ?? "dim"}
-              dot
-              live={instance.state === "running"}
-            >
-              {instance.state}
-            </Badge>
+            <div className="flex items-center gap-2">
+              {slaBreaches.length > 0 && (
+                <span title="This execution breached an SLA bound (alert-only)">
+                  <Badge tone="warn">SLA breached</Badge>
+                </span>
+              )}
+              <Badge
+                tone={INSTANCE_TONE[instance.state] ?? "dim"}
+                dot
+                live={instance.state === "running"}
+              >
+                {instance.state}
+              </Badge>
+            </div>
           )
         }
       />
@@ -519,6 +533,29 @@ export default function InstanceDetail() {
               <div className="text-muted text-[13px] py-6 text-center font-mono">
                 No execution with id <span className="text-ink">{id}</span>
               </div>
+            </Section>
+          )}
+
+          {slaBreaches.length > 0 && (
+            <Section
+              eyebrow="SLA"
+              title="SLA breach (alert-only)"
+              description="This execution exceeded an SLA bound declared on its sequence. The engine emitted an instance.sla_breached webhook and incremented orch8_sla_breached_total — the execution was not paused or failed."
+            >
+              <ul className="space-y-1.5">
+                {slaBreaches.map((o) => {
+                  const d = (o.output ?? {}) as Record<string, unknown>;
+                  const kind = String(d._sla_breach ?? o.block_id);
+                  return (
+                    <li key={o.block_id} className="flex items-baseline gap-3 text-[12px] font-mono">
+                      <Badge tone="warn">{kind}</Badge>
+                      <span className="text-faint">
+                        alerted {d._alerted_at ? new Date(String(d._alerted_at)).toLocaleString() : "—"}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
             </Section>
           )}
 

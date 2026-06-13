@@ -2613,6 +2613,7 @@ async fn sub_sequence_calls_child_sequence() {
         blocks: vec![mk_step("child_s1", "noop")],
         interceptors: None,
         input_schema: None,
+        sla: None,
         created_at: Utc::now(),
     };
     storage.create_sequence(&child_seq).await.unwrap();
@@ -2648,6 +2649,7 @@ async fn sub_sequence_inherits_parent_context() {
         blocks: vec![mk_step("ch_s1", "noop")],
         interceptors: None,
         input_schema: None,
+        sla: None,
         created_at: Utc::now(),
     };
     storage.create_sequence(&child_seq).await.unwrap();
@@ -2683,6 +2685,7 @@ async fn sub_sequence_failure_propagates_to_parent() {
         blocks: vec![mk_step("ch_fail", "fail")],
         interceptors: None,
         input_schema: None,
+        sla: None,
         created_at: Utc::now(),
     };
     storage.create_sequence(&child_seq).await.unwrap();
@@ -2719,6 +2722,7 @@ async fn sub_sequence_output_available_to_parent() {
         blocks: vec![mk_step("ch_out", "noop")],
         interceptors: None,
         input_schema: None,
+        sla: None,
         created_at: Utc::now(),
     };
     storage.create_sequence(&child_seq).await.unwrap();
@@ -2754,6 +2758,7 @@ async fn sub_sequence_with_custom_input() {
         blocks: vec![mk_step("ch_in", "noop")],
         interceptors: None,
         input_schema: None,
+        sla: None,
         created_at: Utc::now(),
     };
     storage.create_sequence(&child_seq).await.unwrap();
@@ -2790,6 +2795,7 @@ async fn sub_sequence_nested_two_levels() {
         blocks: vec![mk_step("gc_s1", "noop")],
         interceptors: None,
         input_schema: None,
+        sla: None,
         created_at: Utc::now(),
     };
     storage.create_sequence(&grandchild_seq).await.unwrap();
@@ -2810,6 +2816,7 @@ async fn sub_sequence_nested_two_levels() {
         }))],
         interceptors: None,
         input_schema: None,
+        sla: None,
         created_at: Utc::now(),
     };
     storage.create_sequence(&child_seq).await.unwrap();
@@ -2846,6 +2853,7 @@ async fn sub_sequence_in_parallel_branch() {
         blocks: vec![mk_step("ch_par_s1", "noop")],
         interceptors: None,
         input_schema: None,
+        sla: None,
         created_at: Utc::now(),
     };
     storage.create_sequence(&child_seq).await.unwrap();
@@ -2888,6 +2896,7 @@ async fn sub_sequence_with_retry() {
         blocks: vec![mk_step_with_retry("ch_retry", "noop", 3)],
         interceptors: None,
         input_schema: None,
+        sla: None,
         created_at: Utc::now(),
     };
     storage.create_sequence(&child_seq).await.unwrap();
@@ -2923,6 +2932,7 @@ async fn sub_sequence_timeout() {
         blocks: vec![mk_step_with_timeout("ch_timeout", "noop", 5000)],
         interceptors: None,
         input_schema: None,
+        sla: None,
         created_at: Utc::now(),
     };
     storage.create_sequence(&child_seq).await.unwrap();
@@ -2958,6 +2968,7 @@ async fn sub_sequence_cancel_propagates() {
         blocks: vec![mk_step("ch_cancel", "noop")],
         interceptors: None,
         input_schema: None,
+        sla: None,
         created_at: Utc::now(),
     };
     storage.create_sequence(&child_seq).await.unwrap();
@@ -3607,6 +3618,7 @@ async fn sequence_with_interceptors_on_start() {
             ..orch8_types::interceptor::InterceptorDef::default()
         }),
         input_schema: None,
+        sla: None,
         created_at: Utc::now(),
     };
     let storage: Arc<dyn StorageBackend> = Arc::new(SqliteStorage::in_memory().await.unwrap());
@@ -3639,6 +3651,7 @@ async fn sequence_with_interceptors_on_complete() {
             ..orch8_types::interceptor::InterceptorDef::default()
         }),
         input_schema: None,
+        sla: None,
         created_at: Utc::now(),
     };
     let storage: Arc<dyn StorageBackend> = Arc::new(SqliteStorage::in_memory().await.unwrap());
@@ -3671,6 +3684,7 @@ async fn sequence_with_interceptors_on_error() {
             ..orch8_types::interceptor::InterceptorDef::default()
         }),
         input_schema: None,
+        sla: None,
         created_at: Utc::now(),
     };
     let storage: Arc<dyn StorageBackend> = Arc::new(SqliteStorage::in_memory().await.unwrap());

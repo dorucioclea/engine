@@ -746,6 +746,7 @@ async fn merged_blocks_no_injection_borrows() {
         blocks: vec![mk_step("a"), mk_step("b")],
         interceptors: None,
         input_schema: None,
+        sla: None,
         created_at: Utc::now(),
     };
     let merged = merged_blocks(&s, inst_id, &seq).await.unwrap();
@@ -771,6 +772,7 @@ async fn merged_blocks_with_injection_owns() {
         blocks: vec![mk_step("a")],
         interceptors: None,
         input_schema: None,
+        sla: None,
         created_at: Utc::now(),
     };
     let injected = vec![mk_step("inj")];
@@ -800,6 +802,7 @@ async fn merged_blocks_empty_injection_still_borrows() {
         blocks: vec![mk_step("a")],
         interceptors: None,
         input_schema: None,
+        sla: None,
         created_at: Utc::now(),
     };
     s.inject_blocks(inst_id, &serde_json::json!([]))

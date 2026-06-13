@@ -54,6 +54,7 @@ async fn setup(blocks: Vec<BlockDefinition>) -> (SqliteStorage, TaskInstance, Ve
         blocks: blocks.clone(),
         interceptors: None,
         input_schema: None,
+        sla: None,
         created_at: Utc::now(),
     };
     storage.create_sequence(&seq).await.unwrap();

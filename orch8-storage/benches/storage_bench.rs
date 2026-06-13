@@ -47,6 +47,7 @@ fn make_sequence() -> SequenceDefinition {
         }))],
         interceptors: None,
         input_schema: None,
+        sla: None,
         created_at: Utc::now(),
     }
 }

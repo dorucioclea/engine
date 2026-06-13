@@ -636,6 +636,7 @@ mod tests {
                 blocks: vec![],
                 interceptors: None,
                 input_schema: None,
+                sla: None,
                 created_at: chrono::Utc::now(),
             })
             .await

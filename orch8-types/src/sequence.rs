@@ -78,7 +78,38 @@ pub struct SequenceDefinition {
     /// contract the dashboard renders an input form from.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub input_schema: Option<serde_json::Value>,
+    /// Alert-only SLA policy. When set, an instance exceeding `max_runtime`
+    /// (or a step exceeding `max_step_runtime`) emits an `instance.sla_breached`
+    /// webhook and increments `orch8_sla_breached_total` — the instance is NOT
+    /// failed or paused.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sla: Option<SlaPolicy>,
     pub created_at: DateTime<Utc>,
+}
+
+/// Alert-only service-level-agreement policy for a sequence. A breach is a
+/// signal, not a state change: it fires one webhook + metric per breach kind
+/// and leaves the instance running. Both bounds are optional.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, ToSchema)]
+pub struct SlaPolicy {
+    /// Maximum wall-clock lifetime of an instance, measured from `created_at`.
+    /// One `max_runtime` alert per instance.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "crate::serde_duration_opt"
+    )]
+    #[schema(value_type = Option<u64>)]
+    pub max_runtime: Option<Duration>,
+    /// Maximum wall-clock time the current step may stay running/waiting,
+    /// measured from when it started. One alert per breaching step.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "crate::serde_duration_opt"
+    )]
+    #[schema(value_type = Option<u64>)]
+    pub max_step_runtime: Option<Duration>,
 }
 
 /// A block is either a leaf (step) or a composite (parallel, race, etc.).
@@ -1091,6 +1122,7 @@ mod tests {
             blocks: vec![block],
             interceptors: None,
             input_schema: None,
+            sla: None,
             created_at: Utc::now(),
         }
     }
@@ -1316,6 +1348,7 @@ mod tests {
             blocks,
             interceptors: None,
             input_schema: None,
+            sla: None,
             created_at: chrono::Utc::now(),
         }
     }

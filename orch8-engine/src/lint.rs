@@ -837,6 +837,7 @@ mod tests {
             blocks,
             interceptors: None,
             input_schema: None,
+            sla: None,
             created_at: chrono::Utc::now(),
         }
     }

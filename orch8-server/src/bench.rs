@@ -65,6 +65,7 @@ fn make_sequence(tenant: &str, num_steps: usize) -> SequenceDefinition {
         blocks,
         interceptors: None,
         input_schema: None,
+        sla: None,
         created_at: Utc::now(),
     }
 }

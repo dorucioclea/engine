@@ -81,6 +81,7 @@ fn mk_seq(name: &str) -> SequenceDefinition {
         }))],
         interceptors: None,
         input_schema: None,
+        sla: None,
         created_at: Utc::now(),
     }
 }
@@ -1714,6 +1715,7 @@ async fn handler_91_emit_event_creates_child() {
         blocks: vec![],
         interceptors: None,
         input_schema: None,
+        sla: None,
         created_at: Utc::now(),
     };
     storage.create_sequence(&seq).await.unwrap();
@@ -1788,6 +1790,7 @@ async fn handler_94_emit_event_cross_tenant() {
         blocks: vec![],
         interceptors: None,
         input_schema: None,
+        sla: None,
         created_at: Utc::now(),
     };
     storage.create_sequence(&seq).await.unwrap();
@@ -1831,6 +1834,7 @@ async fn handler_95_emit_event_disabled_trigger() {
         blocks: vec![],
         interceptors: None,
         input_schema: None,
+        sla: None,
         created_at: Utc::now(),
     };
     storage.create_sequence(&seq).await.unwrap();

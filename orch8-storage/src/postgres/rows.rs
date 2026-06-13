@@ -32,8 +32,8 @@ impl SequenceRow {
     pub fn into_definition(self) -> Result<SequenceDefinition, StorageError> {
         // Support both old format (array of blocks) and new format
         // ({blocks, interceptors, input_schema}).
-        let (blocks, interceptors, input_schema) = if self.definition.is_array() {
-            (serde_json::from_value(self.definition)?, None, None)
+        let (blocks, interceptors, input_schema, sla) = if self.definition.is_array() {
+            (serde_json::from_value(self.definition)?, None, None, None)
         } else {
             let blocks = serde_json::from_value(
                 self.definition
@@ -53,7 +53,14 @@ impl SequenceRow {
                 .get("input_schema")
                 .filter(|v| !v.is_null())
                 .cloned();
-            (blocks, interceptors, input_schema)
+            let sla = self.definition.get("sla").and_then(|v| {
+                if v.is_null() {
+                    None
+                } else {
+                    serde_json::from_value(v.clone()).ok()
+                }
+            });
+            (blocks, interceptors, input_schema, sla)
         };
         Ok(SequenceDefinition {
             id: SequenceId::from_uuid(self.id),
@@ -66,6 +73,7 @@ impl SequenceRow {
             blocks,
             interceptors,
             input_schema,
+            sla,
             created_at: self.created_at,
         })
     }

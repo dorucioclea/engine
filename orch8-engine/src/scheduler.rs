@@ -127,6 +127,16 @@ pub async fn tick_once(
     )
     .await?;
 
+    process_sla_breaches(
+        storage,
+        sequence_cache,
+        &webhook_config,
+        cancel,
+        config.batch_size,
+        &config.clock,
+    )
+    .await?;
+
     let scheduled_filter = InstanceFilter {
         states: Some(vec![InstanceState::Scheduled]),
         ..InstanceFilter::default()
@@ -260,6 +270,19 @@ pub async fn run_tick_loop(
                     &config.clock,
                 ).await {
                     error!(error = %e, "waiting deadline processing failed");
+                }
+                // Alert-only SLA sweep over active instances (max_runtime /
+                // max_step_runtime). Emits webhook + metric on breach; never
+                // changes instance state.
+                if let Err(e) = process_sla_breaches(
+                    &storage,
+                    &sequence_cache,
+                    &webhook_config,
+                    &cancel,
+                    batch_size,
+                    &config.clock,
+                ).await {
+                    error!(error = %e, "sla breach sweep failed");
                 }
             }
         }
@@ -802,6 +825,169 @@ async fn process_waiting_deadlines(
         }
         let _ = handled;
     }
+    Ok(())
+}
+
+/// Alert-only SLA sweep. For every non-terminal instance whose sequence
+/// declares an `sla` policy, emit an `instance.sla_breached` webhook and
+/// increment `orch8_sla_breached_total` when the instance's wall-clock lifetime
+/// exceeds `max_runtime`, or the current step's runtime exceeds
+/// `max_step_runtime`. Each breach alerts exactly once — a sentinel block
+/// output per breach kind de-duplicates across ticks. The instance is never
+/// failed or paused (alert-only). Skips the per-instance work entirely when no
+/// active instances exist.
+#[allow(clippy::too_many_lines)]
+async fn process_sla_breaches(
+    storage: &Arc<dyn StorageBackend>,
+    sequence_cache: &SequenceCache,
+    webhook_config: &WebhookConfig,
+    cancel: &CancellationToken,
+    batch_size: u32,
+    clock: &SharedClock,
+) -> Result<(), EngineError> {
+    use orch8_types::filter::{InstanceFilter, Pagination};
+
+    let filter = InstanceFilter {
+        states: Some(vec![
+            InstanceState::Scheduled,
+            InstanceState::Running,
+            InstanceState::Waiting,
+            InstanceState::Paused,
+        ]),
+        ..Default::default()
+    };
+    let pagination = Pagination {
+        offset: 0,
+        limit: batch_size,
+        sort_ascending: true,
+    };
+    let active = storage.list_instances(&filter, &pagination).await?;
+    if active.is_empty() {
+        return Ok(());
+    }
+
+    let now = clock.now();
+
+    // A pending SLA alert: which instance, what kind, the sentinel block id used
+    // for once-only de-dup, and the timing facts for the payload.
+    struct Candidate {
+        idx: usize,
+        kind: &'static str,
+        block_id: BlockId,
+        elapsed_ms: i64,
+        limit_ms: u64,
+        step_id: Option<String>,
+    }
+    let mut candidates: Vec<Candidate> = Vec::new();
+
+    for (idx, instance) in active.iter().enumerate() {
+        let Ok(seq) = sequence_cache
+            .get_by_id(storage.as_ref(), instance.sequence_id)
+            .await
+        else {
+            continue;
+        };
+        let Some(sla) = seq.sla.as_ref() else {
+            continue;
+        };
+
+        if let Some(max_runtime) = sla.max_runtime {
+            let elapsed = now - instance.created_at;
+            let limit =
+                chrono::Duration::from_std(max_runtime).unwrap_or(chrono::TimeDelta::MAX);
+            if elapsed > limit {
+                candidates.push(Candidate {
+                    idx,
+                    kind: "max_runtime",
+                    block_id: BlockId::new("_sla:runtime"),
+                    elapsed_ms: elapsed.num_milliseconds(),
+                    limit_ms: u64::try_from(max_runtime.as_millis()).unwrap_or(u64::MAX),
+                    step_id: None,
+                });
+            }
+        }
+
+        if let Some(max_step) = sla.max_step_runtime {
+            if let (Some(step), Some(started)) = (
+                instance.context.runtime.current_step.as_ref(),
+                instance.context.runtime.current_step_started_at,
+            ) {
+                let elapsed = now - started;
+                let limit =
+                    chrono::Duration::from_std(max_step).unwrap_or(chrono::TimeDelta::MAX);
+                if elapsed > limit {
+                    candidates.push(Candidate {
+                        idx,
+                        kind: "max_step_runtime",
+                        block_id: BlockId::new(format!("_sla:step:{}", step.as_str())),
+                        elapsed_ms: elapsed.num_milliseconds(),
+                        limit_ms: u64::try_from(max_step.as_millis()).unwrap_or(u64::MAX),
+                        step_id: Some(step.as_str().to_string()),
+                    });
+                }
+            }
+        }
+    }
+
+    if candidates.is_empty() {
+        return Ok(());
+    }
+
+    // One batch query for all sentinel keys: a present sentinel means this
+    // breach already alerted and must not alert again.
+    let keys: Vec<(InstanceId, &BlockId)> = candidates
+        .iter()
+        .map(|c| (active[c.idx].id, &c.block_id))
+        .collect();
+    let existing = storage.get_block_outputs_batch(&keys).await?;
+
+    for c in &candidates {
+        let instance = &active[c.idx];
+        if existing.contains_key(&(instance.id, c.block_id.clone())) {
+            continue;
+        }
+        // Persist the sentinel BEFORE emitting so a crash mid-emit cannot
+        // double-alert on the next tick (we prefer at-most-once for alerts).
+        let sentinel = orch8_types::output::BlockOutput {
+            id: uuid::Uuid::now_v7(),
+            instance_id: instance.id,
+            block_id: c.block_id.clone(),
+            output: serde_json::json!({
+                "_sla_breach": c.kind,
+                "_alerted_at": now.to_rfc3339(),
+            }),
+            output_ref: None,
+            output_size: 0,
+            attempt: 0,
+            created_at: Utc::now(),
+        };
+        storage.save_block_output(&sentinel).await?;
+
+        crate::metrics::inc_with(crate::metrics::SLA_BREACHED, &[("type", c.kind)]);
+
+        let event = crate::webhooks::instance_event(
+            "instance.sla_breached",
+            instance.id,
+            serde_json::json!({
+                "type": c.kind,
+                "limit_ms": c.limit_ms,
+                "elapsed_ms": c.elapsed_ms,
+                "step_id": c.step_id,
+                "sequence_id": instance.sequence_id.into_uuid(),
+                "tenant_id": instance.tenant_id.as_str(),
+            }),
+        );
+        crate::webhooks::emit(webhook_config, &event, cancel);
+
+        warn!(
+            instance_id = %instance.id,
+            sla_type = c.kind,
+            elapsed_ms = c.elapsed_ms,
+            limit_ms = c.limit_ms,
+            "SLA breach (alert-only)"
+        );
+    }
+
     Ok(())
 }
 

@@ -66,6 +66,7 @@ async fn setup(step: StepDef) -> (SqliteStorage, TaskInstance, StepDef) {
         blocks: vec![block],
         interceptors: None,
         input_schema: None,
+        sla: None,
         created_at: Utc::now(),
     };
     storage.create_sequence(&seq).await.unwrap();

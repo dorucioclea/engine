@@ -507,6 +507,7 @@ async fn evaluate_waiting_node_returns_more_work_with_waiting() {
         blocks: vec![mk_step("child_s1", "noop")],
         interceptors: None,
         input_schema: None,
+        sla: None,
         created_at: Utc::now(),
     };
     storage.create_sequence(&child_seq).await.unwrap();
@@ -527,6 +528,7 @@ async fn evaluate_waiting_node_returns_more_work_with_waiting() {
         }))],
         interceptors: None,
         input_schema: None,
+        sla: None,
         created_at: Utc::now(),
     };
     storage.create_sequence(&parent_seq).await.unwrap();
@@ -768,6 +770,7 @@ async fn ensure_tree_sub_sequence_node() {
         blocks: vec![mk_step("child_s1", "noop")],
         interceptors: None,
         input_schema: None,
+        sla: None,
         created_at: Utc::now(),
     };
     storage.create_sequence(&child_seq).await.unwrap();
@@ -788,6 +791,7 @@ async fn ensure_tree_sub_sequence_node() {
         }))],
         interceptors: None,
         input_schema: None,
+        sla: None,
         created_at: Utc::now(),
     };
     storage.create_sequence(&parent_seq).await.unwrap();
@@ -1247,6 +1251,7 @@ async fn sla_deadline_only_checks_waiting_nodes() {
         blocks: vec![mk_step("child_s1", "noop")],
         interceptors: None,
         input_schema: None,
+        sla: None,
         created_at: Utc::now(),
     };
     storage.create_sequence(&child_seq).await.unwrap();
@@ -1267,6 +1272,7 @@ async fn sla_deadline_only_checks_waiting_nodes() {
         }))],
         interceptors: None,
         input_schema: None,
+        sla: None,
         created_at: Utc::now(),
     };
     storage.create_sequence(&parent_seq).await.unwrap();
@@ -1560,6 +1566,7 @@ async fn dispatch_step_with_interceptor_before() {
             ..Default::default()
         }),
         input_schema: None,
+        sla: None,
         created_at: Utc::now(),
         status: SequenceStatus::Production,
     };
@@ -1599,6 +1606,7 @@ async fn dispatch_step_with_interceptor_after() {
             ..Default::default()
         }),
         input_schema: None,
+        sla: None,
         created_at: Utc::now(),
         status: SequenceStatus::Production,
     };
@@ -1783,6 +1791,7 @@ async fn dispatch_sub_sequence_creates_child() {
         blocks: vec![mk_step("child_s1", "noop")],
         interceptors: None,
         input_schema: None,
+        sla: None,
         created_at: Utc::now(),
     };
     storage.create_sequence(&child_seq).await.unwrap();
@@ -1803,6 +1812,7 @@ async fn dispatch_sub_sequence_creates_child() {
         }))],
         interceptors: None,
         input_schema: None,
+        sla: None,
         created_at: Utc::now(),
     };
     storage.create_sequence(&parent_seq).await.unwrap();
@@ -1831,6 +1841,7 @@ async fn dispatch_sub_sequence_waits_for_child() {
         blocks: vec![mk_step("child_s1", "noop")],
         interceptors: None,
         input_schema: None,
+        sla: None,
         created_at: Utc::now(),
     };
     storage.create_sequence(&child_seq).await.unwrap();
@@ -1851,6 +1862,7 @@ async fn dispatch_sub_sequence_waits_for_child() {
         }))],
         interceptors: None,
         input_schema: None,
+        sla: None,
         created_at: Utc::now(),
     };
     storage.create_sequence(&parent_seq).await.unwrap();
@@ -1879,6 +1891,7 @@ async fn dispatch_sub_sequence_child_completed_completes_node() {
         blocks: vec![mk_step("child_s1", "noop")],
         interceptors: None,
         input_schema: None,
+        sla: None,
         created_at: Utc::now(),
     };
     storage.create_sequence(&child_seq).await.unwrap();
@@ -1899,6 +1912,7 @@ async fn dispatch_sub_sequence_child_completed_completes_node() {
         }))],
         interceptors: None,
         input_schema: None,
+        sla: None,
         created_at: Utc::now(),
     };
     storage.create_sequence(&parent_seq).await.unwrap();
@@ -1942,6 +1956,7 @@ async fn dispatch_sub_sequence_child_failed_fails_node() {
         blocks: vec![mk_step("child_s1", "fail")],
         interceptors: None,
         input_schema: None,
+        sla: None,
         created_at: Utc::now(),
     };
     storage.create_sequence(&child_seq).await.unwrap();
@@ -1962,6 +1977,7 @@ async fn dispatch_sub_sequence_child_failed_fails_node() {
         }))],
         interceptors: None,
         input_schema: None,
+        sla: None,
         created_at: Utc::now(),
     };
     storage.create_sequence(&parent_seq).await.unwrap();
@@ -2088,6 +2104,7 @@ async fn eval_outcome_more_work_has_waiting_true() {
         blocks: vec![mk_step("child_s1", "noop")],
         interceptors: None,
         input_schema: None,
+        sla: None,
         created_at: Utc::now(),
     };
     storage.create_sequence(&child_seq).await.unwrap();
@@ -2108,6 +2125,7 @@ async fn eval_outcome_more_work_has_waiting_true() {
         }))],
         interceptors: None,
         input_schema: None,
+        sla: None,
         created_at: Utc::now(),
     };
     storage.create_sequence(&parent_seq).await.unwrap();
@@ -2212,6 +2230,7 @@ async fn instance_stays_running_on_more_work() {
         blocks: vec![mk_step("child_s1", "noop")],
         interceptors: None,
         input_schema: None,
+        sla: None,
         created_at: Utc::now(),
     };
     storage.create_sequence(&child_seq).await.unwrap();
@@ -2232,6 +2251,7 @@ async fn instance_stays_running_on_more_work() {
         }))],
         interceptors: None,
         input_schema: None,
+        sla: None,
         created_at: Utc::now(),
     };
     storage.create_sequence(&parent_seq).await.unwrap();
@@ -2262,6 +2282,7 @@ async fn instance_transitions_to_waiting_when_all_nodes_waiting() {
         blocks: vec![mk_step("child_s1", "noop")],
         interceptors: None,
         input_schema: None,
+        sla: None,
         created_at: Utc::now(),
     };
     storage.create_sequence(&child_seq).await.unwrap();
@@ -2282,6 +2303,7 @@ async fn instance_transitions_to_waiting_when_all_nodes_waiting() {
         }))],
         interceptors: None,
         input_schema: None,
+        sla: None,
         created_at: Utc::now(),
     };
     storage.create_sequence(&parent_seq).await.unwrap();

@@ -493,6 +493,7 @@ mod tests {
             blocks: vec![],
             interceptors: None,
             input_schema: None,
+            sla: None,
             created_at: chrono::Utc::now(),
         };
         storage.create_sequence(&seq).await.unwrap();
@@ -667,6 +668,7 @@ mod tests {
             blocks: vec![],
             interceptors: None,
             input_schema: None,
+            sla: None,
             created_at: now,
         };
         storage.create_sequence(&mk_seq(v1_id, 1)).await.unwrap();
@@ -744,6 +746,7 @@ mod tests {
                 blocks: vec![],
                 interceptors: None,
                 input_schema: None,
+                sla: None,
                 created_at: chrono::Utc::now(),
             })
             .await
