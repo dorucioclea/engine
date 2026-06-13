@@ -5,7 +5,7 @@
 //!   instant after the gap — never silently skipped.
 //! - Ambiguous local times (fall back) fire once, at the first occurrence.
 //!
-//! Reference transitions, America/New_York:
+//! Reference transitions, `America/New_York`:
 //! - Spring forward: 2026-03-08 02:00 EST -> 03:00 EDT (02:xx does not exist)
 //! - Fall back:      2026-11-01 02:00 EDT -> 01:00 EST (01:xx happens twice)
 
@@ -26,7 +26,7 @@ fn mk(expr: &str, tz: &str) -> CronSchedule {
         timezone: tz.into(),
         enabled: true,
         metadata: serde_json::Value::Null,
-        overlap_policy: Default::default(),
+        overlap_policy: orch8_types::cron::OverlapPolicy::default(),
         skipped_fires: 0,
         last_skipped_at: None,
         last_triggered_at: None,

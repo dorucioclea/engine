@@ -272,8 +272,10 @@ async fn apply_batch_action(
             match state.storage.enqueue_signal_if_active(&signal).await {
                 Ok(()) => Ok(true),
                 // Terminal target: the signal doesn't apply — skip, not fail.
-                Err(orch8_types::error::StorageError::TerminalTarget { .. })
-                | Err(orch8_types::error::StorageError::NotFound { .. }) => Ok(false),
+                Err(
+                    orch8_types::error::StorageError::TerminalTarget { .. }
+                    | orch8_types::error::StorageError::NotFound { .. },
+                ) => Ok(false),
                 Err(_) => Err(()),
             }
         }

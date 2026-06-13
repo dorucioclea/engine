@@ -100,6 +100,9 @@ enum Commands {
     /// Run a sequence locally on an ephemeral in-process engine with hot
     /// reload and optional virtual time (no server needed).
     Dev(DevCmd),
+    /// Replay/diff tooling.
+    #[command(subcommand)]
+    Test(commands::test_cmd::TestCmd),
     /// Run database migrations against Postgres. Use this in CI/CD pipelines
     /// or init containers instead of the server's built-in `run_migrations` flag
     /// so that rolling deployments are safe.
@@ -270,6 +273,7 @@ async fn main() -> Result<()> {
         Commands::Config(cmd) => commands::config::run(cmd)?,
         Commands::Init { dir, template } => commands::init::run(&dir, &template)?,
         Commands::Templates(cmd) => commands::templates::run(cmd)?,
+        Commands::Test(cmd) => commands::test_cmd::run(&client, base, cmd, format).await?,
         Commands::Dev(..) | Commands::Migrate { .. } | Commands::Completions { .. } => {
             unreachable!()
         }

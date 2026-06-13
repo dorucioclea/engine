@@ -131,8 +131,8 @@ async fn try_send(
                 warn!(url = %url, status, attempt, "webhook returned error status");
             }
             Err(e) => {
-                last_error = e.clone();
                 warn!(url = %url, error = %e, attempt, "webhook request failed");
+                last_error = e;
             }
         }
 

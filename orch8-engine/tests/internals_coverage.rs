@@ -98,7 +98,7 @@ fn mk_cron_schedule(expr: &str, tz: &str) -> CronSchedule {
         timezone: tz.into(),
         enabled: true,
         metadata: json!({}),
-        overlap_policy: Default::default(),
+        overlap_policy: orch8_types::cron::OverlapPolicy::default(),
         skipped_fires: 0,
         last_skipped_at: None,
         last_triggered_at: None,

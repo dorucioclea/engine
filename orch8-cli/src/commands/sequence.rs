@@ -33,9 +33,10 @@ pub enum SequenceCmd {
     },
     /// Deprecate a sequence version.
     Deprecate { id: Uuid },
-    /// GitOps apply: diff local sequence JSON against the server and, on change,
-    /// POST it with the version bumped. Accepts a file or a directory of `.json`
-    /// files. Idempotent — an unchanged sequence is left alone.
+    /// Git-ops apply: diff a local sequence definition against the server and,
+    /// on change, upload it with the version bumped. Accepts a file or a
+    /// directory of `.json` files. Idempotent — an unchanged sequence is left
+    /// alone.
     Apply {
         /// Path to a sequence JSON file or a directory of them.
         path: PathBuf,

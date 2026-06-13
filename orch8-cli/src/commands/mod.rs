@@ -8,3 +8,4 @@ pub mod instance;
 pub mod sequence;
 pub mod signal;
 pub mod templates;
+pub mod test_cmd;

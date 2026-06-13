@@ -52,7 +52,7 @@ async fn push_queue_posts_signed_envelope() {
         // arrive within a couple of reads over loopback).
         for _ in 0..8 {
             match sock.read(&mut buf).await {
-                Ok(0) => break,
+                Ok(0) | Err(_) => break,
                 Ok(n) => {
                     acc.extend_from_slice(&buf[..n]);
                     if let Some(pos) = find_subslice(&acc, b"\r\n\r\n") {
@@ -61,7 +61,6 @@ async fn push_queue_posts_signed_envelope() {
                         }
                     }
                 }
-                Err(_) => break,
             }
         }
         let _ = sock

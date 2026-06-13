@@ -914,7 +914,7 @@ async fn run_cleanup_hooks(
         match handler(ctx).await {
             Ok(output) => {
                 let output_size = u32::try_from(
-                    serde_json::to_vec(&output).map(|v| v.len()).unwrap_or(0),
+                    serde_json::to_vec(&output).map_or(0, |v| v.len()),
                 )
                 .unwrap_or(u32::MAX);
                 let bo = orch8_types::output::BlockOutput {
@@ -966,6 +966,17 @@ async fn process_sla_breaches(
     batch_size: u32,
     clock: &SharedClock,
 ) -> Result<(), EngineError> {
+    // A pending SLA alert: which instance, what kind, the sentinel block id used
+    // for once-only de-dup, and the timing facts for the payload.
+    struct Candidate {
+        idx: usize,
+        kind: &'static str,
+        block_id: BlockId,
+        elapsed_ms: i64,
+        limit_ms: u64,
+        step_id: Option<String>,
+    }
+
     use orch8_types::filter::{InstanceFilter, Pagination};
 
     let filter = InstanceFilter {
@@ -988,17 +999,6 @@ async fn process_sla_breaches(
     }
 
     let now = clock.now();
-
-    // A pending SLA alert: which instance, what kind, the sentinel block id used
-    // for once-only de-dup, and the timing facts for the payload.
-    struct Candidate {
-        idx: usize,
-        kind: &'static str,
-        block_id: BlockId,
-        elapsed_ms: i64,
-        limit_ms: u64,
-        step_id: Option<String>,
-    }
     let mut candidates: Vec<Candidate> = Vec::new();
 
     for (idx, instance) in active.iter().enumerate() {

@@ -141,8 +141,8 @@ pub struct BulkFilter {
     pub(crate) namespace: Option<String>,
     pub(crate) sequence_id: Option<Uuid>,
     pub(crate) states: Option<Vec<InstanceState>>,
-    /// Top-level `metadata` equality filters (key → value), ANDed. Served by
-    /// the same indexed path as `GET /instances?metadata.k=v`.
+    /// Top-level `metadata` equality filters (key → value), combined with AND.
+    /// Served by the same indexed path as `GET /instances?metadata.k=v`.
     #[serde(default)]
     pub(crate) metadata: Option<std::collections::HashMap<String, String>>,
 }
