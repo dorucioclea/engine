@@ -1,9 +1,56 @@
+use std::str::FromStr;
+
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::ids::{Namespace, SequenceId, TenantId};
+
+/// What to do when a schedule fires while a previous run it created is
+/// still active (scheduled / running / waiting / paused).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum OverlapPolicy {
+    /// Fire regardless of previous runs (default — the pre-policy behavior).
+    #[default]
+    Allow,
+    /// Skip the occurrence when a previous run is still active. Skips are
+    /// counted on the schedule (`skipped_fires`, `last_skipped_at`) and in
+    /// the `orch8_cron_skipped_total` metric.
+    Skip,
+    /// Defer the occurrence until the previous run finishes, then fire once.
+    /// Multiple missed occurrences collapse into a single buffered fire.
+    BufferOne,
+    /// Cancel still-active previous runs, then fire.
+    CancelPrevious,
+}
+
+impl FromStr for OverlapPolicy {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "allow" => Ok(Self::Allow),
+            "skip" => Ok(Self::Skip),
+            "buffer_one" => Ok(Self::BufferOne),
+            "cancel_previous" => Ok(Self::CancelPrevious),
+            other => Err(format!("unknown overlap policy: {other}")),
+        }
+    }
+}
+
+impl std::fmt::Display for OverlapPolicy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Allow => f.write_str("allow"),
+            Self::Skip => f.write_str("skip"),
+            Self::BufferOne => f.write_str("buffer_one"),
+            Self::CancelPrevious => f.write_str("cancel_previous"),
+        }
+    }
+}
 
 /// A cron schedule that periodically creates instances of a sequence.
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -19,6 +66,15 @@ pub struct CronSchedule {
     /// Extra metadata to inject into created instances.
     #[serde(default)]
     pub metadata: serde_json::Value,
+    /// Behavior when a fire is due while a previous run is still active.
+    #[serde(default)]
+    pub overlap_policy: OverlapPolicy,
+    /// Occurrences skipped by the `skip` overlap policy.
+    #[serde(default)]
+    pub skipped_fires: i64,
+    /// When the `skip` overlap policy last skipped an occurrence.
+    #[serde(default)]
+    pub last_skipped_at: Option<DateTime<Utc>>,
     pub last_triggered_at: Option<DateTime<Utc>>,
     pub next_fire_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
@@ -41,6 +97,9 @@ mod tests {
             timezone: "America/New_York".into(),
             enabled: true,
             metadata: serde_json::json!({"tag": "daily"}),
+            overlap_policy: OverlapPolicy::Skip,
+            skipped_fires: 2,
+            last_skipped_at: Some(now),
             last_triggered_at: Some(now),
             next_fire_at: Some(now),
             created_at: now,
@@ -66,6 +125,9 @@ mod tests {
             timezone: "UTC".into(),
             enabled: false,
             metadata: serde_json::json!({}),
+            overlap_policy: OverlapPolicy::default(),
+            skipped_fires: 0,
+            last_skipped_at: None,
             last_triggered_at: None,
             next_fire_at: None,
             created_at: now,

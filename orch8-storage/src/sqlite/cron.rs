@@ -10,7 +10,7 @@ use super::SqliteStorage;
 
 pub(super) async fn create(storage: &SqliteStorage, s: &CronSchedule) -> Result<(), StorageError> {
     sqlx::query(
-        "INSERT INTO cron_schedules (id,tenant_id,namespace,sequence_id,cron_expr,timezone,enabled,metadata,next_fire_at,last_triggered_at,created_at,updated_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)"
+        "INSERT INTO cron_schedules (id,tenant_id,namespace,sequence_id,cron_expr,timezone,enabled,metadata,overlap_policy,skipped_fires,last_skipped_at,next_fire_at,last_triggered_at,created_at,updated_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)"
     )
     .bind(s.id.to_string())
     .bind(s.tenant_id.as_str())
@@ -20,6 +20,9 @@ pub(super) async fn create(storage: &SqliteStorage, s: &CronSchedule) -> Result<
     .bind(&s.timezone)
     .bind(s.enabled as i32)
     .bind(serde_json::to_string(&s.metadata)?)
+    .bind(s.overlap_policy.to_string())
+    .bind(s.skipped_fires)
+    .bind(s.last_skipped_at.map(ts))
     .bind(s.next_fire_at.map(ts))
     .bind(s.last_triggered_at.map(ts))
     .bind(ts(s.created_at))
@@ -61,13 +64,14 @@ pub(super) async fn list(
 }
 
 pub(super) async fn update(storage: &SqliteStorage, s: &CronSchedule) -> Result<(), StorageError> {
-    sqlx::query("UPDATE cron_schedules SET cron_expr=?2, timezone=?3, enabled=?4, metadata=?5, next_fire_at=?6, updated_at=?7 WHERE id=?1")
+    sqlx::query("UPDATE cron_schedules SET cron_expr=?2, timezone=?3, enabled=?4, metadata=?5, next_fire_at=?6, overlap_policy=?7, updated_at=?8 WHERE id=?1")
         .bind(s.id.to_string())
         .bind(&s.cron_expr)
         .bind(&s.timezone)
         .bind(s.enabled as i32)
         .bind(serde_json::to_string(&s.metadata)?)
         .bind(s.next_fire_at.map(ts))
+        .bind(s.overlap_policy.to_string())
         .bind(ts(Utc::now()))
         .execute(&storage.pool).await?;
     Ok(())
@@ -143,4 +147,50 @@ pub(super) async fn update_fire_times(
         .bind(ts(Utc::now()))
         .execute(&storage.pool).await?;
     Ok(())
+}
+
+/// Record a skipped occurrence for the `skip` overlap policy: bump the skip
+/// counters and advance the fire times in one statement so the schedule does
+/// not stay due.
+pub(super) async fn record_skip(
+    storage: &SqliteStorage,
+    id: Uuid,
+    now: DateTime<Utc>,
+    next_fire_at: DateTime<Utc>,
+) -> Result<(), StorageError> {
+    sqlx::query(
+        "UPDATE cron_schedules SET skipped_fires = skipped_fires + 1, last_skipped_at = ?2, last_triggered_at = ?2, next_fire_at = ?3, updated_at = ?2 WHERE id = ?1",
+    )
+    .bind(id.to_string())
+    .bind(ts(now))
+    .bind(ts(next_fire_at))
+    .execute(&storage.pool)
+    .await?;
+    Ok(())
+}
+
+/// Non-terminal instances created by this schedule, attributed via the
+/// `metadata.cron_schedule_id` stamp the cron loop writes on every fire.
+pub(super) async fn active_instance_ids_for_cron(
+    storage: &SqliteStorage,
+    cron_id: Uuid,
+    limit: u32,
+) -> Result<Vec<InstanceId>, StorageError> {
+    let rows: Vec<(String,)> = sqlx::query_as(
+        "SELECT id FROM task_instances \
+         WHERE json_extract(metadata, '$.cron_schedule_id') = ?1 \
+           AND state IN ('scheduled', 'running', 'waiting', 'paused') \
+         ORDER BY created_at LIMIT ?2",
+    )
+    .bind(cron_id.to_string())
+    .bind(i64::from(limit))
+    .fetch_all(&storage.pool)
+    .await?;
+    rows.into_iter()
+        .map(|(id,)| {
+            let uuid = Uuid::parse_str(&id)
+                .map_err(|e| StorageError::Query(format!("invalid instance uuid {id}: {e}")))?;
+            Ok(InstanceId::from_uuid(uuid))
+        })
+        .collect()
 }

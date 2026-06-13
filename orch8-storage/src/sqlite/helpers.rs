@@ -163,6 +163,18 @@ pub(super) fn row_to_cron(row: &sqlx::sqlite::SqliteRow) -> Result<CronSchedule,
         timezone: row.get::<String, _>("timezone"),
         enabled: row.get::<i32, _>("enabled") != 0,
         metadata: parse_json(row.get::<&str, _>("metadata"))?,
+        // try_get: tolerate rows from pre-policy databases (column absent).
+        // Unknown values fall back to `allow`, the pre-policy behavior.
+        overlap_policy: row
+            .try_get::<String, _>("overlap_policy")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or_default(),
+        skipped_fires: row.try_get::<i64, _>("skipped_fires").unwrap_or(0),
+        last_skipped_at: parse_ts_opt(
+            row.try_get::<Option<String>, _>("last_skipped_at")
+                .unwrap_or(None),
+        )?,
         next_fire_at: parse_ts_opt(row.get::<Option<String>, _>("next_fire_at"))?,
         last_triggered_at: parse_ts_opt(row.get::<Option<String>, _>("last_triggered_at"))?,
         created_at: parse_ts(row.get::<&str, _>("created_at"))?,

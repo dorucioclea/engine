@@ -220,6 +220,9 @@ pub(super) struct CronRow {
     pub timezone: String,
     pub enabled: bool,
     pub metadata: serde_json::Value,
+    pub overlap_policy: String,
+    pub skipped_fires: i64,
+    pub last_skipped_at: Option<DateTime<Utc>>,
     pub last_triggered_at: Option<DateTime<Utc>>,
     pub next_fire_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
@@ -237,6 +240,12 @@ impl CronRow {
             timezone: self.timezone,
             enabled: self.enabled,
             metadata: self.metadata,
+            // Unknown values fall back to `allow` (pre-policy behavior)
+            // rather than failing the read — a forward-compat guard, not a
+            // corruption mask: the column is constrained at write time.
+            overlap_policy: self.overlap_policy.parse().unwrap_or_default(),
+            skipped_fires: self.skipped_fires,
+            last_skipped_at: self.last_skipped_at,
             last_triggered_at: self.last_triggered_at,
             next_fire_at: self.next_fire_at,
             created_at: self.created_at,

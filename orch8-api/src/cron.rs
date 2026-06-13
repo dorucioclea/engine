@@ -35,6 +35,10 @@ pub(crate) struct CreateCronRequest {
     metadata: serde_json::Value,
     #[serde(default = "default_true")]
     enabled: bool,
+    /// Behavior when a fire is due while a previous run is still active:
+    /// `allow` (default), `skip`, `buffer_one`, `cancel_previous`.
+    #[serde(default)]
+    overlap_policy: orch8_types::cron::OverlapPolicy,
 }
 
 fn default_tz() -> String {
@@ -51,6 +55,7 @@ pub(crate) struct UpdateCronRequest {
     timezone: Option<String>,
     enabled: Option<bool>,
     metadata: Option<serde_json::Value>,
+    overlap_policy: Option<orch8_types::cron::OverlapPolicy>,
 }
 
 #[derive(Deserialize)]
@@ -108,6 +113,9 @@ pub(crate) async fn create_cron(
         timezone: req.timezone,
         enabled: req.enabled,
         metadata: req.metadata,
+        overlap_policy: req.overlap_policy,
+        skipped_fires: 0,
+        last_skipped_at: None,
         last_triggered_at: None,
         next_fire_at: None,
         created_at: now,
@@ -223,6 +231,9 @@ pub(crate) async fn update_cron(
     }
     if let Some(metadata) = req.metadata {
         schedule.metadata = metadata;
+    }
+    if let Some(policy) = req.overlap_policy {
+        schedule.overlap_policy = policy;
     }
 
     schedule.next_fire_at = orch8_engine::cron::calculate_next_fire(&schedule);

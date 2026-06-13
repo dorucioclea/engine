@@ -89,6 +89,9 @@ CREATE TABLE IF NOT EXISTS cron_schedules (
     timezone TEXT NOT NULL DEFAULT 'UTC',
     enabled INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN (0, 1)),
     metadata TEXT NOT NULL DEFAULT '{}',
+    overlap_policy TEXT NOT NULL DEFAULT 'allow',
+    skipped_fires INTEGER NOT NULL DEFAULT 0,
+    last_skipped_at TEXT,
     next_fire_at TEXT,
     last_triggered_at TEXT,
     created_at TEXT NOT NULL,
@@ -491,4 +494,4 @@ CREATE INDEX IF NOT EXISTS idx_api_keys_tenant ON api_keys(tenant_id);
 /// Current bundled schema version. Bump when the `SCHEMA` string above is
 /// edited in a non-idempotent way (e.g. adding a new column whose default
 /// matters for code that reads the column).
-pub(super) const SCHEMA_VERSION: i64 = 8;
+pub(super) const SCHEMA_VERSION: i64 = 9;

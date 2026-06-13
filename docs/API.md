@@ -473,6 +473,20 @@ POST /cron
 | `timezone` | string | `"UTC"` | IANA timezone for schedule |
 | `metadata` | object | `{}` | Passed to created instances |
 | `enabled` | boolean | `true` | Whether schedule is active |
+| `overlap_policy` | string | `"allow"` | What to do when a fire is due while a previous run is still active: `allow`, `skip`, `buffer_one`, `cancel_previous` |
+
+**Overlap policies** — when a fire is due and a previous run from this
+schedule is still active (scheduled/running/waiting/paused):
+
+- `allow` (default) — fire regardless.
+- `skip` — skip the occurrence; increments `skipped_fires`, stamps
+  `last_skipped_at`, and bumps the `orch8_cron_skipped_total` metric.
+- `buffer_one` — defer until the previous run finishes, then fire once
+  (multiple missed occurrences collapse into a single buffered fire).
+- `cancel_previous` — cancel still-active runs, then fire.
+
+Previous runs are attributed via `metadata.cron_schedule_id`, which the
+engine stamps on every cron-created instance.
 
 **Cron expression format (7 fields):**
 

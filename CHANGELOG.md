@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Cron overlap policies + skip metric**: `overlap_policy` on `CronSchedule` controls what happens when a fire is due while a previous run from the same schedule is still active — `allow` (default, unchanged behavior), `skip` (count it: `skipped_fires` + `last_skipped_at` on the schedule, `orch8_cron_skipped_total` metric), `buffer_one` (defer until the previous run finishes, then fire once), `cancel_previous` (cancel still-active runs, then fire). Previous runs are attributed via a `metadata.cron_schedule_id` stamp the cron loop now writes on every fire. Closes the gap where Temporal has overlap policies but no skip metric (temporalio/temporal#8087) — Orch8 ships both. (migration 046, SQLite schema v9)
+
 - **Environment banner**: `ORCH8_ENV_LABEL` + `ORCH8_ENV_COLOR` render a colored banner strip across the dashboard (e.g. a red `PRODUCTION` ribbon), served by the new unauthenticated `GET /info` endpoint alongside the engine version. A small thing Temporal users have requested and not received.
 
 - **DST-correct cron schedules**: explicit, unit-tested semantics for both DST edges. Nonexistent local times (spring forward — a 02:30 schedule on the day 02:00 jumps to 03:00) fire at the **first valid instant after the gap** instead of silently skipping the day (the failure mode Temporal documents as unhandled, temporalio/temporal#8205); ambiguous local times (fall back) fire **once**, at the first occurrence. Gap detection re-evaluates the expression against a fixed offset frozen at "now" and clamps occurrences that fall inside the gap. Tested against both hemispheres (`America/New_York`, `America/Santiago`) under virtual time.

@@ -14,6 +14,8 @@ pub const RECOVERY_STALE: &str = "orch8_recovery_stale_instances_total";
 pub const WEBHOOKS_SENT: &str = "orch8_webhooks_sent_total";
 pub const WEBHOOKS_FAILED: &str = "orch8_webhooks_failed_total";
 pub const CRON_TRIGGERED: &str = "orch8_cron_triggered_total";
+/// Occurrences skipped by a schedule's `skip` overlap policy.
+pub const CRON_SKIPPED: &str = "orch8_cron_skipped_total";
 /// Items returned by `ActivePieces` sidecar polls (one instance per item).
 pub const AP_POLL_ITEMS: &str = "orch8_ap_poll_items_total";
 /// Failed `ActivePieces` sidecar polls (recorded on the trigger's state row).
@@ -209,6 +211,7 @@ mod tests {
             WEBHOOKS_SENT,
             WEBHOOKS_FAILED,
             CRON_TRIGGERED,
+            CRON_SKIPPED,
             CACHE_HITS,
             CACHE_MISSES,
             PRELOAD_REFS_SCANNED,

@@ -1177,6 +1177,21 @@ impl crate::SchedulingStore for EncryptingStorage {
             .update_cron_fire_times(id, last_triggered_at, next_fire_at)
             .await
     }
+    async fn record_cron_skip(
+        &self,
+        id: Uuid,
+        now: DateTime<Utc>,
+        next_fire_at: DateTime<Utc>,
+    ) -> Result<(), StorageError> {
+        self.inner.record_cron_skip(id, now, next_fire_at).await
+    }
+    async fn active_instance_ids_for_cron(
+        &self,
+        cron_id: Uuid,
+        limit: u32,
+    ) -> Result<Vec<orch8_types::ids::InstanceId>, StorageError> {
+        self.inner.active_instance_ids_for_cron(cron_id, limit).await
+    }
     async fn check_rate_limit(
         &self,
         tenant_id: &orch8_types::ids::TenantId,

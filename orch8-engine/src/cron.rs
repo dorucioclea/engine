@@ -62,7 +62,10 @@ pub async fn run_cron_loop_with_clock(
     }
 }
 
-async fn process_cron_tick(
+/// Run a single cron evaluation pass: claim due schedules, apply overlap
+/// policies, fire instances, advance fire times. Public so tests and tooling
+/// (e.g. `orch8 dev`) can drive cron deterministically without the loop.
+pub async fn process_cron_tick(
     storage: &Arc<dyn StorageBackend>,
     clock: &SharedClock,
 ) -> Result<(), EngineError> {
@@ -102,12 +105,118 @@ async fn process_cron_tick(
     Ok(())
 }
 
+/// Stamp the originating schedule's ID into instance metadata so overlap
+/// policies (and operators) can attribute runs back to their schedule.
+/// Non-object metadata is passed through unstamped — such instances are
+/// invisible to overlap detection, which only degrades policies to `allow`.
+fn stamp_cron_id(metadata: serde_json::Value, cron_id: uuid::Uuid) -> serde_json::Value {
+    match metadata {
+        serde_json::Value::Object(mut map) => {
+            map.insert(
+                "cron_schedule_id".to_string(),
+                serde_json::json!(cron_id.to_string()),
+            );
+            serde_json::Value::Object(map)
+        }
+        serde_json::Value::Null => {
+            serde_json::json!({ "cron_schedule_id": cron_id.to_string() })
+        }
+        other => other,
+    }
+}
+
+/// How long a `buffer_one` deferral re-arms the schedule for. Short enough
+/// that the buffered fire lands on the first tick after the previous run
+/// finishes, long enough not to spin.
+const BUFFER_RETRY_SECS: i64 = 5;
+
+/// Apply the schedule's overlap policy against any still-active previous
+/// runs. Returns `Ok(true)` to proceed with firing, `Ok(false)` when the
+/// occurrence was skipped or deferred (the policy has already advanced /
+/// re-armed the schedule's fire times).
+async fn apply_overlap_policy(
+    storage: &dyn StorageBackend,
+    schedule: &CronSchedule,
+    now: DateTime<Utc>,
+) -> Result<bool, EngineError> {
+    use orch8_types::cron::OverlapPolicy;
+
+    if schedule.overlap_policy == OverlapPolicy::Allow {
+        return Ok(true);
+    }
+    let active = storage
+        .active_instance_ids_for_cron(schedule.id, 100)
+        .await?;
+    if active.is_empty() {
+        return Ok(true);
+    }
+
+    match schedule.overlap_policy {
+        OverlapPolicy::Skip => {
+            if let Some(next_at) = calculate_next_fire_after(schedule, now) {
+                storage.record_cron_skip(schedule.id, now, next_at).await?;
+            }
+            crate::metrics::inc(crate::metrics::CRON_SKIPPED);
+            info!(
+                cron_id = %schedule.id,
+                active_runs = active.len(),
+                "cron occurrence skipped (overlap policy: previous run still active)"
+            );
+            Ok(false)
+        }
+        OverlapPolicy::BufferOne => {
+            // Re-arm shortly instead of advancing: the occurrence stays
+            // pending and fires on the first tick after the previous run
+            // finishes. Missed occurrences collapse into one buffered fire.
+            let retry_at = now + chrono::Duration::seconds(BUFFER_RETRY_SECS);
+            storage
+                .update_cron_fire_times(schedule.id, now, retry_at)
+                .await?;
+            debug!(
+                cron_id = %schedule.id,
+                active_runs = active.len(),
+                "cron occurrence deferred (buffer_one: previous run still active)"
+            );
+            Ok(false)
+        }
+        OverlapPolicy::CancelPrevious => {
+            for instance_id in &active {
+                if let Err(e) = storage
+                    .update_instance_state(*instance_id, InstanceState::Cancelled, None)
+                    .await
+                {
+                    warn!(
+                        cron_id = %schedule.id,
+                        instance_id = %instance_id,
+                        error = %e,
+                        "cancel_previous: failed to cancel still-active run"
+                    );
+                }
+            }
+            info!(
+                cron_id = %schedule.id,
+                cancelled = active.len(),
+                "cancel_previous: cancelled still-active runs before firing"
+            );
+            Ok(true)
+        }
+        // `Allow` returned early above; future policies (the enum is
+        // non_exhaustive) default to firing.
+        _ => Ok(true),
+    }
+}
+
 async fn trigger_cron_schedule(
     storage: &dyn StorageBackend,
     schedule: &CronSchedule,
     clock: &SharedClock,
 ) -> Result<(), EngineError> {
     let now = clock.now();
+
+    // Overlap policy gate: skip/defer when a previous run is still active.
+    if !apply_overlap_policy(storage, schedule, now).await? {
+        return Ok(());
+    }
 
     // Create a new instance for this schedule.
     let instance = TaskInstance {
@@ -119,7 +228,7 @@ async fn trigger_cron_schedule(
         next_fire_at: Some(now),
         priority: Priority::Normal,
         timezone: schedule.timezone.clone(),
-        metadata: schedule.metadata.clone(),
+        metadata: stamp_cron_id(schedule.metadata.clone(), schedule.id),
         context: ExecutionContext::default(),
         concurrency_key: None,
         max_concurrency: None,
@@ -316,6 +425,9 @@ mod tests {
             timezone: "UTC".into(),
             enabled: true,
             metadata: serde_json::json!({}),
+            overlap_policy: Default::default(),
+            skipped_fires: 0,
+            last_skipped_at: None,
             last_triggered_at: None,
             next_fire_at: None,
             created_at: Utc::now(),
@@ -336,6 +448,9 @@ mod tests {
             timezone: "UTC".into(),
             enabled: true,
             metadata: serde_json::json!({}),
+            overlap_policy: Default::default(),
+            skipped_fires: 0,
+            last_skipped_at: None,
             last_triggered_at: None,
             next_fire_at: None,
             created_at: Utc::now(),

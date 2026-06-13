@@ -1160,6 +1160,25 @@ pub trait SchedulingStore: Send + Sync + 'static {
         next_fire_at: DateTime<Utc>,
     ) -> Result<(), StorageError>;
 
+    /// Record a skipped occurrence (the `skip` overlap policy): increment
+    /// `skipped_fires`, stamp `last_skipped_at`, and advance the fire times
+    /// in one statement so the schedule does not stay due.
+    async fn record_cron_skip(
+        &self,
+        id: Uuid,
+        now: DateTime<Utc>,
+        next_fire_at: DateTime<Utc>,
+    ) -> Result<(), StorageError>;
+
+    /// Non-terminal instance IDs created by this schedule (attributed via
+    /// the `metadata.cron_schedule_id` stamp the cron loop writes on every
+    /// fire). Used by the overlap policies to detect still-active runs.
+    async fn active_instance_ids_for_cron(
+        &self,
+        cron_id: Uuid,
+        limit: u32,
+    ) -> Result<Vec<InstanceId>, StorageError>;
+
     // === Rate Limits ===
 
     /// Atomic check-and-increment. Single DB round-trip.

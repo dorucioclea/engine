@@ -156,6 +156,7 @@ use utoipa::OpenApi;
         orch8_types::output::BlockOutput,
         // Cron
         orch8_types::cron::CronSchedule,
+        orch8_types::cron::OverlapPolicy,
         // Worker
         orch8_types::worker::WorkerTask,
         orch8_types::worker::WorkerTaskState,
