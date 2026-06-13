@@ -291,6 +291,17 @@ export function getInstanceChildren(id: string, signal?: AbortSignal): Promise<T
   return request(`/instances/${encodeURIComponent(id)}/children`, undefined, signal);
 }
 
+export interface StepLog {
+  block_id: string;
+  ts: string;
+  level: "trace" | "debug" | "info" | "warn" | "error" | string;
+  message: string;
+}
+
+export function getInstanceLogs(id: string, signal?: AbortSignal): Promise<StepLog[]> {
+  return request(`/instances/${encodeURIComponent(id)}/logs`, undefined, signal);
+}
+
 export function getExecutionTree(id: string, signal?: AbortSignal): Promise<ExecutionNode[]> {
   return request(`/instances/${encodeURIComponent(id)}/tree`, undefined, signal);
 }

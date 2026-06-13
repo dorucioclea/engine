@@ -49,6 +49,7 @@ mod sessions;
 mod queue_dispatch;
 mod queue_routing;
 mod signals;
+mod step_logs;
 mod triggers;
 mod webhook_outbox;
 mod worker_commands;
@@ -1187,6 +1188,22 @@ impl crate::WorkerStore for SqliteStorage {
         queue_name: &str,
     ) -> Result<(), StorageError> {
         queue_dispatch::delete(self, tenant_id, queue_name).await
+    }
+
+    async fn append_step_logs(
+        &self,
+        instance_id: InstanceId,
+        block_id: &BlockId,
+        entries: &[orch8_types::step_log::StepLogEntry],
+    ) -> Result<(), StorageError> {
+        step_logs::append(self, instance_id, block_id, entries).await
+    }
+
+    async fn list_step_logs(
+        &self,
+        instance_id: InstanceId,
+    ) -> Result<Vec<orch8_types::step_log::StepLog>, StorageError> {
+        step_logs::list(self, instance_id).await
     }
 }
 

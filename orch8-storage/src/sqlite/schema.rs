@@ -548,9 +548,19 @@ CREATE TABLE IF NOT EXISTS queue_dispatch (
     updated_at TEXT NOT NULL,
     PRIMARY KEY (tenant_id, queue_name)
 );
+
+CREATE TABLE IF NOT EXISTS step_logs (
+    id          TEXT PRIMARY KEY,
+    instance_id TEXT NOT NULL,
+    block_id    TEXT NOT NULL,
+    ts          TEXT NOT NULL,
+    level       TEXT NOT NULL,
+    message     TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_step_logs_instance ON step_logs(instance_id, ts);
 ";
 
 /// Current bundled schema version. Bump when the `SCHEMA` string above is
 /// edited in a non-idempotent way (e.g. adding a new column whose default
 /// matters for code that reads the column).
-pub(super) const SCHEMA_VERSION: i64 = 17;
+pub(super) const SCHEMA_VERSION: i64 = 18;

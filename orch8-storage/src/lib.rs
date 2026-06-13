@@ -1241,6 +1241,24 @@ pub trait WorkerStore: Send + Sync + 'static {
         tenant_id: &str,
         queue_name: &str,
     ) -> Result<(), StorageError>;
+
+    // === Step Logs ===
+
+    /// Append log lines for a step (best-effort — callers log on error rather
+    /// than failing the step). Called by the in-process capture layer and by
+    /// worker complete/fail with reported logs.
+    async fn append_step_logs(
+        &self,
+        instance_id: InstanceId,
+        block_id: &BlockId,
+        entries: &[orch8_types::step_log::StepLogEntry],
+    ) -> Result<(), StorageError>;
+
+    /// List all step logs for an instance, oldest first.
+    async fn list_step_logs(
+        &self,
+        instance_id: InstanceId,
+    ) -> Result<Vec<orch8_types::step_log::StepLog>, StorageError>;
 }
 
 // ============================================================================

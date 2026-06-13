@@ -26,6 +26,7 @@ pub mod rollback;
 pub mod sequence;
 pub mod session;
 pub mod signal;
+pub mod step_log;
 pub mod suggest;
 pub mod trigger;
 pub mod queue_dispatch;

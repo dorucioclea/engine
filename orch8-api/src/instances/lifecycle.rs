@@ -369,6 +369,41 @@ pub async fn get_instance_children(
     Ok(Json(children))
 }
 
+#[utoipa::path(get, path = "/instances/{id}/logs", tag = "instances",
+    params(("id" = Uuid, Path, description = "Instance ID")),
+    responses(
+        (status = 200, description = "Step logs (oldest first)", body = Vec<orch8_types::step_log::StepLog>),
+        (status = 404, description = "Instance not found"),
+    )
+)]
+pub async fn get_instance_logs(
+    State(state): State<AppState>,
+    tenant_ctx: Option<axum::Extension<crate::auth::TenantContext>>,
+    Path(id): Path<Uuid>,
+) -> Result<impl IntoResponse, ApiError> {
+    let instance_id = InstanceId::from_uuid(id);
+    let instance = state
+        .storage
+        .get_instance(instance_id)
+        .await
+        .map_err(|e| ApiError::from_storage(e, "instance"))?
+        .ok_or_else(|| ApiError::NotFound(format!("instance {id}")))?;
+
+    if let Some(axum::Extension(ctx)) = &tenant_ctx {
+        if instance.tenant_id != ctx.tenant_id {
+            return Err(ApiError::NotFound(format!("instance {id}")));
+        }
+    }
+
+    let logs = state
+        .storage
+        .list_step_logs(instance_id)
+        .await
+        .map_err(|e| ApiError::from_storage(e, "step_logs"))?;
+
+    Ok(Json(logs))
+}
+
 #[utoipa::path(get, path = "/instances", tag = "instances",
     params(
         ("tenant_id" = Option<String>, Query, description = "Filter by tenant"),

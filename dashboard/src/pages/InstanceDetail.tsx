@@ -4,6 +4,7 @@ import { usePageTitle } from "../hooks/usePageTitle";
 import {
   getInstance,
   getInstanceChildren,
+  getInstanceLogs,
   getExecutionTree,
   getInstanceOutputs,
   listWorkerTasks,
@@ -18,6 +19,7 @@ import {
   type BlockOutput,
   type SignalType,
   type WorkerTask,
+  type StepLog,
 } from "../api";
 import { PageHeader } from "../components/ui/PageHeader";
 import { Section } from "../components/ui/Section";
@@ -327,6 +329,7 @@ export default function InstanceDetail() {
   const [outputs, setOutputs] = useState<BlockOutput[]>([]);
   const [tasks, setTasks] = useState<WorkerTask[]>([]);
   const [children, setChildren] = useState<TaskInstance[]>([]);
+  const [logs, setLogs] = useState<StepLog[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [notFound, setNotFound] = useState(false);
   const [initialized, setInitialized] = useState(false);
@@ -344,7 +347,7 @@ export default function InstanceDetail() {
     if (!id) return;
     try {
       const inst = await getInstance(id);
-      const [t, o, failed, kids] = await Promise.all([
+      const [t, o, failed, kids, logsData] = await Promise.all([
         getExecutionTree(id),
         getInstanceOutputs(id).catch(() => [] as BlockOutput[]),
         // The tasks endpoint doesn't support filtering by instance_id, so we
@@ -353,12 +356,14 @@ export default function InstanceDetail() {
           () => [] as WorkerTask[],
         ),
         getInstanceChildren(id).catch(() => [] as TaskInstance[]),
+        getInstanceLogs(id).catch(() => [] as StepLog[]),
       ]);
       setInstance(inst);
       setTree(t);
       setOutputs(o);
       setTasks(failed.filter((t2) => t2.instance_id === id));
       setChildren(kids);
+      setLogs(logsData);
       setError(null);
       setNotFound(false);
     } catch (e) {
@@ -612,6 +617,37 @@ export default function InstanceDetail() {
                   ))}
                 </tbody>
               </table>
+            </Section>
+          )}
+
+          {logs.length > 0 && (
+            <Section
+              eyebrow="Logs"
+              title={`Step logs (${logs.length})`}
+              description="Log lines captured per step — in-process handler logs (scoped to the step span) and any logs an external worker attached on complete/fail. Oldest first."
+            >
+              <div className="font-mono text-[12px] space-y-0.5">
+                {logs.map((l, i) => (
+                  <div key={`${l.block_id}-${i}`} className="flex items-baseline gap-2">
+                    <span className="text-faint tabular shrink-0">
+                      {new Date(l.ts).toLocaleTimeString()}
+                    </span>
+                    <span
+                      className={`shrink-0 uppercase text-[10px] tracking-wider w-10 ${
+                        l.level === "error"
+                          ? "text-warn"
+                          : l.level === "warn"
+                            ? "text-hold"
+                            : "text-muted"
+                      }`}
+                    >
+                      {l.level}
+                    </span>
+                    <span className="text-faint shrink-0">{l.block_id}</span>
+                    <span className="text-ink-dim break-all">{l.message}</span>
+                  </div>
+                ))}
+              </div>
             </Section>
           )}
 

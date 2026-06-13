@@ -15,6 +15,7 @@ uuid.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tracing.workspace = true
+tracing-subscriber = { workspace = true }
 thiserror.workspace = true
 rand.workspace = true
 sha2.workspace = true
@@ -43,7 +44,6 @@ wasm = ["dep:wasmtime"]
 
 [dev-dependencies]
 tokio = { workspace = true }
-tracing-subscriber = { workspace = true }
 criterion = { version = "0.5", features = ["async_tokio"] }
 # Build tiny wasm modules from WAT text for wasm_plugin.rs execution-path tests.
 # wat is already in the dep tree via wasmtime (with default features); declaring

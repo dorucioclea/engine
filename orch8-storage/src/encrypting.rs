@@ -1254,6 +1254,22 @@ impl crate::WorkerStore for EncryptingStorage {
     ) -> Result<(), StorageError> {
         self.inner.delete_queue_dispatch(tenant_id, queue_name).await
     }
+
+    async fn append_step_logs(
+        &self,
+        instance_id: orch8_types::ids::InstanceId,
+        block_id: &orch8_types::ids::BlockId,
+        entries: &[orch8_types::step_log::StepLogEntry],
+    ) -> Result<(), StorageError> {
+        self.inner.append_step_logs(instance_id, block_id, entries).await
+    }
+
+    async fn list_step_logs(
+        &self,
+        instance_id: orch8_types::ids::InstanceId,
+    ) -> Result<Vec<orch8_types::step_log::StepLog>, StorageError> {
+        self.inner.list_step_logs(instance_id).await
+    }
 }
 
 // ============================================================================

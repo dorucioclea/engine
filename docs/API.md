@@ -309,6 +309,25 @@ Returns the instances spawned by `{id}` as sub-sequences (those whose `parent_in
 
 ---
 
+### List Step Logs
+
+```
+GET /instances/{id}/logs
+```
+
+Returns the step logs for an execution, oldest first, each annotated with its `block_id`. Two sources feed this: in-process handler logs (captured by a tracing layer scoped to each step's span) and logs an external worker attached when completing/failing a task. Each entry is `{ block_id, ts, level, message }`.
+
+**Response:** `200 OK` — array of step-log entries.
+
+To attach worker logs, include a `logs` array in the complete/fail body:
+
+```
+POST /workers/tasks/{id}/complete   # { worker_id, output, logs: [{ ts, level, message }] }
+POST /workers/tasks/{id}/fail       # { worker_id, message, retryable, logs: [...] }
+```
+
+---
+
 ### Batch Action
 
 ```

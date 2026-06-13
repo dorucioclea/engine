@@ -554,6 +554,25 @@ pub(crate) async fn list_handlers(
 pub(crate) struct CompleteRequest {
     worker_id: String,
     output: serde_json::Value,
+    /// Optional log lines the worker captured while running this task.
+    #[serde(default)]
+    logs: Vec<orch8_types::step_log::StepLogEntry>,
+}
+
+/// Persist worker-reported step logs (best-effort — a write failure must never
+/// fail the completion/failure path).
+async fn persist_reported_logs(
+    state: &AppState,
+    instance_id: orch8_types::ids::InstanceId,
+    block_id: &orch8_types::ids::BlockId,
+    logs: &[orch8_types::step_log::StepLogEntry],
+) {
+    if logs.is_empty() {
+        return;
+    }
+    if let Err(e) = state.storage.append_step_logs(instance_id, block_id, logs).await {
+        tracing::warn!(error = %e, "failed to persist worker-reported step logs");
+    }
 }
 
 #[utoipa::path(post, path = "/workers/tasks/{id}/complete", tag = "workers",
@@ -603,6 +622,9 @@ pub(crate) async fn complete_task(
     if !updated {
         return Err(ApiError::NotFound(format!("worker_task {task_id}")));
     }
+
+    // Persist any worker-reported logs for this step.
+    persist_reported_logs(&state, pre_task.instance_id, &pre_task.block_id, &req.logs).await;
 
     let task = state
         .storage
@@ -780,6 +802,9 @@ pub(crate) struct FailRequest {
     message: String,
     #[serde(default)]
     retryable: bool,
+    /// Optional log lines the worker captured while running this task.
+    #[serde(default)]
+    logs: Vec<orch8_types::step_log::StepLogEntry>,
 }
 
 #[utoipa::path(post, path = "/workers/tasks/{id}/fail", tag = "workers",
@@ -825,6 +850,9 @@ pub(crate) async fn fail_task(
         .fail_worker_task(task_id, &req.worker_id, &req.message, req.retryable)
         .await
         .map_err(|e| ApiError::from_storage(e, "worker_task"))?;
+
+    // Persist any worker-reported logs for this step (best-effort).
+    persist_reported_logs(&state, pre_task.instance_id, &pre_task.block_id, &req.logs).await;
 
     if !updated {
         return Err(ApiError::NotFound(format!("worker_task {task_id}")));

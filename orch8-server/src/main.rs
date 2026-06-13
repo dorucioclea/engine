@@ -75,6 +75,10 @@ async fn main() -> anyhow::Result<()> {
     let storage = init_storage(&config).await?;
     let storage = wrap_encryption(storage, &config, cli.insecure)?;
 
+    // Wire the step-log sink: in-process handler logs captured by StepLogLayer
+    // are persisted here when their `orch8.step` span closes.
+    orch8_engine::step_logs::init_step_log_sink(std::sync::Arc::clone(&storage));
+
     // Install Prometheus metrics recorder.
     let metrics_state = init_prometheus();
 
@@ -751,7 +755,10 @@ fn init_logging(config: &orch8_types::config::LoggingConfig, otel: &telemetry::O
     // the zero-config subscriber identical to the pre-OTLP stack.
     let registry = tracing_subscriber::registry()
         .with(filter)
-        .with(otel.layer());
+        .with(otel.layer())
+        // Capture in-process handler logs scoped to each `orch8.step` span and
+        // persist them to `step_logs` (the storage sink is wired separately).
+        .with(orch8_engine::step_logs::StepLogLayer);
 
     if config.json {
         registry.with(fmt_layer.json()).init();
