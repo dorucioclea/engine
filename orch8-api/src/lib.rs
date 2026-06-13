@@ -143,6 +143,11 @@ pub fn build_router(state: AppState) -> Router {
         // clients and SDKs continue to work during the migration window.
         // TODO(v2): remove this bare merge once all clients use /api/v1.
         .merge(api)
-        .merge(health::routes())
+        // NOTE: health/info routes are intentionally NOT mounted here.
+        // `orch8-server` mounts them *after* the auth layers so liveness/
+        // readiness probes stay reachable when an API key is configured.
+        // Mounting them here too would double-register the handlers (axum
+        // panics on overlapping routes) and would also place them behind
+        // auth. The test harness mounts them separately.
         .with_state(state)
 }

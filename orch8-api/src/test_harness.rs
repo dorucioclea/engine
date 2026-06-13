@@ -88,10 +88,15 @@ async fn spawn_test_server_inner(mobile_sync_enabled: bool) -> TestServer {
     // Attach tenant middleware (require_tenant = false) so `X-Tenant-Id`
     // gets parsed into a `TenantContext` extension when present but its
     // absence is not a 400. This matches the default server config.
-    let app: Router =
-        build_router(state).layer(axum::middleware::from_fn(|req, next| async move {
+    // Mount health/info routes the same way `orch8-server` does: outside the
+    // auth/tenant layers. `build_router` no longer includes them (see note
+    // there), so the harness adds them explicitly to exercise /info and
+    // /health/* in the e2e suite.
+    let app: Router = build_router(state.clone())
+        .layer(axum::middleware::from_fn(|req, next| async move {
             crate::auth::tenant_middleware(false, req, next).await
-        }));
+        }))
+        .merge(crate::health::routes().with_state(state));
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
