@@ -86,7 +86,10 @@ pub(crate) async fn redeliver_outbox(
                 .delete_webhook_outbox(id)
                 .await
                 .map_err(|e| ApiError::from_storage(e, "webhook_outbox"))?;
-            Ok((StatusCode::OK, Json(RedeliverResponse { redelivered: true })))
+            Ok((
+                StatusCode::OK,
+                Json(RedeliverResponse { redelivered: true }),
+            ))
         }
         Err(reason) => Err(ApiError::BadGateway(format!(
             "redelivery to {} failed: {reason}",

@@ -1163,7 +1163,9 @@ impl crate::WorkerStore for EncryptingStorage {
         tenant_id: Option<&orch8_types::ids::TenantId>,
         handler_name: Option<&str>,
     ) -> Result<Vec<orch8_types::queue_routing::QueueRoutingRule>, StorageError> {
-        self.inner.list_queue_routing_rules(tenant_id, handler_name).await
+        self.inner
+            .list_queue_routing_rules(tenant_id, handler_name)
+            .await
     }
 
     async fn get_queue_routing_rule(
@@ -1207,7 +1209,9 @@ impl crate::WorkerStore for EncryptingStorage {
         tenant_id: &str,
         handler_name: &str,
     ) -> Result<Option<orch8_types::worker::WorkerVersionPin>, StorageError> {
-        self.inner.get_worker_version_pin(tenant_id, handler_name).await
+        self.inner
+            .get_worker_version_pin(tenant_id, handler_name)
+            .await
     }
 
     async fn list_worker_version_pins(
@@ -1222,7 +1226,9 @@ impl crate::WorkerStore for EncryptingStorage {
         tenant_id: &str,
         handler_name: &str,
     ) -> Result<(), StorageError> {
-        self.inner.delete_worker_version_pin(tenant_id, handler_name).await
+        self.inner
+            .delete_worker_version_pin(tenant_id, handler_name)
+            .await
     }
 
     async fn upsert_queue_dispatch(
@@ -1252,7 +1258,9 @@ impl crate::WorkerStore for EncryptingStorage {
         tenant_id: &str,
         queue_name: &str,
     ) -> Result<(), StorageError> {
-        self.inner.delete_queue_dispatch(tenant_id, queue_name).await
+        self.inner
+            .delete_queue_dispatch(tenant_id, queue_name)
+            .await
     }
 
     async fn append_step_logs(
@@ -1261,7 +1269,9 @@ impl crate::WorkerStore for EncryptingStorage {
         block_id: &orch8_types::ids::BlockId,
         entries: &[orch8_types::step_log::StepLogEntry],
     ) -> Result<(), StorageError> {
-        self.inner.append_step_logs(instance_id, block_id, entries).await
+        self.inner
+            .append_step_logs(instance_id, block_id, entries)
+            .await
     }
 
     async fn list_step_logs(
@@ -1335,7 +1345,9 @@ impl crate::SchedulingStore for EncryptingStorage {
         cron_id: Uuid,
         limit: u32,
     ) -> Result<Vec<orch8_types::ids::InstanceId>, StorageError> {
-        self.inner.active_instance_ids_for_cron(cron_id, limit).await
+        self.inner
+            .active_instance_ids_for_cron(cron_id, limit)
+            .await
     }
     async fn check_rate_limit(
         &self,

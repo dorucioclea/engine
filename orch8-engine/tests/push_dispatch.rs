@@ -113,7 +113,9 @@ async fn push_queue_posts_signed_envelope() {
     // assert it matches byte-for-byte. This catches signing the wrong bytes.
     let ts = header_value(&head, "x-orch8-timestamp").expect("timestamp header present");
     let sig = header_value(&head, "x-orch8-signature").expect("signature header present");
-    let sig = sig.strip_prefix("sha256=").expect("signature is sha256-prefixed");
+    let sig = sig
+        .strip_prefix("sha256=")
+        .expect("signature is sha256-prefixed");
 
     let mut mac = Hmac::<Sha256>::new_from_slice(b"shhh").unwrap();
     mac.update(ts.as_bytes());
@@ -123,7 +125,10 @@ async fn push_queue_posts_signed_envelope() {
     for b in mac.finalize().into_bytes() {
         write!(expected, "{b:02x}").unwrap();
     }
-    assert_eq!(sig, expected, "push signature must verify over timestamp.body");
+    assert_eq!(
+        sig, expected,
+        "push signature must verify over timestamp.body"
+    );
 }
 
 /// Extract a header value (case-insensitive name match) from a raw HTTP head.
@@ -146,7 +151,5 @@ async fn poll_queue_does_not_push() {
 }
 
 fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
-    haystack
-        .windows(needle.len())
-        .position(|w| w == needle)
+    haystack.windows(needle.len()).position(|w| w == needle)
 }

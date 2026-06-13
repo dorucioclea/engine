@@ -103,7 +103,7 @@ async fn loop_containing_parallel_containing_router() {
         break_on: None,
         continue_on_error: false,
         poll_interval: None,
-    retain_iterations: None,
+        retain_iterations: None,
     }));
     let (storage, seq, inst) = setup(vec![lp]).await;
     let reg = registry();
@@ -132,7 +132,7 @@ async fn for_each_containing_try_catch_containing_parallel() {
             finally_block: None,
         }))],
         max_iterations: 100,
-    retain_iterations: None,
+        retain_iterations: None,
     }));
     let (storage, seq, inst) = setup_with_ctx(vec![fe], json!({"items": [1, 2]})).await;
     let reg = registry();
@@ -157,13 +157,13 @@ async fn router_route_containing_loop_containing_for_each() {
                     item_var: "item".into(),
                     body: vec![mk_step("inner_step", "noop")],
                     max_iterations: 100,
-                retain_iterations: None,
+                    retain_iterations: None,
                 }))],
                 max_iterations: 2,
                 break_on: None,
                 continue_on_error: false,
                 poll_interval: None,
-            retain_iterations: None,
+                retain_iterations: None,
             }))],
         }],
         default: None,
@@ -220,13 +220,13 @@ async fn cancellation_scope_containing_loop_with_for_each() {
                 item_var: "item".into(),
                 body: vec![mk_step("inner", "noop")],
                 max_iterations: 100,
-            retain_iterations: None,
+                retain_iterations: None,
             }))],
             max_iterations: 2,
             break_on: None,
             continue_on_error: false,
             poll_interval: None,
-        retain_iterations: None,
+            retain_iterations: None,
         }))],
     }));
     let (storage, seq, inst) = setup_with_ctx(vec![scope], json!({"items": [1, 2]})).await;
@@ -254,7 +254,7 @@ async fn parallel_five_branches_each_with_different_block_type() {
                 break_on: None,
                 continue_on_error: false,
                 poll_interval: None,
-            retain_iterations: None,
+                retain_iterations: None,
             }))],
             // Branch 3: for_each
             vec![BlockDefinition::ForEach(Box::new(ForEachDef {
@@ -263,7 +263,7 @@ async fn parallel_five_branches_each_with_different_block_type() {
                 item_var: "item".into(),
                 body: vec![mk_step("fe_body", "noop")],
                 max_iterations: 100,
-            retain_iterations: None,
+                retain_iterations: None,
             }))],
             // Branch 4: router
             vec![BlockDefinition::Router(Box::new(RouterDef {
@@ -346,10 +346,10 @@ async fn router_in_loop_in_for_each() {
             break_on: None,
             continue_on_error: false,
             poll_interval: None,
-        retain_iterations: None,
+            retain_iterations: None,
         }))],
         max_iterations: 100,
-    retain_iterations: None,
+        retain_iterations: None,
     }));
     let (storage, seq, inst) = setup_with_ctx(vec![fe], json!({"items": [1, 2]})).await;
     let reg = registry();
@@ -397,7 +397,7 @@ async fn for_each_with_try_catch_per_item_failure_isolated() {
             finally_block: None,
         }))],
         max_iterations: 100,
-    retain_iterations: None,
+        retain_iterations: None,
     }));
     let (storage, seq, inst) = setup_with_ctx(vec![fe], json!({"items": [1, 2, 3]})).await;
     let reg = registry_with_fail();
@@ -428,7 +428,7 @@ async fn loop_exits_mid_iteration_on_router_condition() {
         break_on: None,
         continue_on_error: false,
         poll_interval: None,
-    retain_iterations: None,
+        retain_iterations: None,
     }));
     let (storage, seq, inst) = setup(vec![lp]).await;
     let reg = registry();
@@ -452,7 +452,7 @@ async fn parallel_branch_with_loop_that_fails_on_third_iteration() {
                 break_on: None,
                 continue_on_error: false,
                 poll_interval: None,
-            retain_iterations: None,
+                retain_iterations: None,
             }))],
             vec![mk_step("success_branch", "noop")],
         ],
@@ -559,7 +559,7 @@ async fn sub_sequence_inside_for_each_iteration() {
                 input: json!({}),
             }))],
             max_iterations: 100,
-        retain_iterations: None,
+            retain_iterations: None,
         }))],
         interceptors: None,
         input_schema: None,
@@ -644,7 +644,7 @@ async fn for_each_inside_cancellation_scope() {
             item_var: "item".into(),
             body: vec![mk_step("body", "noop")],
             max_iterations: 100,
-        retain_iterations: None,
+            retain_iterations: None,
         }))],
     }));
     let (storage, seq, inst) = setup_with_ctx(vec![scope], json!({"items": [1, 2, 3]})).await;
@@ -672,7 +672,7 @@ async fn loop_in_race_first_to_finish_wins() {
                 break_on: None,
                 continue_on_error: false,
                 poll_interval: None,
-            retain_iterations: None,
+                retain_iterations: None,
             }))],
         ],
         semantics: RaceSemantics::default(),
@@ -762,7 +762,7 @@ async fn retry_in_for_each_element_doesnt_stop_others() {
         item_var: "item".into(),
         body: vec![mk_step_with_retry("body", "noop", 3)],
         max_iterations: 100,
-    retain_iterations: None,
+        retain_iterations: None,
     }));
     let (storage, seq, inst) = setup_with_ctx(vec![fe], json!({"items": [1, 2, 3]})).await;
     let reg = registry();
@@ -929,7 +929,7 @@ async fn retry_in_loop_per_iteration() {
         break_on: None,
         continue_on_error: false,
         poll_interval: None,
-    retain_iterations: None,
+        retain_iterations: None,
     }));
     let (storage, seq, inst) = setup(vec![lp]).await;
     let reg = registry();
@@ -950,7 +950,7 @@ async fn retry_counter_resets_between_loop_iterations() {
         break_on: None,
         continue_on_error: false,
         poll_interval: None,
-    retain_iterations: None,
+        retain_iterations: None,
     }));
     let (storage, seq, inst) = setup(vec![lp]).await;
     let (reg, _) = registry_with_flaky(1);
@@ -1080,7 +1080,7 @@ async fn loop_iteration_output_overrides_previous() {
         break_on: None,
         continue_on_error: false,
         poll_interval: None,
-    retain_iterations: None,
+        retain_iterations: None,
     }));
     let (storage, seq, inst) = setup(vec![lp, mk_step("after", "noop")]).await;
     let reg = registry();
@@ -1099,7 +1099,7 @@ async fn for_each_item_variable_in_scope() {
         item_var: "user".into(),
         body: vec![mk_step("process_user", "noop")],
         max_iterations: 100,
-    retain_iterations: None,
+        retain_iterations: None,
     }));
     let (storage, seq, inst) =
         setup_with_ctx(vec![fe], json!({"users": ["alice", "bob", "charlie"]})).await;
@@ -1118,7 +1118,7 @@ async fn for_each_index_variable_in_scope() {
         item_var: "item".into(),
         body: vec![mk_step("body", "noop")],
         max_iterations: 100,
-    retain_iterations: None,
+        retain_iterations: None,
     }));
     let (storage, seq, inst) = setup_with_ctx(vec![fe], json!({"items": [10, 20, 30]})).await;
     let reg = registry();
@@ -1443,7 +1443,7 @@ async fn for_each_max_concurrency_three_limits_parallel() {
         item_var: "item".into(),
         body: vec![mk_step("body", "noop")],
         max_iterations: 100,
-    retain_iterations: None,
+        retain_iterations: None,
     }));
     let (storage, seq, inst) = setup_with_ctx(vec![fe], json!({"items": [1, 2, 3, 4, 5]})).await;
     let reg = registry();
@@ -1461,7 +1461,7 @@ async fn for_each_sequential_order_preserved() {
         item_var: "item".into(),
         body: vec![mk_step("body", "noop")],
         max_iterations: 100,
-    retain_iterations: None,
+        retain_iterations: None,
     }));
     let (storage, seq, inst) =
         setup_with_ctx(vec![fe], json!({"items": ["a", "b", "c", "d"]})).await;
@@ -1669,7 +1669,7 @@ async fn for_each_hundred_items_completes() {
         item_var: "item".into(),
         body: vec![mk_step("body", "noop")],
         max_iterations: 200,
-    retain_iterations: None,
+        retain_iterations: None,
     }));
     let (storage, seq, inst) = setup_with_ctx(vec![fe], json!({"items": items})).await;
     let reg = registry();
@@ -1689,7 +1689,7 @@ async fn loop_thousand_iterations_completes() {
         break_on: None,
         continue_on_error: false,
         poll_interval: None,
-    retain_iterations: None,
+        retain_iterations: None,
     }));
     let (storage, seq, inst) = setup(vec![lp]).await;
     let reg = registry();
@@ -1778,7 +1778,7 @@ async fn pause_during_for_each_iteration() {
         item_var: "item".into(),
         body: vec![mk_step("body", "noop")],
         max_iterations: 100,
-    retain_iterations: None,
+        retain_iterations: None,
     }));
     let (storage, seq, inst) = setup_with_ctx(vec![fe], json!({"items": [1, 2, 3, 4, 5]})).await;
     let reg = registry();

@@ -293,7 +293,11 @@ async fn next_fires_unknown_id_returns_404() {
     let srv = spawn_test_server().await;
     let client = reqwest::Client::new();
     let resp = client
-        .get(format!("{}/cron/{}/next-fires", srv.base_url, Uuid::now_v7()))
+        .get(format!(
+            "{}/cron/{}/next-fires",
+            srv.base_url,
+            Uuid::now_v7()
+        ))
         .header("X-Tenant-Id", "t1")
         .send()
         .await

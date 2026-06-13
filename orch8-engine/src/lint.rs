@@ -1112,7 +1112,7 @@ mod tests {
             break_on: None,
             continue_on_error: false,
             poll_interval: None,
-        retain_iterations: None,
+            retain_iterations: None,
         }))]);
         let w = lint_sequence(&seq);
         assert!(!w.is_empty());
@@ -1129,7 +1129,7 @@ mod tests {
             break_on: None,
             continue_on_error: false,
             poll_interval: None,
-        retain_iterations: None,
+            retain_iterations: None,
         }))]);
         let w = lint_sequence(&seq);
         assert!(w.is_empty());
@@ -1428,7 +1428,7 @@ mod tests {
             item_var: "item".into(),
             body: vec![make_step("s1", "noop", json!({}))],
             max_iterations: 50,
-        retain_iterations: None,
+            retain_iterations: None,
         }))]);
         let w = lint_sequence(&seq);
         assert!(
@@ -1466,7 +1466,7 @@ mod tests {
             item_var: "item".into(),
             body: vec![make_step("s1", "noop", json!({}))],
             max_iterations: 50,
-        retain_iterations: None,
+            retain_iterations: None,
         }))]);
         let w = lint_sequence(&seq);
         assert!(

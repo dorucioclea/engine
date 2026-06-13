@@ -183,12 +183,11 @@ async fn replay(client: &Client, base: &str, instance_id: Uuid, against: i32) ->
     let target_json: Value = target.json().await?;
 
     // 2. The recorded per-block outputs → block_id → output (last attempt wins).
-    let outputs: Vec<Value> =
-        get_json(client, format!("{base}/instances/{instance_id}/outputs"))
-            .await?
-            .as_array()
-            .cloned()
-            .unwrap_or_default();
+    let outputs: Vec<Value> = get_json(client, format!("{base}/instances/{instance_id}/outputs"))
+        .await?
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
     let mut recorded: HashMap<String, Value> = HashMap::new();
     for o in &outputs {
         if let Some(bid) = o["block_id"].as_str() {
@@ -207,9 +206,7 @@ async fn replay(client: &Client, base: &str, instance_id: Uuid, against: i32) ->
     let replayed = run_replay(&target_json, &recorded, context_data).await?;
     let (added, removed, matched) = block_diff(&recorded_ids, &replayed);
 
-    println!(
-        "replay of {instance_id} (recorded v{orig_version}) against v{against} of {name}\n"
-    );
+    println!("replay of {instance_id} (recorded v{orig_version}) against v{against} of {name}\n");
     println!("  matched blocks: {matched}");
     if added.is_empty() && removed.is_empty() {
         println!("  no divergence — v{against} executes the same blocks for this input.");
@@ -220,11 +217,7 @@ async fn replay(client: &Client, base: &str, instance_id: Uuid, against: i32) ->
         for b in &removed {
             println!("  - {b}   (in the recorded run, skipped by v{against})");
         }
-        println!(
-            "\n  {} added, {} removed.",
-            added.len(),
-            removed.len()
-        );
+        println!("\n  {} added, {} removed.", added.len(), removed.len());
     }
 
     Ok(())
@@ -240,8 +233,7 @@ mod tests {
 
     #[test]
     fn identical_runs_have_no_diff() {
-        let (added, removed, matched) =
-            block_diff(&set(&["a", "b", "c"]), &set(&["a", "b", "c"]));
+        let (added, removed, matched) = block_diff(&set(&["a", "b", "c"]), &set(&["a", "b", "c"]));
         assert!(added.is_empty());
         assert!(removed.is_empty());
         assert_eq!(matched, 3);

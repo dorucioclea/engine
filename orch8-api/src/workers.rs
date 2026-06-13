@@ -225,7 +225,11 @@ async fn record_registration(
         tenant_id: tenant_id.map(|t| t.as_str().to_string()),
         last_seen_at: chrono::Utc::now(),
     };
-    if let Err(e) = state.storage.upsert_worker_registration(&registration).await {
+    if let Err(e) = state
+        .storage
+        .upsert_worker_registration(&registration)
+        .await
+    {
         tracing::warn!(
             error = %e,
             worker_id,
@@ -274,7 +278,14 @@ pub(crate) async fn poll_tasks(
     // Version pin: a worker below the (tenant, handler) min version is given no
     // tasks for that handler. Still record the registration so the operator can
     // see the stale-version worker is polling.
-    if version_pin_blocks(&state, scoped.as_ref(), &req.handler_name, req.version.as_deref()).await {
+    if version_pin_blocks(
+        &state,
+        scoped.as_ref(),
+        &req.handler_name,
+        req.version.as_deref(),
+    )
+    .await
+    {
         record_registration(
             &state,
             &req.worker_id,
@@ -346,7 +357,14 @@ pub(crate) async fn poll_tasks_from_queue(
     let scoped = crate::auth::scoped_tenant_id(&tenant_ctx, None);
 
     // Version pin (same as the default poll path).
-    if version_pin_blocks(&state, scoped.as_ref(), &req.handler_name, req.version.as_deref()).await {
+    if version_pin_blocks(
+        &state,
+        scoped.as_ref(),
+        &req.handler_name,
+        req.version.as_deref(),
+    )
+    .await
+    {
         record_registration(
             &state,
             &req.worker_id,
@@ -535,9 +553,9 @@ pub(crate) async fn list_handlers(
     let mut external: Vec<String> = registrations
         .into_iter()
         .filter(|reg| {
-            scoped.as_ref().is_none_or(|tid| {
-                reg.tenant_id.as_deref().is_none_or(|t| t == tid.as_str())
-            })
+            scoped
+                .as_ref()
+                .is_none_or(|tid| reg.tenant_id.as_deref().is_none_or(|t| t == tid.as_str()))
         })
         .map(|reg| reg.handler_name)
         .collect();
@@ -570,7 +588,11 @@ async fn persist_reported_logs(
     if logs.is_empty() {
         return;
     }
-    if let Err(e) = state.storage.append_step_logs(instance_id, block_id, logs).await {
+    if let Err(e) = state
+        .storage
+        .append_step_logs(instance_id, block_id, logs)
+        .await
+    {
         tracing::warn!(error = %e, "failed to persist worker-reported step logs");
     }
 }

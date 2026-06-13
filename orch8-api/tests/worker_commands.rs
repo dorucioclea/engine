@@ -53,7 +53,15 @@ async fn enqueue_list_and_ack_worker_commands() {
         .send()
         .await
         .unwrap();
-    assert_eq!(resp.json::<serde_json::Value>().await.unwrap().as_array().unwrap().len(), 0);
+    assert_eq!(
+        resp.json::<serde_json::Value>()
+            .await
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .len(),
+        0
+    );
 
     // Ack the drain command.
     let resp = client

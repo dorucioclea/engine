@@ -845,7 +845,7 @@ mod tests {
             break_on: None,
             continue_on_error: false,
             poll_interval: None,
-        retain_iterations: None,
+            retain_iterations: None,
         };
         let registry = HandlerRegistry::new();
         let tree = s.get_execution_tree(inst_id).await.unwrap();
@@ -935,7 +935,7 @@ mod tests {
             break_on: None,
             continue_on_error: false,
             poll_interval: None,
-        retain_iterations: None,
+            retain_iterations: None,
         };
         let registry = HandlerRegistry::new();
         let tree = s.get_execution_tree(inst_id).await.unwrap();
@@ -1003,7 +1003,7 @@ mod tests {
             break_on: None,
             continue_on_error: false,
             poll_interval: None,
-        retain_iterations: None,
+            retain_iterations: None,
         };
         let registry = HandlerRegistry::new();
         let tree = s.get_execution_tree(inst_id).await.unwrap();

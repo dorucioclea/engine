@@ -645,7 +645,7 @@ async fn ensure_tree_loop_creates_body_nodes() {
         break_on: None,
         continue_on_error: false,
         poll_interval: None,
-    retain_iterations: None,
+        retain_iterations: None,
     }));
     let (storage, seq, inst) = setup(vec![lp]).await;
     let reg = registry();
@@ -665,7 +665,7 @@ async fn ensure_tree_for_each_creates_iteration_nodes() {
         item_var: "item".into(),
         body: vec![mk_step("body", "noop")],
         max_iterations: 100,
-    retain_iterations: None,
+        retain_iterations: None,
     }));
     let (storage, seq, inst) = setup_with_ctx(vec![fe], json!({"items": [1, 2, 3]})).await;
     let reg = registry();
@@ -705,7 +705,7 @@ async fn ensure_tree_nested_blocks_have_correct_parent() {
         break_on: None,
         continue_on_error: false,
         poll_interval: None,
-    retain_iterations: None,
+        retain_iterations: None,
     }));
     let (storage, seq, inst) = setup(vec![lp]).await;
     let reg = registry();
@@ -1008,7 +1008,7 @@ async fn ensure_tree_deep_nesting_five_levels() {
         break_on: None,
         continue_on_error: false,
         poll_interval: None,
-    retain_iterations: None,
+        retain_iterations: None,
     }));
     let (storage, seq, inst) = setup(vec![deep]).await;
     let reg = registry();
@@ -1700,7 +1700,7 @@ async fn dispatch_loop_iterates_body() {
         break_on: None,
         continue_on_error: false,
         poll_interval: None,
-    retain_iterations: None,
+        retain_iterations: None,
     }));
     let (storage, seq, inst) = setup(vec![lp]).await;
     let reg = registry();
@@ -1718,7 +1718,7 @@ async fn dispatch_for_each_iterates_items() {
         item_var: "item".into(),
         body: vec![mk_step("body", "noop")],
         max_iterations: 100,
-    retain_iterations: None,
+        retain_iterations: None,
     }));
     let (storage, seq, inst) = setup_with_ctx(vec![fe], json!({"items": ["a", "b", "c"]})).await;
     let reg = registry();
@@ -2495,7 +2495,7 @@ async fn drive_loop_with_condition_exit() {
         break_on: None,
         continue_on_error: false,
         poll_interval: None,
-    retain_iterations: None,
+        retain_iterations: None,
     }));
     let (storage, seq, inst) = setup(vec![lp]).await;
     let reg = registry();
@@ -2551,7 +2551,7 @@ async fn drive_for_each_with_item_data() {
         item_var: "item".into(),
         body: vec![mk_step("body", "count")],
         max_iterations: 100,
-    retain_iterations: None,
+        retain_iterations: None,
     }));
     let (storage, seq, inst) = setup_with_ctx(vec![fe], json!({"items": [1, 2, 3, 4, 5]})).await;
     drive(&storage, &reg, inst.id, &seq).await;
@@ -2609,7 +2609,7 @@ async fn drive_complex_mixed_sequence_all_block_types() {
             break_on: None,
             continue_on_error: false,
             poll_interval: None,
-        retain_iterations: None,
+            retain_iterations: None,
         })),
         BlockDefinition::ForEach(Box::new(ForEachDef {
             id: BlockId::new("fe"),
@@ -2617,7 +2617,7 @@ async fn drive_complex_mixed_sequence_all_block_types() {
             item_var: "item".into(),
             body: vec![mk_step("fe_body", "noop")],
             max_iterations: 100,
-        retain_iterations: None,
+            retain_iterations: None,
         })),
         BlockDefinition::TryCatch(Box::new(TryCatchDef {
             id: BlockId::new("tc"),

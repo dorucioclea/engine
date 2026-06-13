@@ -913,10 +913,8 @@ async fn run_cleanup_hooks(
         };
         match handler(ctx).await {
             Ok(output) => {
-                let output_size = u32::try_from(
-                    serde_json::to_vec(&output).map_or(0, |v| v.len()),
-                )
-                .unwrap_or(u32::MAX);
+                let output_size = u32::try_from(serde_json::to_vec(&output).map_or(0, |v| v.len()))
+                    .unwrap_or(u32::MAX);
                 let bo = orch8_types::output::BlockOutput {
                     id: uuid::Uuid::now_v7(),
                     instance_id: instance.id,
@@ -1014,8 +1012,7 @@ async fn process_sla_breaches(
 
         if let Some(max_runtime) = sla.max_runtime {
             let elapsed = now - instance.created_at;
-            let limit =
-                chrono::Duration::from_std(max_runtime).unwrap_or(chrono::TimeDelta::MAX);
+            let limit = chrono::Duration::from_std(max_runtime).unwrap_or(chrono::TimeDelta::MAX);
             if elapsed > limit {
                 candidates.push(Candidate {
                     idx,
@@ -1034,8 +1031,7 @@ async fn process_sla_breaches(
                 instance.context.runtime.current_step_started_at,
             ) {
                 let elapsed = now - started;
-                let limit =
-                    chrono::Duration::from_std(max_step).unwrap_or(chrono::TimeDelta::MAX);
+                let limit = chrono::Duration::from_std(max_step).unwrap_or(chrono::TimeDelta::MAX);
                 if elapsed > limit {
                     candidates.push(Candidate {
                         idx,

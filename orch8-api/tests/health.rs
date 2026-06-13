@@ -22,8 +22,14 @@ async fn info_returns_version_and_env_banner_fields() {
     // The banner fields are always present in the shape (string when the operator
     // sets ORCH8_ENV_LABEL/ORCH8_ENV_COLOR, JSON null otherwise) — never absent,
     // so the dashboard can rely on the keys existing.
-    assert!(body.get("env_label").is_some(), "env_label key must be present");
-    assert!(body.get("env_color").is_some(), "env_color key must be present");
+    assert!(
+        body.get("env_label").is_some(),
+        "env_label key must be present"
+    );
+    assert!(
+        body.get("env_color").is_some(),
+        "env_color key must be present"
+    );
 }
 
 #[tokio::test]

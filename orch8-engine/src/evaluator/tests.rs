@@ -139,7 +139,7 @@ fn find_block_nested_in_loop_body() {
         break_on: None,
         continue_on_error: false,
         poll_interval: None,
-    retain_iterations: None,
+        retain_iterations: None,
     }));
     assert!(find_block(std::slice::from_ref(&loop_block), &BlockId::new("inner")).is_some());
     assert!(find_block(&[loop_block], &BlockId::new("loop")).is_some());
@@ -154,7 +154,7 @@ fn find_block_nested_in_for_each_and_router() {
         item_var: "item".into(),
         body: vec![mk_step("fe-child")],
         max_iterations: 5,
-    retain_iterations: None,
+        retain_iterations: None,
     }));
     let router = BlockDefinition::Router(Box::new(RouterDef {
         id: BlockId::new("r"),
@@ -461,7 +461,7 @@ fn block_meta_recognizes_each_variant() {
         break_on: None,
         continue_on_error: false,
         poll_interval: None,
-    retain_iterations: None,
+        retain_iterations: None,
     }));
     let fe = BlockDefinition::ForEach(Box::new(ForEachDef {
         id: BlockId::new("fe"),
@@ -469,7 +469,7 @@ fn block_meta_recognizes_each_variant() {
         item_var: "i".into(),
         body: vec![],
         max_iterations: 1,
-    retain_iterations: None,
+        retain_iterations: None,
     }));
     let router = BlockDefinition::Router(Box::new(RouterDef {
         id: BlockId::new("r"),
@@ -1769,7 +1769,10 @@ async fn compact_iteration_outputs_retains_newest_n() {
     assert_eq!(deleted, 3, "5 rows minus retain=2 → 3 deleted");
 
     let all = s.get_all_outputs(inst_id).await.unwrap();
-    let body_rows: Vec<_> = all.iter().filter(|o| o.block_id.as_str() == "body").collect();
+    let body_rows: Vec<_> = all
+        .iter()
+        .filter(|o| o.block_id.as_str() == "body")
+        .collect();
     assert_eq!(body_rows.len(), 2, "two newest body rows retained");
     // The retained rows are the newest (i == 3, 4).
     let mut kept: Vec<u64> = body_rows
@@ -1779,7 +1782,12 @@ async fn compact_iteration_outputs_retains_newest_n() {
     kept.sort_unstable();
     assert_eq!(kept, vec![3, 4]);
     // The unrelated block is untouched.
-    assert_eq!(all.iter().filter(|o| o.block_id.as_str() == "other").count(), 1);
+    assert_eq!(
+        all.iter()
+            .filter(|o| o.block_id.as_str() == "other")
+            .count(),
+        1
+    );
 }
 
 // COMPACT2: retain >= row count is a no-op; retain 0 is a no-op.
@@ -1809,9 +1817,19 @@ async fn compact_iteration_outputs_noop_cases() {
 
     let body = vec![mk_step("body")];
     // retain larger than count → nothing deleted.
-    assert_eq!(super::compact_iteration_outputs(&s, inst_id, &body, 10).await.unwrap(), 0);
+    assert_eq!(
+        super::compact_iteration_outputs(&s, inst_id, &body, 10)
+            .await
+            .unwrap(),
+        0
+    );
     // retain 0 → treated as "retain everything", nothing deleted.
-    assert_eq!(super::compact_iteration_outputs(&s, inst_id, &body, 0).await.unwrap(), 0);
+    assert_eq!(
+        super::compact_iteration_outputs(&s, inst_id, &body, 0)
+            .await
+            .unwrap(),
+        0
+    );
     assert_eq!(s.get_all_outputs(inst_id).await.unwrap().len(), 2);
 }
 
@@ -1849,7 +1867,9 @@ async fn compact_iteration_outputs_is_per_block_and_boundary_exact() {
 
     // Exact boundary: retain == 3 rows per block → nothing deleted.
     assert_eq!(
-        super::compact_iteration_outputs(&s, inst_id, &body, 3).await.unwrap(),
+        super::compact_iteration_outputs(&s, inst_id, &body, 3)
+            .await
+            .unwrap(),
         0,
         "retain equal to row count must delete nothing"
     );
@@ -1865,6 +1885,10 @@ async fn compact_iteration_outputs_is_per_block_and_boundary_exact() {
     assert_eq!(all.iter().filter(|o| o.block_id.as_str() == "b").count(), 1);
     // Each retained row is the newest iteration (i == 2) for its block.
     for o in &all {
-        assert_eq!(o.output["i"].as_u64().unwrap(), 2, "newest iteration retained per block");
+        assert_eq!(
+            o.output["i"].as_u64().unwrap(),
+            2,
+            "newest iteration retained per block"
+        );
     }
 }

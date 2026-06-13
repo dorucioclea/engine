@@ -621,5 +621,8 @@ async fn fork_with_injected_signals_enqueues_before_arming() {
         .unwrap()
         .unwrap();
     assert_eq!(fork.state, InstanceState::Scheduled);
-    assert!(fork.next_fire_at.is_some(), "fork must be claimable after arming");
+    assert!(
+        fork.next_fire_at.is_some(),
+        "fork must be claimable after arming"
+    );
 }

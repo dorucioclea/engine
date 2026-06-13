@@ -21,7 +21,11 @@ fn row_to_config(
             DispatchMode::Poll
         },
         push_url: row.get("push_url"),
-        secret: if include_secret { row.get("secret") } else { None },
+        secret: if include_secret {
+            row.get("secret")
+        } else {
+            None
+        },
         created_at: parse_ts(row.get::<&str, _>("created_at"))?,
         updated_at: parse_ts(row.get::<&str, _>("updated_at"))?,
     })

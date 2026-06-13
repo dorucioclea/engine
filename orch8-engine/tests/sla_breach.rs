@@ -32,7 +32,11 @@ async fn run_tick(storage: &Arc<dyn StorageBackend>, handlers: &Arc<HandlerRegis
         .unwrap();
 }
 
-async fn sentinel_count(storage: &Arc<dyn StorageBackend>, inst_id: orch8_types::ids::InstanceId, block: &str) -> usize {
+async fn sentinel_count(
+    storage: &Arc<dyn StorageBackend>,
+    inst_id: orch8_types::ids::InstanceId,
+    block: &str,
+) -> usize {
     storage
         .get_all_outputs(inst_id)
         .await

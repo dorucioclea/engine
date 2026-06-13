@@ -494,7 +494,10 @@ async fn version_pin_blocks_old_worker_and_allows_new() {
         .send()
         .await
         .unwrap();
-    assert_eq!(resp.json::<Vec<serde_json::Value>>().await.unwrap().len(), 0);
+    assert_eq!(
+        resp.json::<Vec<serde_json::Value>>().await.unwrap().len(),
+        0
+    );
 
     // A 2.1 worker satisfies the pin and claims the task.
     let resp = client
@@ -531,7 +534,10 @@ async fn version_pin_crud() {
         .unwrap();
 
     let resp = client
-        .get(format!("{}/workers/version-pins?tenant_id=t1", srv.base_url))
+        .get(format!(
+            "{}/workers/version-pins?tenant_id=t1",
+            srv.base_url
+        ))
         .header("X-Tenant-Id", "t1")
         .send()
         .await
@@ -554,7 +560,15 @@ async fn version_pin_crud() {
         .send()
         .await
         .unwrap();
-    assert_eq!(resp.json::<serde_json::Value>().await.unwrap().as_array().unwrap().len(), 0);
+    assert_eq!(
+        resp.json::<serde_json::Value>()
+            .await
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .len(),
+        0
+    );
 }
 
 #[tokio::test]
@@ -673,5 +687,13 @@ async fn instance_logs_empty_when_none() {
         .await
         .unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
-    assert_eq!(resp.json::<serde_json::Value>().await.unwrap().as_array().unwrap().len(), 0);
+    assert_eq!(
+        resp.json::<serde_json::Value>()
+            .await
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .len(),
+        0
+    );
 }

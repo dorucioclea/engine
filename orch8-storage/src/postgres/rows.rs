@@ -43,51 +43,51 @@ impl SequenceRow {
                     None,
                 )
             } else {
-            let blocks = serde_json::from_value(
-                self.definition
-                    .get("blocks")
-                    .cloned()
-                    .unwrap_or(serde_json::Value::Array(vec![])),
-            )?;
-            let interceptors = self.definition.get("interceptors").and_then(|v| {
-                if v.is_null() {
-                    None
-                } else {
-                    serde_json::from_value(v.clone()).ok()
-                }
-            });
-            let input_schema = self
-                .definition
-                .get("input_schema")
-                .filter(|v| !v.is_null())
-                .cloned();
-            let sla = self.definition.get("sla").and_then(|v| {
-                if v.is_null() {
-                    None
-                } else {
-                    serde_json::from_value(v.clone()).ok()
-                }
-            });
-            let parse_blocks = |key: &str| {
-                self.definition.get(key).and_then(|v| {
+                let blocks = serde_json::from_value(
+                    self.definition
+                        .get("blocks")
+                        .cloned()
+                        .unwrap_or(serde_json::Value::Array(vec![])),
+                )?;
+                let interceptors = self.definition.get("interceptors").and_then(|v| {
                     if v.is_null() {
                         None
                     } else {
                         serde_json::from_value(v.clone()).ok()
                     }
-                })
+                });
+                let input_schema = self
+                    .definition
+                    .get("input_schema")
+                    .filter(|v| !v.is_null())
+                    .cloned();
+                let sla = self.definition.get("sla").and_then(|v| {
+                    if v.is_null() {
+                        None
+                    } else {
+                        serde_json::from_value(v.clone()).ok()
+                    }
+                });
+                let parse_blocks = |key: &str| {
+                    self.definition.get(key).and_then(|v| {
+                        if v.is_null() {
+                            None
+                        } else {
+                            serde_json::from_value(v.clone()).ok()
+                        }
+                    })
+                };
+                let on_failure = parse_blocks("on_failure");
+                let on_cancel = parse_blocks("on_cancel");
+                (
+                    blocks,
+                    interceptors,
+                    input_schema,
+                    sla,
+                    on_failure,
+                    on_cancel,
+                )
             };
-            let on_failure = parse_blocks("on_failure");
-            let on_cancel = parse_blocks("on_cancel");
-            (
-                blocks,
-                interceptors,
-                input_schema,
-                sla,
-                on_failure,
-                on_cancel,
-            )
-        };
         Ok(SequenceDefinition {
             id: SequenceId::from_uuid(self.id),
             tenant_id: TenantId::unchecked(self.tenant_id),

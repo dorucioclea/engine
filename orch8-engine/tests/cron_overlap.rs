@@ -102,7 +102,9 @@ async fn allow_policy_fires_despite_active_run() {
     s.create_cron_schedule(&sched).await.unwrap();
     seed_active_run(&s, seq_id, sched.id).await;
 
-    process_cron_tick(&s, &SharedClock::default()).await.unwrap();
+    process_cron_tick(&s, &SharedClock::default())
+        .await
+        .unwrap();
 
     // 1 pre-existing active run + 1 newly fired = 2.
     assert_eq!(count_instances_for(&s, seq_id).await, 2);
@@ -118,7 +120,9 @@ async fn skip_policy_skips_and_counts_when_run_active() {
     s.create_cron_schedule(&sched).await.unwrap();
     seed_active_run(&s, seq_id, sched.id).await;
 
-    process_cron_tick(&s, &SharedClock::default()).await.unwrap();
+    process_cron_tick(&s, &SharedClock::default())
+        .await
+        .unwrap();
 
     // No new instance: still just the pre-existing active run.
     assert_eq!(count_instances_for(&s, seq_id).await, 1);
@@ -137,7 +141,9 @@ async fn skip_policy_fires_when_no_active_run() {
     s.create_cron_schedule(&sched).await.unwrap();
     // No active run seeded.
 
-    process_cron_tick(&s, &SharedClock::default()).await.unwrap();
+    process_cron_tick(&s, &SharedClock::default())
+        .await
+        .unwrap();
 
     assert_eq!(count_instances_for(&s, seq_id).await, 1);
     let after = s.get_cron_schedule(sched.id).await.unwrap().unwrap();
@@ -152,7 +158,9 @@ async fn cancel_previous_cancels_active_then_fires() {
     s.create_cron_schedule(&sched).await.unwrap();
     let prev = seed_active_run(&s, seq_id, sched.id).await;
 
-    process_cron_tick(&s, &SharedClock::default()).await.unwrap();
+    process_cron_tick(&s, &SharedClock::default())
+        .await
+        .unwrap();
 
     // Previous run cancelled.
     let prev_inst = s.get_instance(prev).await.unwrap().unwrap();
@@ -169,7 +177,9 @@ async fn buffer_one_defers_without_firing_when_active() {
     s.create_cron_schedule(&sched).await.unwrap();
     seed_active_run(&s, seq_id, sched.id).await;
 
-    process_cron_tick(&s, &SharedClock::default()).await.unwrap();
+    process_cron_tick(&s, &SharedClock::default())
+        .await
+        .unwrap();
 
     // No new instance — the occurrence is deferred, not fired or skipped.
     assert_eq!(count_instances_for(&s, seq_id).await, 1);
@@ -186,13 +196,12 @@ async fn fired_instance_is_stamped_with_cron_id() {
     let sched = mk_schedule(seq_id, OverlapPolicy::Allow);
     s.create_cron_schedule(&sched).await.unwrap();
 
-    process_cron_tick(&s, &SharedClock::default()).await.unwrap();
+    process_cron_tick(&s, &SharedClock::default())
+        .await
+        .unwrap();
 
     // The single fired instance must carry the attribution stamp so future
     // overlap checks can find it.
-    let active = s
-        .active_instance_ids_for_cron(sched.id, 100)
-        .await
-        .unwrap();
+    let active = s.active_instance_ids_for_cron(sched.id, 100).await.unwrap();
     assert_eq!(active.len(), 1);
 }

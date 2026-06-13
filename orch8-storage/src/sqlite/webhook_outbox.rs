@@ -15,9 +15,7 @@ fn row_to_entry(row: &sqlx::sqlite::SqliteRow) -> Result<WebhookOutboxEntry, Sto
             .map_err(|e| StorageError::Query(e.to_string()))?,
         url: row.get("url"),
         event_type: row.get("event_type"),
-        instance_id: instance_id
-            .as_deref()
-            .and_then(|s| Uuid::parse_str(s).ok()),
+        instance_id: instance_id.as_deref().and_then(|s| Uuid::parse_str(s).ok()),
         payload: serde_json::from_str(&payload_str)?,
         attempts: row.get("attempts"),
         last_error: row.get("last_error"),

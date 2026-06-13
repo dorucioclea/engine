@@ -16,7 +16,11 @@ fn row_to_config(row: &sqlx::postgres::PgRow, include_secret: bool) -> QueueDisp
             DispatchMode::Poll
         },
         push_url: row.get("push_url"),
-        secret: if include_secret { row.get("secret") } else { None },
+        secret: if include_secret {
+            row.get("secret")
+        } else {
+            None
+        },
         created_at: row.get("created_at"),
         updated_at: row.get("updated_at"),
     }

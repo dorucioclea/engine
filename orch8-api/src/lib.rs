@@ -143,5 +143,6 @@ pub fn build_router(state: AppState) -> Router {
         // clients and SDKs continue to work during the migration window.
         // TODO(v2): remove this bare merge once all clients use /api/v1.
         .merge(api)
+        .merge(health::routes())
         .with_state(state)
 }

@@ -45,8 +45,12 @@ async fn captures_handler_logs_scoped_to_step_span() {
         let logs = storage.list_step_logs(instance_id).await.unwrap();
         if logs.len() >= 2 {
             assert!(logs.iter().all(|l| l.block_id == "step_a"));
-            assert!(logs.iter().any(|l| l.message.contains("handler started") && l.level == "info"));
-            assert!(logs.iter().any(|l| l.message.contains("something noteworthy") && l.level == "warn"));
+            assert!(logs
+                .iter()
+                .any(|l| l.message.contains("handler started") && l.level == "info"));
+            assert!(logs
+                .iter()
+                .any(|l| l.message.contains("something noteworthy") && l.level == "warn"));
             assert_eq!(logs.len(), 2, "the out-of-span event must not be captured");
             return;
         }

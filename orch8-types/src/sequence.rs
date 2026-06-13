@@ -1124,7 +1124,7 @@ mod tests {
                 break_on: None,
                 continue_on_error: false,
                 poll_interval: None,
-            retain_iterations: None,
+                retain_iterations: None,
             }));
         }
         inner
@@ -1751,7 +1751,7 @@ mod tests {
             break_on: None,
             continue_on_error: false,
             poll_interval: None,
-        retain_iterations: None,
+            retain_iterations: None,
         }))]);
         let err = seq.validate().unwrap_err();
         assert!(err.to_string().contains("body must not be empty"));
@@ -1767,7 +1767,7 @@ mod tests {
             break_on: None,
             continue_on_error: false,
             poll_interval: None,
-        retain_iterations: None,
+            retain_iterations: None,
         }))]);
         let err = seq.validate().unwrap_err();
         assert!(err.to_string().contains("condition must not be empty"));
@@ -1783,7 +1783,7 @@ mod tests {
             break_on: None,
             continue_on_error: false,
             poll_interval: None,
-        retain_iterations: None,
+            retain_iterations: None,
         }))]);
         let err = seq.validate().unwrap_err();
         assert!(err.to_string().contains("max_iterations must be > 0"));
@@ -1797,7 +1797,7 @@ mod tests {
             item_var: "item".into(),
             body: vec![step("s1")],
             max_iterations: 10,
-        retain_iterations: None,
+            retain_iterations: None,
         }))]);
         let err = seq.validate().unwrap_err();
         assert!(err.to_string().contains("collection must not be empty"));
@@ -1811,7 +1811,7 @@ mod tests {
             item_var: "item".into(),
             body: vec![],
             max_iterations: 10,
-        retain_iterations: None,
+            retain_iterations: None,
         }))]);
         let err = seq.validate().unwrap_err();
         assert!(err.to_string().contains("body must not be empty"));

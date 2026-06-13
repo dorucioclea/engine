@@ -48,7 +48,9 @@ struct SpanIdentVisitor {
 impl Visit for SpanIdentVisitor {
     fn record_debug(&mut self, field: &Field, value: &dyn std::fmt::Debug) {
         match field.name() {
-            "instance_id" => self.instance_id = Some(format!("{value:?}").trim_matches('"').to_string()),
+            "instance_id" => {
+                self.instance_id = Some(format!("{value:?}").trim_matches('"').to_string())
+            }
             "block_id" => self.block_id = Some(format!("{value:?}").trim_matches('"').to_string()),
             _ => {}
         }

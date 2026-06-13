@@ -95,7 +95,12 @@ fn decide(server: Option<&serde_json::Value>, local: &serde_json::Value) -> Appl
 }
 
 /// Apply a single sequence JSON file. Returns a human-readable status line.
-async fn apply_one(client: &Client, base: &str, file: &std::path::Path, dry_run: bool) -> Result<String> {
+async fn apply_one(
+    client: &Client,
+    base: &str,
+    file: &std::path::Path,
+    dry_run: bool,
+) -> Result<String> {
     let content = std::fs::read_to_string(file)
         .map_err(|e| anyhow::anyhow!("failed to read {}: {e}", file.display()))?;
     let mut local: serde_json::Value = serde_json::from_str(&content)
@@ -125,7 +130,11 @@ async fn apply_one(client: &Client, base: &str, file: &std::path::Path, dry_run:
     let server = if resp.status().as_u16() == 404 {
         None
     } else if resp.status().is_success() {
-        Some(resp.json::<serde_json::Value>().await.unwrap_or(serde_json::Value::Null))
+        Some(
+            resp.json::<serde_json::Value>()
+                .await
+                .unwrap_or(serde_json::Value::Null),
+        )
     } else {
         let status = resp.status();
         anyhow::bail!("{}: server returned {status}", file.display());
@@ -313,7 +322,10 @@ mod tests {
         // serializer that emits `"sla": null` would force a spurious version bump.
         let with_null = json!({ "blocks": [1], "sla": null, "on_failure": null });
         let absent = json!({ "blocks": [1] });
-        assert_eq!(content_fingerprint(&with_null), content_fingerprint(&absent));
+        assert_eq!(
+            content_fingerprint(&with_null),
+            content_fingerprint(&absent)
+        );
     }
 
     #[test]
@@ -321,7 +333,13 @@ mod tests {
         // Changing any whitelisted content key (beyond `blocks`) must change the
         // fingerprint — guards against a key being dropped from the whitelist.
         let base = json!({ "blocks": [1] });
-        for key in ["interceptors", "input_schema", "sla", "on_failure", "on_cancel"] {
+        for key in [
+            "interceptors",
+            "input_schema",
+            "sla",
+            "on_failure",
+            "on_cancel",
+        ] {
             let mut changed = base.clone();
             changed[key] = json!({ "marker": key });
             assert_ne!(
@@ -335,7 +353,8 @@ mod tests {
     #[test]
     fn decide_unchanged_with_missing_server_version_defaults_to_zero() {
         // Server record matches content but carries no `version` field.
-        let server = json!({ "blocks": [{ "type": "step", "id": "s1", "handler": "a", "params": {} }] });
+        let server =
+            json!({ "blocks": [{ "type": "step", "id": "s1", "handler": "a", "params": {} }] });
         let local = seq(7, "a");
         assert_eq!(decide(Some(&server), &local), ApplyDecision::Unchanged(0));
     }
@@ -343,7 +362,8 @@ mod tests {
     #[test]
     fn decide_changed_with_missing_server_version_applies_v1() {
         // Changed content + absent server version → bump from the 0 fallback to 1.
-        let server = json!({ "blocks": [{ "type": "step", "id": "s1", "handler": "a", "params": {} }] });
+        let server =
+            json!({ "blocks": [{ "type": "step", "id": "s1", "handler": "a", "params": {} }] });
         let local = seq(7, "b");
         assert_eq!(decide(Some(&server), &local), ApplyDecision::Apply(1));
     }

@@ -483,7 +483,10 @@ async fn list_instances_filters_by_metadata_key_value() {
 
     // Two-key filter that matches both keys on the prod row -> still one.
     let resp = client
-        .get(format!("{}/instances?metadata.env=prod&metadata.team=core", srv.base_url))
+        .get(format!(
+            "{}/instances?metadata.env=prod&metadata.team=core",
+            srv.base_url
+        ))
         .header("X-Tenant-Id", "t1")
         .send()
         .await
@@ -660,7 +663,8 @@ async fn batch_action_retry_skips_non_failed_instances() {
             .unwrap();
     }
 
-    let action = json!({ "filter": { "tenant_id": "t1", "metadata": { "grp": "rt" } }, "action": "retry" });
+    let action =
+        json!({ "filter": { "tenant_id": "t1", "metadata": { "grp": "rt" } }, "action": "retry" });
     let resp = client
         .post(format!("{}/instances/batch-action", srv.base_url))
         .header("X-Tenant-Id", "t1")
@@ -790,7 +794,11 @@ async fn get_children_unknown_parent_returns_404() {
     let srv = spawn_test_server().await;
     let client = reqwest::Client::new();
     let resp = client
-        .get(format!("{}/instances/{}/children", srv.base_url, uuid::Uuid::now_v7()))
+        .get(format!(
+            "{}/instances/{}/children",
+            srv.base_url,
+            uuid::Uuid::now_v7()
+        ))
         .header("X-Tenant-Id", "t1")
         .send()
         .await

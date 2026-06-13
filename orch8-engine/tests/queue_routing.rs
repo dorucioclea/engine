@@ -52,7 +52,9 @@ async fn unconditional_rule_overrides_queue() {
     assert_eq!(got.as_deref(), Some("vip"));
     // A different handler is unaffected.
     assert_eq!(
-        resolve_queue(s.as_ref(), &t, "other", Some("default".into())).await.as_deref(),
+        resolve_queue(s.as_ref(), &t, "other", Some("default".into()))
+            .await
+            .as_deref(),
         Some("default")
     );
 }
@@ -83,12 +85,16 @@ async fn match_queue_only_applies_on_match() {
     let t = TenantId::unchecked("t1");
     // Matching current queue -> remapped.
     assert_eq!(
-        resolve_queue(s.as_ref(), &t, "h", Some("slow".into())).await.as_deref(),
+        resolve_queue(s.as_ref(), &t, "h", Some("slow".into()))
+            .await
+            .as_deref(),
         Some("fast")
     );
     // Non-matching current queue -> untouched.
     assert_eq!(
-        resolve_queue(s.as_ref(), &t, "h", Some("other".into())).await.as_deref(),
+        resolve_queue(s.as_ref(), &t, "h", Some("other".into()))
+            .await
+            .as_deref(),
         Some("other")
     );
 }
@@ -101,7 +107,9 @@ async fn disabled_rule_is_ignored() {
     s.create_queue_routing_rule(&rule).await.unwrap();
     let t = TenantId::unchecked("t1");
     assert_eq!(
-        resolve_queue(s.as_ref(), &t, "h", Some("default".into())).await.as_deref(),
+        resolve_queue(s.as_ref(), &t, "h", Some("default".into()))
+            .await
+            .as_deref(),
         Some("default")
     );
 }

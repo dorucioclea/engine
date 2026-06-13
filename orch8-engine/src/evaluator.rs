@@ -282,7 +282,10 @@ fn build_nodes(
 /// Collect every block id reachable inside `blocks` (the block itself plus all
 /// descendants), mirroring `build_nodes`' recursion. Used to scope output
 /// compaction to a loop/foreach body.
-fn collect_body_block_ids(blocks: &[BlockDefinition], out: &mut std::collections::HashSet<BlockId>) {
+fn collect_body_block_ids(
+    blocks: &[BlockDefinition],
+    out: &mut std::collections::HashSet<BlockId>,
+) {
     for block in blocks {
         out.insert(block_meta(block).0.clone());
         match block {

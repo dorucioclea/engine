@@ -31,7 +31,10 @@ async fn routing_rule_crud_round_trip() {
 
     // List filtered by handler.
     let resp = client
-        .get(format!("{}/routing-rules?handler_name=email_send", srv.base_url))
+        .get(format!(
+            "{}/routing-rules?handler_name=email_send",
+            srv.base_url
+        ))
         .header("X-Tenant-Id", "t1")
         .send()
         .await

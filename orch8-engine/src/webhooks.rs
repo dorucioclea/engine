@@ -191,7 +191,10 @@ async fn send_with_retry(
 /// Redeliver a parked webhook to its original URL — one fresh retry pass using
 /// the engine's webhook config for signing. `Ok(())` means the caller should
 /// delete the outbox row; `Err(reason)` means it should stay parked.
-pub async fn redeliver(entry: &WebhookOutboxEntry, cancel: &CancellationToken) -> Result<(), String> {
+pub async fn redeliver(
+    entry: &WebhookOutboxEntry,
+    cancel: &CancellationToken,
+) -> Result<(), String> {
     let event: WebhookEvent =
         serde_json::from_value(entry.payload.clone()).map_err(|e| format!("bad payload: {e}"))?;
     let (timeout, max_retries, secret) = match OUTBOX_CONFIG.get() {

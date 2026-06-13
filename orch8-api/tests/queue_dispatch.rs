@@ -62,5 +62,13 @@ async fn dispatch_config_crud() {
         .send()
         .await
         .unwrap();
-    assert_eq!(resp.json::<serde_json::Value>().await.unwrap().as_array().unwrap().len(), 0);
+    assert_eq!(
+        resp.json::<serde_json::Value>()
+            .await
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .len(),
+        0
+    );
 }
