@@ -77,14 +77,28 @@ pub(crate) async fn create_policy(
             "sequence_name is required".into(),
         ));
     }
-    if req.error_rate_threshold < 0.0 || req.error_rate_threshold > 1.0 {
+    if !req.error_rate_threshold.is_finite()
+        || req.error_rate_threshold < 0.0
+        || req.error_rate_threshold > 1.0
+    {
         return Err(ApiError::InvalidArgument(
-            "error_rate_threshold must be in [0.0, 1.0]".into(),
+            "error_rate_threshold must be a finite number in [0.0, 1.0]".into(),
         ));
     }
     if req.time_window_secs <= 0 {
         return Err(ApiError::InvalidArgument(
             "time_window_secs must be positive".into(),
+        ));
+    }
+    let invalid_window = |v: i32| !(0..=86_400).contains(&v);
+    if req.cooldown_secs.is_some_and(invalid_window) {
+        return Err(ApiError::InvalidArgument(
+            "cooldown_secs must be between 0 and 86400".into(),
+        ));
+    }
+    if req.confirmation_window_secs.is_some_and(invalid_window) {
+        return Err(ApiError::InvalidArgument(
+            "confirmation_window_secs must be between 0 and 86400".into(),
         ));
     }
 

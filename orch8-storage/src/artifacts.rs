@@ -37,7 +37,7 @@ pub fn require_store(
 }
 
 /// Configuration for an S3-compatible artifact backend.
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Default)]
 pub struct S3Config {
     pub bucket: String,
     pub region: String,
@@ -47,6 +47,19 @@ pub struct S3Config {
     pub secret_access_key: String,
     /// Allow plain HTTP (e.g. local `MinIO`). Production S3/R2 use HTTPS.
     pub allow_http: bool,
+}
+
+impl std::fmt::Debug for S3Config {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("S3Config")
+            .field("bucket", &self.bucket)
+            .field("region", &self.region)
+            .field("endpoint", &self.endpoint)
+            .field("access_key_id", &self.access_key_id)
+            .field("secret_access_key", &"<redacted>")
+            .field("allow_http", &self.allow_http)
+            .finish()
+    }
 }
 
 /// Durable artifact store over an `object_store` backend.
@@ -125,6 +138,10 @@ impl ObjectArtifactStore {
         format!("{instance_id}/{artifact_id}")
     }
 
+    /// Maximum artifact payload size. A hard cap prevents a single request from
+    /// exhausting memory or object-store quota. Make configurable if needed.
+    const MAX_ARTIFACT_BYTES: usize = 100 * 1024 * 1024; // 100 MiB
+
     /// Store `bytes` and return a durable reference. Takes owned [`Bytes`] so
     /// the buffer reqwest already allocated flows into `object_store` without a
     /// second copy.
@@ -137,6 +154,16 @@ impl ObjectArtifactStore {
         content_type: &str,
         bytes: Bytes,
     ) -> Result<ArtifactRef, StorageError> {
+        if instance_id.is_empty() {
+            return Err(StorageError::Query("instance_id must not be empty".into()));
+        }
+        if bytes.len() > Self::MAX_ARTIFACT_BYTES {
+            return Err(StorageError::Query(format!(
+                "artifact size {} bytes exceeds maximum {} bytes",
+                bytes.len(),
+                Self::MAX_ARTIFACT_BYTES
+            )));
+        }
         let id = Uuid::new_v4().to_string();
         let key = Self::object_key(instance_id, &id);
         let size = bytes.len() as u64;
@@ -274,6 +301,27 @@ mod tests {
             allow_http: false,
         });
         assert!(store.is_ok(), "S3 client should build: {:?}", store.err());
+    }
+
+    #[tokio::test]
+    async fn put_rejects_oversized_artifact() {
+        let store = ObjectArtifactStore::memory();
+        let huge = Bytes::from(vec![0u8; ObjectArtifactStore::MAX_ARTIFACT_BYTES + 1]);
+        let err = store
+            .put("i-123", "application/octet-stream", huge)
+            .await
+            .expect_err("oversized artifact must be rejected");
+        assert!(err.to_string().contains("exceeds maximum"));
+    }
+
+    #[tokio::test]
+    async fn put_rejects_empty_instance_id() {
+        let store = ObjectArtifactStore::memory();
+        let err = store
+            .put("", "text/plain", Bytes::from_static(b"x"))
+            .await
+            .expect_err("empty instance_id must be rejected");
+        assert!(err.to_string().contains("instance_id"));
     }
 
     #[test]

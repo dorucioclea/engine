@@ -1,12 +1,17 @@
 use async_trait::async_trait;
 use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
-use std::sync::Mutex;
 use std::time::{Duration, Instant};
+use tokio::sync::Mutex;
 use tracing::{debug, warn};
 
 use crate::{ApnsConfig, PushError, PushProvider};
 
 const TOKEN_REFRESH_INTERVAL: Duration = Duration::from_secs(50 * 60);
+/// Maximum push token length. Tokens longer than this are rejected before
+/// they can bloat URLs, JSON bodies, or memory.
+const MAX_TOKEN_LEN: usize = 512;
+/// Maximum error response body we will include in a `PushError::Delivery`.
+const MAX_ERROR_BODY_LEN: usize = 4 * 1024;
 
 #[derive(serde::Serialize)]
 struct Claims {
@@ -57,11 +62,8 @@ impl ApnsProvider {
         })
     }
 
-    fn get_or_refresh_token(&self) -> Result<String, PushError> {
-        let mut cached = self
-            .cached_token
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+    async fn get_or_refresh_token(&self) -> Result<String, PushError> {
+        let mut cached = self.cached_token.lock().await;
         if let Some(ref ct) = *cached {
             if ct.created_at.elapsed() < TOKEN_REFRESH_INTERVAL {
                 return Ok(ct.token.clone());
@@ -90,8 +92,12 @@ impl ApnsProvider {
 #[async_trait]
 impl PushProvider for ApnsProvider {
     async fn send_silent_push(&self, token: &str, _platform: &str) -> Result<(), PushError> {
-        let jwt = self.get_or_refresh_token()?;
-        let url = format!("{}/3/device/{}", self.base_url, token);
+        if token.len() > MAX_TOKEN_LEN {
+            return Err(PushError::InvalidToken);
+        }
+        let jwt = self.get_or_refresh_token().await?;
+        let encoded = urlencoding::encode(token);
+        let url = format!("{}/3/device/{}", self.base_url, encoded);
 
         let payload = serde_json::json!({
             "aps": {
@@ -129,8 +135,13 @@ impl PushProvider for ApnsProvider {
         }
 
         let body = resp.text().await.unwrap_or_default();
+        let preview = if body.len() > MAX_ERROR_BODY_LEN {
+            format!("{}… (truncated)", &body[..MAX_ERROR_BODY_LEN])
+        } else {
+            body
+        };
         Err(PushError::Delivery(format!(
-            "APNs returned {status}: {body}"
+            "APNs returned {status}: {preview}"
         )))
     }
 }

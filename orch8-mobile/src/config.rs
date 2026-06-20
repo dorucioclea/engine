@@ -23,6 +23,9 @@ pub struct MobileEngineConfig {
     pub operation_timeout_ms: u64,
     /// Enable telemetry collection (default: true).
     pub telemetry_enabled: bool,
+    /// HTTPS endpoint where telemetry batches are sent. Must use port 443 and
+    /// target a public host. If empty, telemetry flushing is disabled.
+    pub telemetry_url: String,
     /// Target environment: "production" or "staging" (default: "production").
     pub environment: String,
     /// Base64-encoded Ed25519 root public key for manifest verification.
@@ -62,6 +65,7 @@ impl Default for MobileEngineConfig {
             handler_timeout_ms: 30_000,
             operation_timeout_ms: 10_000,
             telemetry_enabled: true,
+            telemetry_url: String::new(),
             environment: "production".to_string(),
             root_public_key: String::new(),
             sdk_version: env!("CARGO_PKG_VERSION").to_string(),

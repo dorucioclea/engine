@@ -7,6 +7,10 @@ use uuid::Uuid;
 /// Header name for the request ID.
 pub const REQUEST_ID_HEADER: &str = "x-request-id";
 
+/// Maximum length for a client-provided request ID. Longer values are truncated
+/// to bound memory use and response header size.
+const MAX_REQUEST_ID_LEN: usize = 128;
+
 /// Middleware that assigns a unique request ID to every request.
 ///
 /// If the client sends an `x-request-id` header, we preserve it; otherwise we
@@ -28,6 +32,7 @@ pub async fn request_id_middleware(mut request: Request, next: Next) -> Response
             let sanitized: String = s
                 .chars()
                 .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+                .take(MAX_REQUEST_ID_LEN)
                 .collect();
             if sanitized.is_empty() {
                 None
@@ -70,5 +75,16 @@ mod tests {
         let id = RequestId("abc-123".into());
         let cloned = id;
         assert_eq!(cloned.0, "abc-123");
+    }
+
+    #[test]
+    fn long_request_id_is_truncated() {
+        let raw = "a".repeat(MAX_REQUEST_ID_LEN * 2);
+        let sanitized: String = raw
+            .chars()
+            .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+            .take(MAX_REQUEST_ID_LEN)
+            .collect();
+        assert_eq!(sanitized.len(), MAX_REQUEST_ID_LEN);
     }
 }

@@ -700,7 +700,7 @@ fn telemetry_06_flush_with_disabled_telemetry() {
         ..MobileEngineConfig::default()
     };
     let (engine, _dir) = make_engine(config);
-    let result = engine.flush_telemetry("http://localhost:9999/telemetry".to_string());
+    let result = engine.flush_telemetry("https://example.com/telemetry".to_string());
     let flush = result.unwrap();
     assert_eq!(flush.sent, 0);
     assert_eq!(flush.dropped, 0);
@@ -710,7 +710,7 @@ fn telemetry_06_flush_with_disabled_telemetry() {
 fn telemetry_07_flush_empty_buffer_returns_zero() {
     let (engine, _dir) = default_engine();
     // With an empty buffer the telemetry manager returns early before HTTP call.
-    let result = engine.flush_telemetry("http://192.0.2.1:1/telemetry".to_string());
+    let result = engine.flush_telemetry("https://example.com/telemetry".to_string());
     let flush = result.unwrap();
     assert_eq!(flush.sent, 0);
 }
@@ -777,7 +777,7 @@ fn telemetry_13_event_types_are_varied() {
 fn telemetry_14_flush_telemetry_unreachable_endpoint_returns_zero_for_empty_buffer() {
     let (engine, _dir) = default_engine();
     // With 0 events in buffer, the manager returns early before making HTTP call.
-    let result = engine.flush_telemetry("http://192.0.2.1:1/telemetry".to_string());
+    let result = engine.flush_telemetry("https://example.com/telemetry".to_string());
     let flush = result.unwrap();
     assert_eq!(flush.sent, 0);
 }
@@ -926,16 +926,13 @@ fn lifecycle_09_shutdown_prevents_tick() {
 }
 
 #[test]
-fn lifecycle_10_start_with_invalid_json_input_uses_empty_object() {
+fn lifecycle_10_start_with_invalid_json_input_rejects() {
     let (engine, _dir) = default_engine();
     engine
         .load_sequence_from_json(make_sequence_json("flow", "noop"))
         .unwrap();
-    let id = engine
-        .start("flow".to_string(), "not-json".to_string(), None)
-        .unwrap();
-    let inst = engine.get_instance(id).unwrap();
-    assert_eq!(inst.state, InstanceStateKind::Scheduled);
+    let result = engine.start("flow".to_string(), "not-json".to_string(), None);
+    assert!(matches!(result, Err(MobileError::InvalidInput { .. })));
 }
 
 #[test]

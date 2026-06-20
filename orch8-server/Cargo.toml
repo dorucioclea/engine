@@ -47,6 +47,9 @@ opentelemetry_sdk = { workspace = true, optional = true }
 opentelemetry-otlp = { workspace = true, optional = true }
 tracing-opentelemetry = { workspace = true, optional = true }
 
+[dev-dependencies]
+tempfile = "3"
+
 [features]
 default = ["otlp"]
 # OpenTelemetry OTLP trace export (ORCH8_OTLP_ENDPOINT / [telemetry] otlp_endpoint).

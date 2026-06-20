@@ -186,7 +186,8 @@ async fn batch_create_rejects_empty_tenant_id() {
         .send()
         .await
         .unwrap();
-    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    // Empty `tenant_id` is rejected during TenantId deserialization → 422.
+    assert_eq!(resp.status(), StatusCode::UNPROCESSABLE_ENTITY);
 }
 
 #[tokio::test]

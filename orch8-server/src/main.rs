@@ -104,22 +104,28 @@ async fn main() -> anyhow::Result<()> {
         cb_registry.clone(),
     );
     let cors = build_cors_layer(&config.api.cors_origins);
-    let api_key = config.api.api_key.expose().to_string();
     let require_tenant = config.api.require_tenant_header;
+    let has_api_key = !config.api.api_key.is_empty();
     validate_auth_config(
-        &api_key,
+        has_api_key,
         require_tenant,
         cli.insecure,
         &config.api.cors_origins,
     )?;
 
-    // Spawn gRPC + signal handler before `api_key` is moved into the HTTP
-    // middleware closure so we can borrow it for the tonic interceptor.
+    // Precompute the root-key digest once and never retain the cleartext key
+    // in a long-lived String. The digest is moved into the HTTP middleware and
+    // gRPC interceptor; the original secret is dropped after this block.
+    let root_key_digest = has_api_key
+        .then(|| orch8_types::auth::precompute_secret_digest(config.api.api_key.expose()));
+
+    // Spawn gRPC + signal handler before the HTTP middleware closure takes
+    // ownership of the root-key digest.
     let grpc_handle = spawn_grpc_server(
         storage.clone(),
         &config,
         shutdown_token.clone(),
-        (!api_key.is_empty()).then_some(api_key.as_str()),
+        root_key_digest,
         require_tenant,
     );
     spawn_signal_handler(shutdown_token.clone());
@@ -131,10 +137,6 @@ async fn main() -> anyhow::Result<()> {
     // Storage handle for the auth middleware: per-tenant API keys are resolved
     // by hash against the database.
     let auth_storage = storage.clone();
-    // Hash the root key once here rather than on every request. `None` is the
-    // insecure-mode sentinel (empty key → auth disabled).
-    let root_key_digest =
-        (!api_key.is_empty()).then(|| orch8_types::auth::precompute_secret_digest(&api_key));
     let mut app = build_router(app_state.clone())
         .nest(API_V1_PREFIX, cb_routes.clone())
         .merge(cb_routes)
@@ -247,35 +249,55 @@ fn build_app_state(
 }
 
 fn validate_auth_config(
-    api_key: &str,
+    has_api_key: bool,
     require_tenant: bool,
     insecure: bool,
     cors_origins: &str,
 ) -> anyhow::Result<()> {
-    if api_key.is_empty() {
-        if !insecure {
+    if has_api_key {
+        // Refuse the dangerous combination of wildcard CORS with API-key auth.
+        // A malicious page could then make authenticated cross-origin requests
+        // from any origin. Use an explicit allow-list instead. Reject both a
+        // bare '*' and any comma-separated item that is '*'.
+        if cors_origins
+            .split(',')
+            .map(str::trim)
+            .any(|origin| origin == "*")
+        {
             anyhow::bail!(
-                "No API key configured. Set ORCH8_API_KEY (or api.api_key in the config file) \
-                 to enable authentication, or pass --insecure to explicitly run without auth."
+                "CORS origins cannot contain '*' while API-key authentication is enabled. \
+                 Set ORCH8_CORS_ORIGINS (or api.cors_origins) to a comma-separated list of \
+                 trusted origins."
             );
         }
+
+        // Tenant isolation is secure-by-default; disabling it makes per-resource
+        // tenant checks fall open so every API-key holder shares one global scope.
+        // Refuse to start unless the operator explicitly opts in.
+        if !require_tenant {
+            let explicitly_allowed = std::env::var("ORCH8_ALLOW_NO_TENANT_ISOLATION")
+                .is_ok_and(|v| v == "true" || v == "1");
+            if !explicitly_allowed {
+                anyhow::bail!(
+                    "Tenant isolation is disabled (require_tenant_header=false) but \
+                     API-key auth is enabled. Set ORCH8_REQUIRE_TENANT_HEADER=true (the default) \
+                     or set ORCH8_ALLOW_NO_TENANT_ISOLATION=1 to explicitly accept the risk."
+                );
+            }
+            tracing::warn!(
+                "ORCH8_ALLOW_NO_TENANT_ISOLATION=1: tenant header is optional and \
+                 cross-tenant access checks fall open."
+            );
+        }
+    } else if insecure {
         tracing::warn!(
             "Running with --insecure: all endpoints are unauthenticated. \
              Never use this flag in production."
         );
-    } else if cors_origins.trim() == "*" {
-        tracing::warn!("CORS allows all origins ('*') while API key auth is enabled. Consider restricting ORCH8_CORS_ORIGINS to trusted origins.");
-    }
-
-    // Tenant isolation is secure-by-default; disabling it makes per-resource
-    // tenant checks fall open so every API-key holder shares one global scope.
-    // Surface that loudly so it is never a silent state when auth is enabled.
-    if !api_key.is_empty() && !require_tenant {
-        tracing::warn!(
-            "Tenant isolation is DISABLED (require_tenant_header=false): the X-Tenant-Id \
-             header is not required and cross-tenant access checks fall open — every caller \
-             holding the API key can read and modify all tenants' data. Set \
-             ORCH8_REQUIRE_TENANT_HEADER=true (the default) for multi-tenant isolation."
+    } else {
+        anyhow::bail!(
+            "No API key configured. Set ORCH8_API_KEY (or api.api_key in the config file) \
+             to enable authentication, or pass --insecure to explicitly run without auth."
         );
     }
     Ok(())
@@ -470,7 +492,7 @@ fn spawn_grpc_server(
     storage: Arc<dyn StorageBackend>,
     config: &EngineConfig,
     shutdown: CancellationToken,
-    api_key: Option<&str>,
+    root_key_digest: Option<[u8; 32]>,
     require_tenant: bool,
 ) -> tokio::task::JoinHandle<()> {
     let grpc_addr: std::net::SocketAddr = config
@@ -482,7 +504,7 @@ fn spawn_grpc_server(
     let grpc_service =
         Orch8GrpcService::with_max_context_bytes(storage.clone(), config.engine.max_context_bytes);
     let grpc_interceptor =
-        orch8_grpc::auth::auth_interceptor(Some(storage), api_key, require_tenant);
+        orch8_grpc::auth::auth_interceptor(Some(storage), root_key_digest, require_tenant);
     tokio::spawn(async move {
         tracing::info!("gRPC server listening on {}", grpc_addr);
         if let Err(e) = tonic::transport::Server::builder()
@@ -547,10 +569,27 @@ async fn drain_shutdown(
     }
 }
 
+/// Maximum config file size (1 MiB). Prevents local `DoS` from a maliciously
+/// large config file being read entirely into memory at startup.
+const MAX_CONFIG_FILE_BYTES: u64 = 1_048_576;
+
 fn load_config(path: &str) -> anyhow::Result<EngineConfig> {
-    let mut config = match std::fs::read_to_string(path) {
-        Ok(contents) => {
+    let mut config = match std::fs::metadata(path) {
+        Ok(metadata) => {
+            let size = metadata.len();
+            if size > MAX_CONFIG_FILE_BYTES {
+                anyhow::bail!(
+                    "Config file at {path} is {size} bytes, exceeding the maximum of {MAX_CONFIG_FILE_BYTES} bytes"
+                );
+            }
+            let contents = std::fs::read_to_string(path)
+                .with_context(|| format!("Failed to read config file {path}"))?;
             toml::from_str::<EngineConfig>(&contents).context("Failed to parse config TOML")?
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            // Not an error — config file is optional.
+            eprintln!("No config file found at {path}, using defaults + env vars");
+            EngineConfig::default()
         }
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
             // Not an error — config file is optional.
@@ -734,8 +773,14 @@ fn init_logging(config: &orch8_types::config::LoggingConfig, otel: &telemetry::O
     use tracing_subscriber::layer::SubscriberExt;
     use tracing_subscriber::util::SubscriberInitExt;
 
-    let filter =
-        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(&config.level));
+    let filter = match EnvFilter::try_from_default_env() {
+        Ok(f) => f,
+        Err(e) => {
+            tracing::warn!(error = %e, rust_log = %std::env::var("RUST_LOG").unwrap_or_default(),
+                "RUST_LOG is invalid; falling back to configured log level");
+            EnvFilter::new(&config.level)
+        }
+    };
 
     // Write logs to stderr so stdout stays clean for well-behaved pipe
     // consumers. When the server is spawned as a child process (e.g. the
@@ -873,5 +918,25 @@ mod tests {
 
         std::env::remove_var("ORCH8_OTLP_ENDPOINT");
         std::env::remove_var("ORCH8_OTLP_PROTOCOL");
+    }
+
+    #[test]
+    fn validate_auth_config_rejects_cors_wildcard_with_api_key() {
+        // Bare wildcard.
+        assert!(validate_auth_config(true, true, false, "*").is_err());
+        // Wildcard inside a comma-separated list.
+        assert!(validate_auth_config(true, true, false, "https://app.example.com, *").is_err());
+        // Valid explicit list is accepted.
+        assert!(validate_auth_config(true, true, false, "https://app.example.com").is_ok());
+    }
+
+    #[test]
+    fn load_config_rejects_oversized_file() {
+        let mut file = tempfile::NamedTempFile::new().unwrap();
+        let oversized =
+            vec![b'a'; usize::try_from(MAX_CONFIG_FILE_BYTES).unwrap_or(usize::MAX) + 1];
+        std::io::Write::write_all(&mut file, &oversized).unwrap();
+        let result = load_config(file.path().to_str().unwrap());
+        assert!(result.is_err(), "oversized config must be rejected");
     }
 }

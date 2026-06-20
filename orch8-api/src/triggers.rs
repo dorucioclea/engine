@@ -21,7 +21,7 @@ use axum::Router;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-use orch8_types::ids::TenantId;
+use orch8_types::ids::{Namespace, TenantId};
 use orch8_types::trigger::{TriggerDef, TriggerType};
 
 use crate::error::ApiError;
@@ -90,6 +90,12 @@ pub(crate) async fn create_trigger(
             "sequence_name must not exceed 255 characters".into(),
         ));
     }
+    if body.secret.as_ref().is_some_and(String::is_empty) {
+        return Err(ApiError::InvalidArgument(
+            "trigger secret cannot be empty; omit the field to leave the trigger unauthenticated"
+                .into(),
+        ));
+    }
     // Polling triggers carry a structured config (piece, trigger, schedule);
     // reject malformed configs here so the engine's poll loop never sees one.
     if body.trigger_type == TriggerType::ActivepiecesPoll {
@@ -102,6 +108,25 @@ pub(crate) async fn create_trigger(
         &tenant_ctx,
         &TenantId::unchecked(body.tenant_id.clone()),
     )?;
+
+    // Verify the target sequence exists and belongs to the caller's tenant.
+    let namespace = Namespace::new(body.namespace.clone());
+    let sequence = state
+        .storage
+        .get_sequence_by_name(&tenant_id, &namespace, &body.sequence_name, body.version)
+        .await
+        .map_err(|e| ApiError::from_storage(e, "sequence"))?
+        .ok_or_else(|| {
+            ApiError::NotFound(format!(
+                "sequence {} in namespace {}",
+                body.sequence_name, body.namespace
+            ))
+        })?;
+    if sequence.tenant_id != tenant_id {
+        return Err(ApiError::Forbidden(
+            "sequence does not belong to the caller's tenant".into(),
+        ));
+    }
 
     let now = chrono::Utc::now();
     let trigger = TriggerDef {
@@ -266,8 +291,13 @@ pub(crate) async fn fire_trigger(
         )));
     }
 
-    // Validate trigger secret if configured.
+    // Validate trigger secret if configured. Empty configured secrets are
+    // treated as unauthenticated (defence in depth — creation should reject them).
     if let Some(ref secret) = trigger.secret {
+        if secret.is_empty() {
+            tracing::warn!(slug = %slug, "trigger has an empty secret — rejecting fire request");
+            return Err(ApiError::Unauthorized);
+        }
         let provided = headers
             .get("x-trigger-secret")
             .and_then(|v| v.to_str().ok())

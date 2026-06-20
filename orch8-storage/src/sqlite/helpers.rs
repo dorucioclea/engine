@@ -72,7 +72,8 @@ pub(super) fn row_to_instance(row: &sqlx::sqlite::SqliteRow) -> Result<TaskInsta
         // Masking the corruption here let broken rows leak into claim cycles.
         state: InstanceState::from_str(row.get::<&str, _>("state")).map_err(StorageError::Query)?,
         next_fire_at: parse_ts_opt(row.get::<Option<String>, _>("next_fire_at"))?,
-        priority: Priority::try_from(row.get::<i16, _>("priority")).unwrap_or(Priority::Normal),
+        priority: Priority::try_from(row.get::<i16, _>("priority"))
+            .map_err(|e| StorageError::Query(format!("invalid priority value: {e}")))?,
         timezone: row.get::<String, _>("timezone"),
         metadata: parse_json(row.get::<&str, _>("metadata"))?,
         context: parse_json(row.get::<&str, _>("context"))?,
@@ -104,9 +105,10 @@ pub(super) fn row_to_node(row: &sqlx::sqlite::SqliteRow) -> Result<ExecutionNode
             .and_then(|s| Uuid::parse_str(&s).ok())
             .map(ExecutionNodeId::from_uuid),
         block_type: BlockType::from_str(row.get::<&str, _>("block_type"))
-            .unwrap_or(BlockType::Step),
+            .map_err(|e| StorageError::Query(format!("invalid block_type value: {e}")))?,
         branch_index: row.get::<Option<i32>, _>("branch_index").map(|v| v as i16),
-        state: NodeState::from_str(row.get::<&str, _>("state")).unwrap_or(NodeState::Pending),
+        state: NodeState::from_str(row.get::<&str, _>("state"))
+            .map_err(|e| StorageError::Query(format!("invalid node state value: {e}")))?,
         started_at: parse_ts_opt(row.get::<Option<String>, _>("started_at"))?,
         completed_at: parse_ts_opt(row.get::<Option<String>, _>("completed_at"))?,
     })
@@ -122,7 +124,10 @@ pub(super) fn row_to_sequence(
         name: row.get::<String, _>("name"),
         version: row.get::<i32, _>("version"),
         deprecated: row.get::<i32, _>("deprecated") != 0,
-        status: row.get::<String, _>("status").parse().unwrap_or_default(),
+        status: row
+            .get::<String, _>("status")
+            .parse::<orch8_types::sequence::SequenceStatus>()
+            .map_err(|e| StorageError::Query(format!("invalid sequence status value: {e}")))?,
         blocks: parse_json(row.get::<&str, _>("blocks"))?,
         interceptors: row
             .get::<Option<String>, _>("interceptors")

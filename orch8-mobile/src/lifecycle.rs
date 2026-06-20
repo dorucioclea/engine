@@ -104,8 +104,10 @@ impl InstanceLifecycleManager {
                 message: format!("sequence '{sequence_name}' not found"),
             })?;
 
-        let input_data: serde_json::Value = serde_json::from_str(input)
-            .unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
+        let input_data: serde_json::Value =
+            serde_json::from_str(input).map_err(|e| MobileError::InvalidInput {
+                message: format!("invalid input JSON: {e}"),
+            })?;
 
         let instance_id = InstanceId::new();
         let now = chrono::Utc::now();
@@ -145,7 +147,7 @@ impl InstanceLifecycleManager {
                 .lock()
                 .await
                 .insert(key.to_string(), id_str.clone());
-            let _ = self.mobile_storage.set_dedup(key, &id_str).await;
+            self.mobile_storage.set_dedup(key, &id_str).await?;
         }
 
         info!(instance_id = %id_str, sequence = %sequence_name, "started mobile instance");

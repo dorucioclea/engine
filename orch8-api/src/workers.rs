@@ -187,8 +187,10 @@ pub(crate) async fn enqueue_command(
 )]
 pub(crate) async fn list_commands(
     State(state): State<AppState>,
+    admin: OptionalAdmin,
     Path(worker_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
+    crate::api_keys::require_admin(&admin)?;
     let commands = state
         .storage
         .list_worker_commands(&worker_id)
@@ -204,8 +206,10 @@ pub(crate) async fn list_commands(
 )]
 pub(crate) async fn ack_command(
     State(state): State<AppState>,
+    admin: OptionalAdmin,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
+    crate::api_keys::require_admin(&admin)?;
     state
         .storage
         .delete_worker_command(id)

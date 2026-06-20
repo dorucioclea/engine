@@ -286,7 +286,7 @@ type CdnStore = std::collections::HashMap<String, (Vec<u8>, Option<String>)>;
 
 /// In-memory CDN backend for testing.
 pub struct MemoryCdnBackend {
-    pub store: std::sync::Mutex<CdnStore>,
+    pub store: tokio::sync::Mutex<CdnStore>,
 }
 
 impl Default for MemoryCdnBackend {
@@ -298,7 +298,7 @@ impl Default for MemoryCdnBackend {
 impl MemoryCdnBackend {
     pub fn new() -> Self {
         Self {
-            store: std::sync::Mutex::new(std::collections::HashMap::new()),
+            store: tokio::sync::Mutex::new(std::collections::HashMap::new()),
         }
     }
 }
@@ -312,19 +312,19 @@ impl CdnBackend for MemoryCdnBackend {
         _content_type: Option<&str>,
         cache_control: Option<&str>,
     ) -> Result<(), CdnError> {
-        let mut store = self.store.lock().unwrap();
+        let mut store = self.store.lock().await;
         store.insert(path.to_string(), (bytes, cache_control.map(String::from)));
         Ok(())
     }
 
     async fn delete(&self, path: &str) -> Result<(), CdnError> {
-        let mut store = self.store.lock().unwrap();
+        let mut store = self.store.lock().await;
         store.remove(path);
         Ok(())
     }
 
     async fn get_etag(&self, path: &str) -> Result<Option<String>, CdnError> {
-        let store = self.store.lock().unwrap();
+        let store = self.store.lock().await;
         Ok(store
             .get(path)
             .map(|(bytes, _)| format!("\"{}\"", hex::encode(Sha256::digest(bytes)))))

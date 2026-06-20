@@ -19,6 +19,7 @@ use orch8_types::credential::{CredentialDef, CredentialKind};
 use orch8_types::ids::TenantId;
 
 use crate::error::ApiError;
+use crate::security::validate_public_url;
 use crate::AppState;
 
 pub fn routes() -> Router<AppState> {
@@ -132,6 +133,8 @@ fn default_limit() -> u32 {
     100
 }
 
+const MAX_CREDENTIAL_VALUE_BYTES: usize = 256 * 1024;
+
 async fn create_credential(
     State(state): State<AppState>,
     tenant_ctx: crate::auth::OptionalTenant,
@@ -165,6 +168,15 @@ async fn create_credential(
         return Err(ApiError::InvalidArgument(
             "oauth2 credential with refresh_url requires refresh_token".into(),
         ));
+    }
+
+    if body.value.len() > MAX_CREDENTIAL_VALUE_BYTES {
+        return Err(ApiError::PayloadTooLarge(
+            "credential value exceeds 256 KiB".into(),
+        ));
+    }
+    if let Some(ref url) = body.refresh_url {
+        validate_public_url(url).map_err(|e| ApiError::InvalidArgument(e.to_string()))?;
     }
 
     let tenant_id = crate::auth::enforce_tenant_create(

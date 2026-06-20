@@ -87,7 +87,10 @@ fn decide(server: Option<&serde_json::Value>, local: &serde_json::Value) -> Appl
             if content_fingerprint(s) == content_fingerprint(local) {
                 ApplyDecision::Unchanged(s["version"].as_i64().unwrap_or(0))
             } else {
-                let cur = i32::try_from(s["version"].as_i64().unwrap_or(0)).unwrap_or(0);
+                let cur = s["version"]
+                    .as_i64()
+                    .and_then(|v| i32::try_from(v).ok())
+                    .unwrap_or(0);
                 ApplyDecision::Apply(cur + 1)
             }
         }

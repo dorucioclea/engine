@@ -25,7 +25,9 @@ pub fn routes() -> Router<AppState> {
 )]
 pub(crate) async fn list_nodes(
     State(state): State<AppState>,
+    admin: OptionalAdmin,
 ) -> Result<impl IntoResponse, ApiError> {
+    require_admin(&admin)?;
     let nodes = state
         .storage
         .list_nodes()

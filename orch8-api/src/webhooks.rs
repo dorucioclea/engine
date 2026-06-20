@@ -118,7 +118,8 @@ pub(crate) async fn public_webhook(
 
     // If a secret is configured, require it. A missing secret on a public
     // endpoint would let anyone fire the trigger — deliberately refuse to
-    // accept such triggers here.
+    // accept such triggers here. Empty secrets are treated as unconfigured
+    // (defence in depth — creation should reject them).
     let Some(ref secret) = trigger.secret else {
         tracing::warn!(
             slug = %slug,
@@ -126,6 +127,10 @@ pub(crate) async fn public_webhook(
         );
         return Err(ApiError::Unauthorized);
     };
+    if secret.is_empty() {
+        tracing::warn!(slug = %slug, "webhook '{slug}' has an empty secret — rejecting public POST");
+        return Err(ApiError::Unauthorized);
+    }
 
     let provided = headers
         .get("x-trigger-secret")
@@ -173,7 +178,9 @@ pub(crate) async fn public_webhook(
         tracing::warn!(slug = %slug, "webhook rejected: missing x-trigger-nonce");
         return Err(ApiError::Unauthorized);
     }
-    let composite_key = format!("{slug}:{nonce}");
+    // Length-prefixed composite key prevents collisions when a slug contains
+    // the separator character: "a:b" + "c" and "a" + "b:c" cannot collide.
+    let composite_key = format!("{}:{}:{}", slug.len(), slug, nonce);
     if SEEN_NONCES.get(&composite_key).await.is_some() {
         tracing::warn!(slug = %slug, "webhook rejected: nonce reuse detected");
         return Err(ApiError::Unauthorized);
@@ -205,6 +212,13 @@ pub(crate) async fn public_webhook(
 #[cfg(test)]
 mod tests {
     use super::{timestamp_within_window, MAX_FUTURE_SKEW_SECS, REPLAY_WINDOW_SECS};
+    use orch8_types::config::SecretString;
+
+    #[test]
+    fn empty_configured_secret_is_treated_as_unconfigured() {
+        let secret = SecretString::new(String::new());
+        assert!(secret.is_empty());
+    }
 
     #[test]
     fn timestamp_window_accepts_recent_past_and_small_future() {

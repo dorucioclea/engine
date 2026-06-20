@@ -111,7 +111,7 @@ fn build_table(overrides_json: Option<&str>) -> HashMap<String, ModelPrice> {
                 }
             }
             Err(e) => {
-                tracing::warn!(
+                tracing::error!(
                     error = %e,
                     "invalid {PRICING_ENV_VAR} JSON; using default model pricing"
                 );

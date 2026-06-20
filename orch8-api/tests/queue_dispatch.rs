@@ -5,6 +5,35 @@ use reqwest::StatusCode;
 use serde_json::json;
 
 #[tokio::test]
+async fn push_url_rejects_internal_addresses() {
+    let srv = spawn_test_server().await;
+    let client = reqwest::Client::new();
+
+    for bad_url in [
+        "http://127.0.0.1/hook",
+        "http://192.168.1.1/hook",
+        "http://169.254.169.254/latest/meta-data/",
+        "file:///etc/passwd",
+    ] {
+        let resp = client
+            .post(format!("{}/queues/dispatch", srv.base_url))
+            .header("X-Tenant-Id", "t1")
+            .json(&json!({
+                "tenant_id": "t1", "queue_name": "q1", "mode": "push",
+                "push_url": bad_url
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(
+            resp.status(),
+            StatusCode::BAD_REQUEST,
+            "{bad_url} should be rejected"
+        );
+    }
+}
+
+#[tokio::test]
 async fn dispatch_config_crud() {
     let srv = spawn_test_server().await;
     let client = reqwest::Client::new();

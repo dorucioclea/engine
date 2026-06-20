@@ -376,9 +376,12 @@ async fn tool_get_usage(state: AppState, tenant_ctx: OptionalTenant, args: &Valu
 
 /// Decode a REST handler outcome into JSON: `Ok` bodies are parsed back into
 /// a [`Value`], `Err(ApiError)` becomes the domain-error message.
+/// Maximum response body the MCP bridge will buffer into memory.
+const MAX_REST_JSON_BYTES: usize = 10 * 1024 * 1024;
+
 async fn rest_json<T: IntoResponse>(res: Result<T, ApiError>) -> ToolResult {
     let resp = res.map_err(|e| e.to_string())?.into_response();
-    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+    let bytes = axum::body::to_bytes(resp.into_body(), MAX_REST_JSON_BYTES)
         .await
         .map_err(|e| format!("internal: failed to read handler response: {e}"))?;
     if bytes.is_empty() {

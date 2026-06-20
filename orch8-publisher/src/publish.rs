@@ -19,20 +19,33 @@ pub struct SequencePublisher {
     min_sdk_version: String,
 }
 
+fn validate_tenant_id(tenant_id: &str) -> Result<(), PublishError> {
+    if tenant_id.is_empty() {
+        return Err(PublishError::Config("tenant_id cannot be empty".into()));
+    }
+    if tenant_id.contains('/') || tenant_id.contains('\\') || tenant_id.contains("..") {
+        return Err(PublishError::Config(format!(
+            "tenant_id contains path metacharacters: {tenant_id}"
+        )));
+    }
+    Ok(())
+}
+
 impl SequencePublisher {
     pub fn new(
         cdn: Box<dyn CdnBackend>,
         manifest_gen: ManifestGenerator,
         tenant_id: String,
         signing_key_id: String,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, PublishError> {
+        validate_tenant_id(&tenant_id)?;
+        Ok(Self {
             cdn,
             manifest_gen,
             tenant_id,
             signing_key_id,
             min_sdk_version: env!("CARGO_PKG_VERSION").to_string(),
-        }
+        })
     }
 
     #[must_use]
@@ -47,6 +60,14 @@ impl SequencePublisher {
         seq: &SequenceDefinition,
         signing_key: &ed25519_dalek::SigningKey,
     ) -> Result<ManifestSequence, PublishError> {
+        if seq.tenant_id.as_str() != self.tenant_id {
+            return Err(PublishError::Config(format!(
+                "sequence tenant {} does not match publisher tenant {}",
+                seq.tenant_id.as_str(),
+                self.tenant_id
+            )));
+        }
+
         let json = manifest::canonical_json(seq)
             .map_err(|e| PublishError::Serialization(e.to_string()))?;
         let hash = format!("{:x}", Sha256::digest(&json));
@@ -113,6 +134,27 @@ impl SequencePublisher {
         removed: Vec<crate::manifest::ManifestRemoved>,
         other_keys: Vec<ManifestSigningKey>,
     ) -> Result<(), PublishError> {
+        // Trust-boundary checks: every sequence URL must live under this
+        // publisher's tenant prefix, and no caller-supplied key may shadow the
+        // generator's own key_id.
+        let prefix = format!("/{}/sequences/", self.tenant_id);
+        for seq in &sequences {
+            if !seq.url.starts_with(&prefix) {
+                return Err(PublishError::Config(format!(
+                    "sequence url {} is outside tenant {}",
+                    seq.url, self.tenant_id
+                )));
+            }
+        }
+        for key in &other_keys {
+            if key.key_id == self.signing_key_id {
+                return Err(PublishError::Config(format!(
+                    "other_keys contains the generator's key_id {}",
+                    self.signing_key_id
+                )));
+            }
+        }
+
         let signed = self
             .manifest_gen
             .generate(sequences, removed, other_keys)
@@ -143,6 +185,8 @@ pub enum PublishError {
     Serialization(String),
     #[error("CDN error: {0}")]
     Cdn(#[from] CdnError),
+    #[error("configuration error: {0}")]
+    Config(String),
 }
 
 #[cfg(test)]
@@ -159,7 +203,8 @@ mod tests {
         let signing_key = SigningKey::generate(&mut OsRng);
         let manifest_gen = ManifestGenerator::new(signing_key.clone(), "key1".to_string());
         let publisher =
-            SequencePublisher::new(cdn, manifest_gen, "tenant1".to_string(), "key1".to_string());
+            SequencePublisher::new(cdn, manifest_gen, "tenant1".to_string(), "key1".to_string())
+                .expect("valid tenant_id");
         (publisher, signing_key)
     }
 
@@ -213,7 +258,8 @@ mod tests {
         let signing_key = SigningKey::generate(&mut OsRng);
         let manifest_gen = ManifestGenerator::new(signing_key.clone(), "key1".to_string());
         let publisher =
-            SequencePublisher::new(cdn, manifest_gen, "t1".to_string(), "key1".to_string());
+            SequencePublisher::new(cdn, manifest_gen, "t1".to_string(), "key1".to_string())
+                .expect("valid tenant_id");
 
         let seq = SequenceDefinition {
             id: orch8_types::ids::SequenceId::new(),
@@ -319,10 +365,10 @@ mod tests {
         assert_eq!(entry.required_handlers, vec!["echo"]);
     }
 
-    fn make_seq(name: &str, version: i32) -> SequenceDefinition {
+    fn make_seq(name: &str, version: i32, tenant_id: &str) -> SequenceDefinition {
         SequenceDefinition {
             id: orch8_types::ids::SequenceId::new(),
-            tenant_id: orch8_types::ids::TenantId::new("tenant1").unwrap(),
+            tenant_id: orch8_types::ids::TenantId::new(tenant_id).unwrap(),
             namespace: orch8_types::ids::Namespace::new("default"),
             name: name.to_string(),
             version,
@@ -363,15 +409,17 @@ mod tests {
     async fn publish_sequence_deterministic_hash() {
         let key = SigningKey::generate(&mut OsRng);
 
-        let seq = make_seq("deterministic", 1);
+        let seq = make_seq("deterministic", 1, "t");
 
         let cdn1 = Box::new(MemoryCdnBackend::new());
         let gen1 = ManifestGenerator::new(key.clone(), "k".to_string());
-        let pub1 = SequencePublisher::new(cdn1, gen1, "t".to_string(), "k".to_string());
+        let pub1 = SequencePublisher::new(cdn1, gen1, "t".to_string(), "k".to_string())
+            .expect("valid tenant_id");
 
         let cdn2 = Box::new(MemoryCdnBackend::new());
         let gen2 = ManifestGenerator::new(key.clone(), "k".to_string());
-        let pub2 = SequencePublisher::new(cdn2, gen2, "t".to_string(), "k".to_string());
+        let pub2 = SequencePublisher::new(cdn2, gen2, "t".to_string(), "k".to_string())
+            .expect("valid tenant_id");
 
         let e1 = pub1.publish_sequence(&seq, &key).await.unwrap();
         let e2 = pub2.publish_sequence(&seq, &key).await.unwrap();
@@ -382,8 +430,8 @@ mod tests {
     async fn publish_sequence_hash_changes_on_content_change() {
         let (publisher, key) = setup();
 
-        let seq_v1 = make_seq("evolving", 1);
-        let seq_v2 = make_seq("evolving", 2);
+        let seq_v1 = make_seq("evolving", 1, "tenant1");
+        let seq_v2 = make_seq("evolving", 2, "tenant1");
 
         let e1 = publisher.publish_sequence(&seq_v1, &key).await.unwrap();
         let e2 = publisher.publish_sequence(&seq_v2, &key).await.unwrap();
@@ -396,7 +444,7 @@ mod tests {
     #[tokio::test]
     async fn min_sdk_version_default_from_cargo_pkg() {
         let (publisher, key) = setup();
-        let seq = make_seq("sdk_ver", 1);
+        let seq = make_seq("sdk_ver", 1, "tenant1");
 
         let entry = publisher.publish_sequence(&seq, &key).await.unwrap();
         assert_eq!(entry.min_sdk_version, env!("CARGO_PKG_VERSION"));
@@ -409,13 +457,89 @@ mod tests {
         let manifest_gen = ManifestGenerator::new(signing_key.clone(), "key1".to_string());
         let publisher =
             SequencePublisher::new(cdn, manifest_gen, "tenant1".to_string(), "key1".to_string())
+                .expect("valid tenant_id")
                 .with_min_sdk_version("2.0.0".to_string());
 
-        let seq = make_seq("sdk_override", 1);
+        let seq = make_seq("sdk_override", 1, "tenant1");
         let entry = publisher
             .publish_sequence(&seq, &signing_key)
             .await
             .unwrap();
         assert_eq!(entry.min_sdk_version, "2.0.0");
+    }
+
+    #[test]
+    fn new_rejects_empty_tenant_id() {
+        let cdn = Box::new(MemoryCdnBackend::new());
+        let key = SigningKey::generate(&mut OsRng);
+        let gen = ManifestGenerator::new(key, "k".to_string());
+        let result = SequencePublisher::new(cdn, gen, String::new(), "k".to_string());
+        let Err(err) = result else {
+            panic!("expected empty tenant_id to be rejected");
+        };
+        assert!(err.to_string().contains("tenant_id cannot be empty"));
+    }
+
+    #[test]
+    fn new_rejects_path_metacharacters_in_tenant_id() {
+        let key = SigningKey::generate(&mut OsRng);
+        for bad in ["a/b", "a\\\\b", "../tenant", ".."] {
+            let cdn = Box::new(MemoryCdnBackend::new());
+            let gen = ManifestGenerator::new(key.clone(), "k".to_string());
+            let result = SequencePublisher::new(cdn, gen, bad.to_string(), "k".to_string());
+            let Err(err) = result else {
+                panic!("expected rejection for tenant_id {bad}");
+            };
+            assert!(
+                err.to_string().contains("path metacharacters"),
+                "expected rejection for tenant_id {bad}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn publish_sequence_rejects_mismatched_tenant() {
+        let (publisher, key) = setup();
+        let seq = make_seq("wrong_tenant", 1, "other_tenant");
+        let result = publisher.publish_sequence(&seq, &key).await;
+        let Err(err) = result else {
+            panic!("expected tenant mismatch to be rejected");
+        };
+        assert!(err.to_string().contains("does not match publisher tenant"));
+    }
+
+    #[tokio::test]
+    async fn publish_manifest_rejects_url_outside_tenant() {
+        let (publisher, _key) = setup();
+        let seq = ManifestSequence {
+            name: "bad".to_string(),
+            version: 1,
+            url: "/other_tenant/sequences/bad_v1.json".to_string(),
+            signing_key_id: "key1".to_string(),
+            sha256: "abc".to_string(),
+            required_handlers: vec![],
+            min_sdk_version: "0.1.0".to_string(),
+        };
+        let result = publisher.publish_manifest(vec![seq], vec![], vec![]).await;
+        let Err(err) = result else {
+            panic!("expected outside-tenant URL to be rejected");
+        };
+        assert!(err.to_string().contains("outside tenant"));
+    }
+
+    #[tokio::test]
+    async fn publish_manifest_rejects_other_key_shadowing_generator() {
+        let (publisher, _key) = setup();
+        let other = crate::manifest::ManifestSigningKey {
+            key_id: "key1".to_string(),
+            public_key: "abc".to_string(),
+        };
+        let result = publisher
+            .publish_manifest(vec![], vec![], vec![other])
+            .await;
+        let Err(err) = result else {
+            panic!("expected generator key shadow to be rejected");
+        };
+        assert!(err.to_string().contains("generator's key_id"));
     }
 }

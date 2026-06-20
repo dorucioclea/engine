@@ -70,6 +70,22 @@ impl ManifestGenerator {
         removed: Vec<ManifestRemoved>,
         other_keys: Vec<ManifestSigningKey>,
     ) -> Result<SignedManifest, ManifestError> {
+        let mut seen_keys = std::collections::HashSet::new();
+        for key in &other_keys {
+            if !seen_keys.insert(key.key_id.clone()) {
+                return Err(ManifestError::Serialization(format!(
+                    "duplicate signing key_id {}",
+                    key.key_id
+                )));
+            }
+        }
+        if !seen_keys.insert(self.key_id.clone()) {
+            return Err(ManifestError::Serialization(format!(
+                "duplicate signing key_id {}",
+                self.key_id
+            )));
+        }
+
         let mut signing_keys = other_keys;
         signing_keys.push(ManifestSigningKey {
             key_id: self.key_id.clone(),
@@ -208,5 +224,41 @@ mod tests {
         prune_removed(&mut removed);
         assert_eq!(removed.len(), 1);
         assert_eq!(removed[0].name, "recent");
+    }
+
+    #[test]
+    fn generate_rejects_generator_key_in_other_keys() {
+        let signing_key = SigningKey::from_bytes(&[1u8; 32]);
+        let gen = ManifestGenerator::new(signing_key, "primary".to_string());
+        let other = ManifestSigningKey {
+            key_id: "primary".to_string(),
+            public_key: "abc".to_string(),
+        };
+        let result = gen.generate(vec![], vec![], vec![other]);
+        let Err(err) = result else {
+            panic!("expected duplicate generator key to be rejected");
+        };
+        assert!(err.to_string().contains("duplicate signing key_id primary"));
+    }
+
+    #[test]
+    fn generate_rejects_duplicate_other_key_id() {
+        let signing_key = SigningKey::from_bytes(&[2u8; 32]);
+        let gen = ManifestGenerator::new(signing_key, "primary".to_string());
+        let others = vec![
+            ManifestSigningKey {
+                key_id: "k1".to_string(),
+                public_key: "a".to_string(),
+            },
+            ManifestSigningKey {
+                key_id: "k1".to_string(),
+                public_key: "b".to_string(),
+            },
+        ];
+        let result = gen.generate(vec![], vec![], others);
+        let Err(err) = result else {
+            panic!("expected duplicate other key to be rejected");
+        };
+        assert!(err.to_string().contains("duplicate signing key_id k1"));
     }
 }

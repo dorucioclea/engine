@@ -17,7 +17,7 @@ use orch8_storage::sqlite::SqliteStorage;
 use orch8_types::config::ExternalizationMode;
 use tokio_util::sync::CancellationToken;
 
-use crate::{build_router, AppState};
+use crate::{build_router, webhooks, AppState};
 
 /// A running test server. The listener is bound to `127.0.0.1:0` so tests
 /// can run concurrently without port collisions.
@@ -103,7 +103,11 @@ async fn spawn_test_server_inner(mobile_sync_enabled: bool) -> TestServer {
         .layer(axum::middleware::from_fn(|req, next| async move {
             crate::auth::tenant_middleware(false, req, next).await
         }))
-        .merge(crate::health::routes().with_state(state));
+        .merge(crate::health::routes().with_state(state.clone()))
+        .merge(webhooks::public_routes().with_state(state.clone()))
+        .layer(axum::middleware::from_fn(
+            crate::request_id::request_id_middleware,
+        ));
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await

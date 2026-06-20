@@ -139,6 +139,19 @@ pub(crate) async fn create_cron(
     orch8_engine::cron::validate_cron_expr(&req.cron_expr)
         .map_err(|e| ApiError::InvalidArgument(format!("invalid cron expression: {e}")))?;
 
+    // Verify the target sequence exists and belongs to the caller's tenant.
+    let sequence = state
+        .storage
+        .get_sequence(req.sequence_id)
+        .await
+        .map_err(|e| ApiError::from_storage(e, "sequence"))?
+        .ok_or_else(|| ApiError::NotFound(format!("sequence {}", req.sequence_id.into_uuid())))?;
+    if sequence.tenant_id != tenant_id {
+        return Err(ApiError::Forbidden(
+            "sequence does not belong to the caller's tenant".into(),
+        ));
+    }
+
     let now = Utc::now();
     let id = Uuid::now_v7();
 

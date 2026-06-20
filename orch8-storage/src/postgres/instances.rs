@@ -591,6 +591,9 @@ pub(super) async fn create_batch_externalized(
     // the transaction body is linear and allocation-free mid-flight.
     let mut prepared: Vec<(TaskInstance, Vec<(String, serde_json::Value)>)> =
         Vec::with_capacity(instances.len());
+    let mut serialized_contexts: Vec<serde_json::Value> = Vec::with_capacity(instances.len());
+    let mut serialized_budgets: Vec<Option<serde_json::Value>> =
+        Vec::with_capacity(instances.len());
     for inst in instances {
         let mut c = inst.clone();
         let refs = crate::externalizing::externalize_fields(
@@ -598,6 +601,8 @@ pub(super) async fn create_batch_externalized(
             &inst.id.into_uuid().to_string(),
             threshold_bytes,
         );
+        serialized_contexts.push(serde_json::to_value(&c.context)?);
+        serialized_budgets.push(c.budget.as_ref().map(serde_json::to_value).transpose()?);
         prepared.push((c, refs));
     }
 
@@ -606,7 +611,11 @@ pub(super) async fn create_batch_externalized(
 
     // Step 1: bulk-insert task_instances first so the FK on
     // externalized_state.instance_id is satisfied before children land.
+    let mut context_chunks = serialized_contexts.chunks(500);
+    let mut budget_chunks = serialized_budgets.chunks(500);
     for chunk in prepared.chunks(500) {
+        let ctx_chunk = context_chunks.next().unwrap_or(&[]);
+        let budget_chunk = budget_chunks.next().unwrap_or(&[]);
         let mut qb = sqlx::QueryBuilder::new(
             r"INSERT INTO task_instances
                 (id, sequence_id, tenant_id, namespace, state, next_fire_at,
@@ -615,9 +624,11 @@ pub(super) async fn create_batch_externalized(
                  session_id, parent_instance_id, budget,
                  created_at, updated_at) ",
         );
+        let mut idx = 0usize;
         qb.push_values(chunk, |mut b, (inst, _)| {
-            let context = serde_json::to_value(&inst.context)
-                .unwrap_or_else(|_| serde_json::Value::Object(serde_json::Map::default()));
+            let context = &ctx_chunk[idx];
+            let budget = &budget_chunk[idx];
+            idx += 1;
             b.push_bind(inst.id.into_uuid())
                 .push_bind(inst.sequence_id.into_uuid())
                 .push_bind(inst.tenant_id.as_str())
@@ -636,11 +647,7 @@ pub(super) async fn create_batch_externalized(
                     inst.parent_instance_id
                         .map(orch8_types::InstanceId::into_uuid),
                 )
-                .push_bind(
-                    inst.budget
-                        .as_ref()
-                        .and_then(|b| serde_json::to_value(b).ok()),
-                )
+                .push_bind(budget)
                 .push_bind(inst.created_at)
                 .push_bind(inst.updated_at);
         });

@@ -1646,14 +1646,14 @@ impl crate::AdminStore for PostgresStorage {
         );
         let mut param_idx = 1u32;
         if tenant_id.is_some() {
-            write!(query, " AND tenant_id = ${param_idx}").unwrap();
+            let _ = write!(query, " AND tenant_id = ${param_idx}");
             param_idx += 1;
         }
         if sequence_name.is_some() {
-            write!(query, " AND sequence_name = ${param_idx}").unwrap();
+            let _ = write!(query, " AND sequence_name = ${param_idx}");
             param_idx += 1;
         }
-        write!(query, " ORDER BY triggered_at DESC LIMIT ${param_idx}").unwrap();
+        let _ = write!(query, " ORDER BY triggered_at DESC LIMIT ${param_idx}");
 
         let mut q = sqlx::query_as(&query);
         if let Some(t) = tenant_id {

@@ -3,11 +3,13 @@
 //! creation + config validation, poll-state surfacing on GET, tenant
 //! isolation, and delete cleanup.
 
+use chrono::Utc;
 use orch8_api::test_harness::spawn_test_server;
 use orch8_storage::AdminStore;
 use orch8_types::trigger::TriggerPollState;
 use reqwest::StatusCode;
 use serde_json::json;
+use uuid::Uuid;
 
 fn poll_trigger_body(slug: &str, tenant: &str) -> serde_json::Value {
     json!({
@@ -25,10 +27,34 @@ fn poll_trigger_body(slug: &str, tenant: &str) -> serde_json::Value {
     })
 }
 
+async fn create_sequence(client: &reqwest::Client, base_url: &str, tenant: &str, name: &str) {
+    let seq_id = Uuid::now_v7();
+    let resp = client
+        .post(format!("{base_url}/sequences"))
+        .header("X-Tenant-Id", tenant)
+        .json(&json!({
+            "id": seq_id,
+            "tenant_id": tenant,
+            "namespace": "default",
+            "name": name,
+            "version": 1,
+            "deprecated": false,
+            "blocks": [{ "type": "step", "id": "s1", "handler": "noop", "params": {} }],
+            "interceptors": null,
+            "created_at": Utc::now().to_rfc3339()
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::CREATED);
+}
+
 #[tokio::test]
 async fn create_and_get_activepieces_poll_trigger_round_trip() {
     let srv = spawn_test_server().await;
     let client = reqwest::Client::new();
+    create_sequence(&client, &srv.v1_url(), "t1", "payment-recovery").await;
+    create_sequence(&client, &srv.v1_url(), "t1", "seq").await;
 
     let resp = client
         .post(format!("{}/triggers", srv.v1_url()))
@@ -90,6 +116,7 @@ async fn create_and_get_activepieces_poll_trigger_round_trip() {
 async fn create_rejects_invalid_poll_configs() {
     let srv = spawn_test_server().await;
     let client = reqwest::Client::new();
+    create_sequence(&client, &srv.v1_url(), "t1", "seq").await;
 
     let cases = [
         // missing piece
@@ -158,6 +185,7 @@ async fn create_rejects_invalid_poll_configs() {
 async fn get_surfaces_poll_state_written_by_the_engine() {
     let srv = spawn_test_server().await;
     let client = reqwest::Client::new();
+    create_sequence(&client, &srv.v1_url(), "t1", "payment-recovery").await;
 
     let resp = client
         .post(format!("{}/triggers", srv.v1_url()))
@@ -204,6 +232,7 @@ async fn get_surfaces_poll_state_written_by_the_engine() {
 async fn tenant_isolation_for_poll_triggers() {
     let srv = spawn_test_server().await;
     let client = reqwest::Client::new();
+    create_sequence(&client, &srv.v1_url(), "tenant-a", "payment-recovery").await;
 
     // Tenant header mismatching body tenant_id → forbidden.
     let resp = client
@@ -257,6 +286,7 @@ async fn tenant_isolation_for_poll_triggers() {
 async fn delete_removes_trigger_and_poll_state() {
     let srv = spawn_test_server().await;
     let client = reqwest::Client::new();
+    create_sequence(&client, &srv.v1_url(), "t1", "payment-recovery").await;
 
     let resp = client
         .post(format!("{}/triggers", srv.v1_url()))
@@ -302,9 +332,58 @@ async fn delete_removes_trigger_and_poll_state() {
 }
 
 #[tokio::test]
+async fn empty_trigger_secret_is_rejected_and_cannot_bypass_auth() {
+    let srv = spawn_test_server().await;
+    let client = reqwest::Client::new();
+    create_sequence(&client, &srv.v1_url(), "t1", "seq").await;
+
+    // Creating a trigger with an empty secret must be rejected.
+    let resp = client
+        .post(format!("{}/triggers", srv.v1_url()))
+        .header("X-Tenant-Id", "t1")
+        .json(&json!({
+            "slug": "empty-secret",
+            "sequence_name": "seq",
+            "tenant_id": "t1",
+            "trigger_type": "webhook",
+            "secret": ""
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+
+    // A trigger created *without* a secret is unauthenticated.
+    let resp = client
+        .post(format!("{}/triggers", srv.v1_url()))
+        .header("X-Tenant-Id", "t1")
+        .json(&json!({
+            "slug": "no-secret",
+            "sequence_name": "seq",
+            "tenant_id": "t1",
+            "trigger_type": "webhook"
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::CREATED);
+
+    // The public webhook endpoint refuses the no-secret trigger.
+    // Public webhooks are mounted at the root (outside /api/v1) like in production.
+    let resp = client
+        .post(format!("{}/webhooks/no-secret", srv.base_url))
+        .json(&json!({}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
 async fn list_includes_poll_triggers() {
     let srv = spawn_test_server().await;
     let client = reqwest::Client::new();
+    create_sequence(&client, &srv.v1_url(), "t1", "payment-recovery").await;
 
     let resp = client
         .post(format!("{}/triggers", srv.v1_url()))

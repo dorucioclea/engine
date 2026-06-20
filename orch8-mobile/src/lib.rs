@@ -181,6 +181,50 @@ pub struct MobileEngine {
     sync_reporter: Option<Arc<sync_reporter::SyncReporter>>,
 }
 
+/// Maximum response body size for `load_sequences_from_url`.
+const MAX_SEQUENCES_RESPONSE_BYTES: usize = 5 * 1024 * 1024;
+
+/// Validate that an HTTPS endpoint URL is safe to call.
+/// Requires `https://`, rejects private/loopback/link-local IPs, and refuses
+/// non-standard ports to reduce SSRF surface.
+pub(crate) fn validate_https_url(url: &str) -> Result<(), MobileError> {
+    use std::net::IpAddr;
+
+    let parsed = reqwest::Url::parse(url).map_err(|e| MobileError::InvalidInput {
+        message: format!("invalid URL: {e}"),
+    })?;
+    if parsed.scheme() != "https" {
+        return Err(MobileError::InvalidInput {
+            message: "URL must use https".to_string(),
+        });
+    }
+    let host = parsed.host_str().unwrap_or("").to_lowercase();
+    if host.is_empty() {
+        return Err(MobileError::InvalidInput {
+            message: "URL must have a host".to_string(),
+        });
+    }
+    if let Ok(ip) = host.parse::<IpAddr>() {
+        let blocked = match ip {
+            IpAddr::V4(v4) => {
+                v4.is_loopback() || v4.is_private() || v4.is_link_local() || v4.is_unspecified()
+            }
+            IpAddr::V6(v6) => v6.is_loopback() || v6.is_unspecified(),
+        };
+        if blocked {
+            return Err(MobileError::InvalidInput {
+                message: "URL must not target an internal address".to_string(),
+            });
+        }
+    }
+    if parsed.port().is_some_and(|p| p != 443) {
+        return Err(MobileError::InvalidInput {
+            message: "URL must use port 443".to_string(),
+        });
+    }
+    Ok(())
+}
+
 #[uniffi::export]
 impl MobileEngine {
     /// Create a new mobile engine backed by a `SQLite` database at `db_path`.
@@ -530,9 +574,11 @@ impl MobileEngine {
             });
         }
         let target = target.clone();
+        crate::validate_https_url(&target)?;
         self.run_with_timeout(async {
             let http = reqwest::Client::builder()
                 .timeout(Duration::from_secs(30))
+                .redirect(reqwest::redirect::Policy::none())
                 .build()
                 .map_err(|e| MobileError::Engine {
                     message: format!("http client: {e}"),
@@ -552,12 +598,29 @@ impl MobileEngine {
                 });
             }
 
-            let body = resp.text().await.map_err(|e| MobileError::Engine {
+            // Cap the response body to a sensible limit before buffering it.
+            let content_length = resp.content_length().unwrap_or(0);
+            if content_length > MAX_SEQUENCES_RESPONSE_BYTES as u64 {
+                return Err(MobileError::InvalidInput {
+                    message: format!(
+                        "sequences response too large: {content_length} bytes exceeds limit"
+                    ),
+                });
+            }
+            let body_bytes = resp.bytes().await.map_err(|e| MobileError::Engine {
                 message: format!("read response body: {e}"),
             })?;
+            if body_bytes.len() > MAX_SEQUENCES_RESPONSE_BYTES {
+                return Err(MobileError::InvalidInput {
+                    message: format!(
+                        "sequences response too large: {} bytes exceeds limit",
+                        body_bytes.len()
+                    ),
+                });
+            }
 
             let sequences: Vec<SequenceDefinition> =
-                serde_json::from_str(&body).map_err(|e| MobileError::InvalidInput {
+                serde_json::from_slice(&body_bytes).map_err(|e| MobileError::InvalidInput {
                     message: format!("parse sequences JSON: {e}"),
                 })?;
 
@@ -643,14 +706,15 @@ impl MobileEngine {
             let result = orch.sync(&manifest_url, &auth, &handler_names).await;
 
             // Piggyback telemetry flush on successful sync.
-            if result.is_ok() && self.config.telemetry_enabled {
-                let _ = self
-                    .telemetry
-                    .flush(&format!(
-                        "{}/telemetry/mobile",
-                        manifest_url.trim_end_matches("/manifest.json")
-                    ))
-                    .await;
+            if result.is_ok()
+                && self.config.telemetry_enabled
+                && !self.config.telemetry_url.is_empty()
+            {
+                if let Err(e) = crate::validate_https_url(&self.config.telemetry_url) {
+                    tracing::warn!(error = %e, "configured telemetry_url is invalid");
+                } else if let Err(e) = self.telemetry.flush(&self.config.telemetry_url).await {
+                    tracing::warn!(error = %e, "telemetry flush failed");
+                }
             }
 
             result
@@ -658,7 +722,10 @@ impl MobileEngine {
     }
 
     /// Flush buffered telemetry to the remote endpoint.
+    ///
+    /// The endpoint must be a public HTTPS URL on port 443 to limit SSRF risk.
     pub fn flush_telemetry(&self, endpoint_url: String) -> Result<FlushResult, MobileError> {
+        crate::validate_https_url(&endpoint_url)?;
         self.run_with_timeout(async { self.telemetry.flush(&endpoint_url).await })
     }
 
@@ -754,6 +821,21 @@ mod tests {
         assert_eq!(result.instances_advanced, 3);
         assert_eq!(result.steps_executed, 5);
         assert!(result.has_pending_work);
+    }
+
+    #[test]
+    fn validate_https_url_rejects_unsafe_targets() {
+        // Non-https.
+        assert!(validate_https_url("http://example.com/seq.json").is_err());
+        // Internal addresses.
+        assert!(validate_https_url("https://127.0.0.1/seq.json").is_err());
+        assert!(validate_https_url("https://192.168.1.1/seq.json").is_err());
+        assert!(validate_https_url("https://10.0.0.1/seq.json").is_err());
+        assert!(validate_https_url("https://169.254.169.254/seq.json").is_err());
+        // Non-standard port.
+        assert!(validate_https_url("https://example.com:8443/seq.json").is_err());
+        // Valid public https.
+        assert!(validate_https_url("https://example.com/seq.json").is_ok());
     }
 
     #[test]
@@ -1482,6 +1564,53 @@ mod tests {
             // The real test is that set_device_context didn't panic.
         });
         // If we got here without panic, the test passes.
+    }
+
+    #[test]
+    fn flush_telemetry_rejects_http_url() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("engine.db").to_string_lossy().to_string();
+        let engine = MobileEngine::new(path, MobileEngineConfig::default()).unwrap();
+
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let ev = TelemetryEventRecord::new("TestEvent", r#"{"x":1}"#);
+            engine.telemetry.record(&ev).await.unwrap();
+        });
+
+        let result = engine.flush_telemetry("http://example.com/telemetry".to_string());
+        assert!(result.is_err(), "http URL should be rejected");
+    }
+
+    #[test]
+    fn flush_telemetry_rejects_internal_ip() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("engine.db").to_string_lossy().to_string();
+        let engine = MobileEngine::new(path, MobileEngineConfig::default()).unwrap();
+
+        let result = engine.flush_telemetry("https://127.0.0.1/telemetry".to_string());
+        assert!(result.is_err(), "loopback URL should be rejected");
+    }
+
+    #[test]
+    fn flush_telemetry_rejects_nonstandard_port() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("engine.db").to_string_lossy().to_string();
+        let engine = MobileEngine::new(path, MobileEngineConfig::default()).unwrap();
+
+        let result = engine.flush_telemetry("https://example.com:8443/telemetry".to_string());
+        assert!(result.is_err(), "non-443 port should be rejected");
+    }
+
+    #[test]
+    fn flush_telemetry_accepts_valid_https_for_empty_buffer() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("engine.db").to_string_lossy().to_string();
+        let engine = MobileEngine::new(path, MobileEngineConfig::default()).unwrap();
+
+        let result = engine.flush_telemetry("https://example.com/telemetry".to_string());
+        let flush = result.expect("valid https URL should be accepted");
+        assert_eq!(flush.sent, 0);
     }
 
     #[test]

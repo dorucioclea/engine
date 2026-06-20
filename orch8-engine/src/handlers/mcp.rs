@@ -250,24 +250,21 @@ async fn post_jsonrpc(
         .and_then(|v| v.to_str().ok())
         .map(str::to_string);
 
-    let content_length = resp.content_length().unwrap_or(0);
-    if content_length > MAX_RESPONSE_BYTES as u64 {
-        return Err(permanent(format!(
-            "mcp response too large: {content_length} bytes exceeds 10MB limit"
-        )));
-    }
-    let body_bytes = resp.bytes().await.map_err(|e| StepError::Retryable {
-        message: format!("mcp_call body read error: {e}"),
-        details: None,
-    })?;
-    if body_bytes.len() > MAX_RESPONSE_BYTES {
-        return Err(permanent(format!(
-            "mcp response too large: {} bytes exceeds 10MB limit",
-            body_bytes.len()
-        )));
-    }
+    // Stream the body with a chunk-by-chunk cap so a malicious server cannot
+    // OOM us with a chunked response that lacks or lies about Content-Length.
+    let body_bytes = super::builtin::read_body_capped(resp, MAX_RESPONSE_BYTES)
+        .await
+        .map_err(|e| match e {
+            super::builtin::BodyReadError::TooLarge(limit) => permanent(format!(
+                "mcp response too large: exceeds {limit} byte limit"
+            )),
+            super::builtin::BodyReadError::Io(msg) => StepError::Retryable {
+                message: format!("mcp_call body read error: {msg}"),
+                details: None,
+            },
+        })?;
 
-    Ok((status, content_type, body_bytes.to_vec(), session_id))
+    Ok((status, content_type, body_bytes, session_id))
 }
 
 /// Resolve the MCP endpoint and any server-supplied auth headers.

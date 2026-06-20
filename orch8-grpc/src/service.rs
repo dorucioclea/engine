@@ -45,6 +45,55 @@ impl Orch8GrpcService {
         }
     }
 
+    /// Validate and sanitize a client-supplied instance before creation.
+    /// Enforces sequence ownership, context size, and resets lifecycle fields
+    /// that the engine should control (state, dry-run flags, `next_fire_at`).
+    ///
+    /// `caller_tenant` is the authoritative tenant from request metadata (if
+    /// any). The instance's own `tenant_id` is replaced with this value when
+    /// present, matching the HTTP path's behaviour.
+    async fn sanitize_new_instance(
+        &self,
+        caller_tenant: Option<&TenantId>,
+        instance: &mut TaskInstance,
+    ) -> Result<(), Status> {
+        if let Some(caller) = caller_tenant {
+            if !instance.tenant_id.as_str().is_empty() && instance.tenant_id != *caller {
+                return Err(Status::permission_denied(
+                    "tenant_id in body does not match caller tenant",
+                ));
+            }
+            instance.tenant_id = caller.clone();
+        }
+
+        // Verify the referenced sequence exists and belongs to the caller.
+        let sequence = self
+            .storage
+            .get_sequence(instance.sequence_id)
+            .await
+            .map_err(storage_err)?
+            .ok_or_else(|| Status::not_found("sequence not found"))?;
+        if sequence.tenant_id != instance.tenant_id {
+            return Err(Status::not_found("sequence not found"));
+        }
+
+        // Enforce the same context-size cap as the HTTP path.
+        instance
+            .context
+            .check_size(self.max_context_bytes)
+            .map_err(|e| Status::invalid_argument(e.to_string()))?;
+
+        // Force engine-controlled lifecycle fields. Clients must not be able to
+        // create instances already in a terminal state or with future/past
+        // schedules, or with dry-run flags enabled.
+        instance.state = InstanceState::Scheduled;
+        instance.context.runtime.dry_run = false;
+        instance.context.runtime.dry_run_auto_approve = false;
+        instance.next_fire_at = Some(chrono::Utc::now());
+
+        Ok(())
+    }
+
     /// Atomically save worker output, mark the execution node Completed, and
     /// transition the instance state. The instance UPDATE is CAS-guarded: if
     /// the instance became terminal/paused after our read, the tx rolls back
@@ -381,10 +430,8 @@ impl Orch8Service for Orch8GrpcService {
     ) -> Result<Response<proto::InstanceResponse>, Status> {
         let mut instance: orch8_types::instance::TaskInstance =
             from_json_str(&req.get_ref().instance_json)?;
-        // Force the instance's tenant_id to match the caller. Without this,
-        // a tenant-scoped client could create instances in other tenants by
-        // forging `tenant_id` in the payload.
-        instance.tenant_id = enforce_tenant_create(&req, &instance.tenant_id)?;
+        self.sanitize_new_instance(caller_tenant(&req), &mut instance)
+            .await?;
         self.storage
             .create_instance(&instance)
             .await
@@ -411,9 +458,9 @@ impl Orch8Service for Orch8GrpcService {
             .iter()
             .map(|s| from_json_str(s))
             .collect::<Result<_, _>>()?;
-        // Every instance in the batch must belong to the caller's tenant.
+        let caller = caller_tenant(&req);
         for inst in &mut instances {
-            inst.tenant_id = enforce_tenant_create(&req, &inst.tenant_id)?;
+            self.sanitize_new_instance(caller, inst).await?;
         }
         let created = self
             .storage
@@ -1099,7 +1146,10 @@ impl Orch8Service for Orch8GrpcService {
         let tenant_id = enforce_tenant_create(&req, &body_tenant)?;
         let inner = req.into_inner();
         let strategy: orch8_types::pool::RotationStrategy =
-            from_json_str(&format!("\"{}\"", inner.strategy))?;
+            from_json_str(&serde_json::to_string(&inner.strategy).map_err(|e| {
+                tracing::error!(error = %e, "failed to encode rotation strategy");
+                Status::internal("internal error")
+            })?)?;
         let now = chrono::Utc::now();
         let pool = orch8_types::pool::ResourcePool {
             id: Uuid::now_v7(),

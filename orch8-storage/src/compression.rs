@@ -15,6 +15,12 @@ use orch8_types::error::StorageError;
 /// threshold the frame overhead typically exceeds any savings.
 pub const COMPRESSION_THRESHOLD_BYTES: usize = 1024;
 
+/// Maximum decompressed payload size. Prevents a small compressed payload
+/// (a "compression bomb") from expanding to an arbitrary size and exhausting
+/// memory during deserialization.
+#[cfg(feature = "compression")]
+const MAX_DECOMPRESSED_BYTES: usize = 16 * 1024 * 1024; // 16 MiB
+
 #[cfg(feature = "compression")]
 const ZSTD_LEVEL: i32 = 3;
 
@@ -29,9 +35,29 @@ pub fn compress(value: &serde_json::Value) -> Result<Vec<u8>, StorageError> {
 /// Decompress zstd bytes and parse the payload back into JSON.
 #[cfg(feature = "compression")]
 pub fn decompress(bytes: &[u8]) -> Result<serde_json::Value, StorageError> {
-    let json =
-        zstd::decode_all(bytes).map_err(|e| StorageError::Query(format!("zstd decode: {e}")))?;
-    serde_json::from_slice(&json).map_err(StorageError::Serialization)
+    use std::io::{Read, Write};
+
+    let mut decoder = zstd::stream::read::Decoder::new(bytes)
+        .map_err(|e| StorageError::Query(format!("zstd decode init: {e}")))?;
+    let mut output = Vec::with_capacity(bytes.len().min(MAX_DECOMPRESSED_BYTES));
+    let mut buf = [0u8; 8192];
+    loop {
+        let n = decoder
+            .read(&mut buf)
+            .map_err(|e| StorageError::Query(format!("zstd decode: {e}")))?;
+        if n == 0 {
+            break;
+        }
+        if output.len() + n > MAX_DECOMPRESSED_BYTES {
+            return Err(StorageError::Query(
+                "decompressed payload exceeds 16 MiB limit".into(),
+            ));
+        }
+        output
+            .write_all(&buf[..n])
+            .map_err(|e| StorageError::Query(format!("zstd decode write: {e}")))?;
+    }
+    serde_json::from_slice(&output).map_err(StorageError::Serialization)
 }
 
 #[cfg(not(feature = "compression"))]
@@ -78,6 +104,24 @@ mod tests {
         // When compression is enabled, invalid zstd bytes are rejected.
         // When disabled, invalid JSON bytes are rejected.
         assert!(decompress(&[0xff, 0xff, 0xff]).is_err());
+    }
+
+    #[cfg(feature = "compression")]
+    #[test]
+    fn decompress_rejects_compression_bomb() {
+        // A tiny zstd payload that decompresses to a huge repeated string.
+        let huge = "x".repeat(MAX_DECOMPRESSED_BYTES + 1);
+        let value = json!({ "blob": huge });
+        let compressed = compress(&value).unwrap();
+        assert!(
+            compressed.len() < huge.len() / 100,
+            "expected compression bomb to be much smaller than raw"
+        );
+        let err = decompress(&compressed).expect_err("bomb must be rejected");
+        assert!(
+            err.to_string().contains("exceeds 16 MiB limit"),
+            "error should mention size limit: {err}"
+        );
     }
 
     #[test]

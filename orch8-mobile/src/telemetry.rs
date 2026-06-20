@@ -55,6 +55,7 @@ impl TelemetryManager {
     pub fn new(storage: Arc<MobileStorage>, enabled: bool, device_ctx: DeviceContext) -> Self {
         let http = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(30))
+            .redirect(reqwest::redirect::Policy::none())
             .build()
             .expect("reqwest client builds");
         Self {

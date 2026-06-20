@@ -41,12 +41,27 @@ const CACHE_TTL: Duration = Duration::from_secs(30);
 /// caps *legitimate* key cardinality — generous for any realistic deployment.
 const CACHE_CAPACITY: u64 = 50_000;
 
+/// Short TTL for negative cache entries (invalid/absent keys). Keeps a flood of
+/// bogus keys from hitting the database on every request while still allowing
+/// newly-created keys to become valid within a few seconds.
+const NEGATIVE_CACHE_TTL: Duration = Duration::from_secs(5);
+
 fn cache() -> &'static Cache<String, ApiKeyRecord> {
     static CACHE: OnceLock<Cache<String, ApiKeyRecord>> = OnceLock::new();
     CACHE.get_or_init(|| {
         Cache::builder()
             .max_capacity(CACHE_CAPACITY)
             .time_to_live(CACHE_TTL)
+            .build()
+    })
+}
+
+fn negative_cache() -> &'static Cache<String, ()> {
+    static CACHE: OnceLock<Cache<String, ()>> = OnceLock::new();
+    CACHE.get_or_init(|| {
+        Cache::builder()
+            .max_capacity(CACHE_CAPACITY)
+            .time_to_live(NEGATIVE_CACHE_TTL)
             .build()
     })
 }
@@ -65,8 +80,21 @@ pub async fn authenticate(
     key_hash: &str,
 ) -> Result<Option<ApiKeyRecord>, StorageError> {
     if let Some(record) = cache().get(key_hash).await {
-        // Cache holds only active records; the TTL bounds staleness.
-        return Ok(Some(record));
+        // The cache holds only records that were active at insertion time, but
+        // a cached entry can still stale-expire between nodes or exceed its
+        // `expires_at`. Re-check activity before returning it so revocation and
+        // expiry are honored on the hot path.
+        let now = Utc::now();
+        if record.is_active(now) {
+            return Ok(Some(record));
+        }
+        cache().invalidate(key_hash).await;
+    }
+
+    // Negative cache: a recently-observed invalid/absent key is still invalid
+    // for a short window, protecting the DB from a flood of bogus attempts.
+    if negative_cache().get(key_hash).await.is_some() {
+        return Ok(None);
     }
 
     let now = Utc::now();
@@ -75,7 +103,11 @@ pub async fn authenticate(
         if record.is_active(now) {
             touch(storage, record, now);
             cache().insert(key_hash.to_string(), record.clone()).await;
+        } else {
+            negative_cache().insert(key_hash.to_string(), ()).await;
         }
+    } else {
+        negative_cache().insert(key_hash.to_string(), ()).await;
     }
     Ok(fetched)
 }
@@ -88,6 +120,7 @@ pub async fn authenticate(
 /// cache without the caller having to know it exists.
 pub async fn invalidate(key_hash: &str) {
     cache().invalidate(key_hash).await;
+    negative_cache().invalidate(key_hash).await;
 }
 
 /// Best-effort audit hygiene: refresh `last_used_at` without blocking the
@@ -162,6 +195,25 @@ mod tests {
             cache().get(&hash).await.is_none(),
             "absent key must not cache"
         );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn caches_absent_keys_negatively() {
+        let storage = sqlite().await;
+        let hash = "cafebabe".repeat(8);
+
+        let first = authenticate(&storage, &hash).await.unwrap();
+        assert!(first.is_none());
+        assert!(
+            negative_cache().get(&hash).await.is_some(),
+            "absent key should be cached negatively"
+        );
+
+        // A second lookup with the same hash should not need to query storage.
+        // We can't easily observe "no DB query" here, but the cache state is
+        // enough to document the behaviour.
+        let second = authenticate(&storage, &hash).await.unwrap();
+        assert!(second.is_none());
     }
 
     #[tokio::test(flavor = "multi_thread")]

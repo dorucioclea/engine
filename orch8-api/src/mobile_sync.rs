@@ -241,14 +241,23 @@ async fn handle_sync(
 
     let sync_interval_secs = if pending.is_empty() { 30 } else { 5 };
 
-    let commands: Vec<CommandPayload> = pending
+    let commands: Result<Vec<CommandPayload>, ApiError> = pending
         .into_iter()
-        .map(|cmd| CommandPayload {
-            id: cmd.id,
-            command_type: cmd.command_type,
-            payload: serde_json::from_str(&cmd.payload).unwrap_or(serde_json::Value::Null),
+        .map(|cmd| {
+            let payload = serde_json::from_str(&cmd.payload).map_err(|e| {
+                ApiError::Internal(format!(
+                    "corrupt mobile command payload (id={}): {e}",
+                    cmd.id
+                ))
+            })?;
+            Ok(CommandPayload {
+                id: cmd.id,
+                command_type: cmd.command_type,
+                payload,
+            })
         })
         .collect();
+    let commands = commands?;
 
     debug!(
         device_id = %req.device_id,

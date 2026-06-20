@@ -156,13 +156,16 @@ impl SyncReporter {
             "steps": steps,
             "timestamp": chrono::Utc::now().to_rfc3339(),
         });
-        let _ = sqlx::query(
+        if let Err(e) = sqlx::query(
             "INSERT INTO sync_outbox (entry_type, instance_id, payload) VALUES ('status', ?, ?)",
         )
         .bind(instance_id)
         .bind(payload.to_string())
         .execute(&self.pool)
-        .await;
+        .await
+        {
+            warn!(error = %e, instance_id, "failed to queue mobile status update");
+        }
     }
 
     /// Write an approval request to the outbox.
@@ -187,13 +190,16 @@ impl SyncReporter {
             "timeout_seconds": timeout_seconds,
         });
         let key = format!("{instance_id}:{block_id}");
-        let _ = sqlx::query(
+        if let Err(e) = sqlx::query(
             "INSERT OR IGNORE INTO sync_outbox (entry_type, instance_id, payload) VALUES ('approval', ?, ?)",
         )
         .bind(&key)
         .bind(payload.to_string())
         .execute(&self.pool)
-        .await;
+        .await
+        {
+            warn!(error = %e, instance_id, block_id, "failed to queue mobile approval request");
+        }
     }
 
     /// Queue a step delegation request to the server.
@@ -216,13 +222,17 @@ impl SyncReporter {
             "params": params,
         });
         let key = format!("{instance_id}:{block_id}");
-        let _ = sqlx::query(
+        if let Err(e) = sqlx::query(
             "INSERT OR REPLACE INTO sync_outbox (entry_type, instance_id, payload) VALUES ('delegation', ?, ?)",
         )
         .bind(&key)
         .bind(payload.to_string())
         .execute(&self.pool)
-        .await;
+        .await
+        {
+            warn!(error = %e, instance_id, block_id, "failed to queue mobile step delegation");
+            return;
+        }
         self.force_sync
             .store(true, std::sync::atomic::Ordering::Relaxed);
     }
@@ -409,37 +419,53 @@ impl SyncReporter {
         let sent_delegation_ids: Vec<i64> = delegation_rows.iter().map(|(id, _)| *id).collect();
 
         for id in &sent_status_ids {
-            let _ = sqlx::query("DELETE FROM sync_outbox WHERE id = ?")
+            if let Err(e) = sqlx::query("DELETE FROM sync_outbox WHERE id = ?")
                 .bind(id)
                 .execute(&self.pool)
-                .await;
+                .await
+            {
+                warn!(error = %e, id, "failed to delete sent status update");
+            }
         }
         for id in &sent_approval_ids {
-            let _ = sqlx::query("DELETE FROM sync_outbox WHERE id = ?")
+            if let Err(e) = sqlx::query("DELETE FROM sync_outbox WHERE id = ?")
                 .bind(id)
                 .execute(&self.pool)
-                .await;
+                .await
+            {
+                warn!(error = %e, id, "failed to delete sent approval request");
+            }
         }
         for id in &sent_delegation_ids {
-            let _ = sqlx::query("DELETE FROM sync_outbox WHERE id = ?")
+            if let Err(e) = sqlx::query("DELETE FROM sync_outbox WHERE id = ?")
                 .bind(id)
                 .execute(&self.pool)
-                .await;
+                .await
+            {
+                warn!(error = %e, id, "failed to delete sent delegation");
+            }
         }
         for ack_id in &command_acks {
-            let _ = sqlx::query("DELETE FROM sync_command_acks WHERE command_id = ?")
+            if let Err(e) = sqlx::query("DELETE FROM sync_command_acks WHERE command_id = ?")
                 .bind(ack_id)
                 .execute(&self.pool)
-                .await;
+                .await
+            {
+                warn!(error = %e, ack_id, "failed to delete sync command ack");
+            }
         }
 
         // Process commands from server.
         for cmd in &sync_resp.commands {
             self.execute_command(cmd, storage, lifecycle).await;
-            let _ = sqlx::query("INSERT OR IGNORE INTO sync_command_acks (command_id) VALUES (?)")
-                .bind(&cmd.id)
-                .execute(&self.pool)
-                .await;
+            if let Err(e) =
+                sqlx::query("INSERT OR IGNORE INTO sync_command_acks (command_id) VALUES (?)")
+                    .bind(&cmd.id)
+                    .execute(&self.pool)
+                    .await
+            {
+                warn!(error = %e, command_id = %cmd.id, "failed to record sync command ack");
+            }
         }
 
         // Update sync interval from server hint.

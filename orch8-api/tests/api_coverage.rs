@@ -253,7 +253,8 @@ async fn t06_create_instance_empty_tenant_returns_400() {
         .send()
         .await
         .unwrap();
-    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    // Empty `tenant_id` is rejected during TenantId deserialization → 422.
+    assert_eq!(resp.status(), StatusCode::UNPROCESSABLE_ENTITY);
 }
 
 // 7: Create instance with empty namespace returns 400
@@ -320,7 +321,8 @@ async fn t09_create_instance_whitespace_tenant_returns_400() {
         .send()
         .await
         .unwrap();
-    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    // Whitespace-only `tenant_id` is rejected during TenantId deserialization → 422.
+    assert_eq!(resp.status(), StatusCode::UNPROCESSABLE_ENTITY);
 }
 
 // 10: Create instance with whitespace-only namespace returns 400

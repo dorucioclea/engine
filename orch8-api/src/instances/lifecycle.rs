@@ -112,6 +112,14 @@ pub async fn create_instance(
         .map_err(|e| ApiError::from_storage(e, "sequence"))?
         .ok_or_else(|| ApiError::NotFound(format!("sequence {}", req.sequence_id.into_uuid())))?;
 
+    // Cross-tenant sequence IDOR guard: a caller must not instantiate a
+    // sequence that belongs to another tenant.
+    if sequence.tenant_id != tenant_id {
+        return Err(ApiError::Forbidden(
+            "sequence does not belong to the caller's tenant".into(),
+        ));
+    }
+
     // Validate input against the sequence's optional `input_schema` (422 on
     // failure) before anything is persisted.
     crate::input_schema::validate_input(sequence.input_schema.as_ref(), &req.context.data)?;
@@ -199,6 +207,7 @@ pub async fn create_instance(
         (status = 400, description = "Empty batch"),
     )
 )]
+#[allow(clippy::too_many_lines)]
 pub async fn create_instances_batch(
     State(state): State<AppState>,
     tenant_ctx: crate::auth::OptionalTenant,
@@ -249,8 +258,10 @@ pub async fn create_instances_batch(
     }
 
     // Validate all referenced sequences exist, keeping each one's optional
-    // `input_schema` for per-item input validation below.
+    // `input_schema` and `tenant_id` for per-item checks below.
     let mut input_schemas: std::collections::HashMap<_, Option<serde_json::Value>> =
+        std::collections::HashMap::new();
+    let mut sequence_tenants: std::collections::HashMap<_, TenantId> =
         std::collections::HashMap::new();
     for seq_id in &sequence_ids {
         let seq = state
@@ -259,11 +270,28 @@ pub async fn create_instances_batch(
             .await
             .map_err(|e| ApiError::from_storage(e, "sequence"))?
             .ok_or_else(|| ApiError::NotFound(format!("sequence {}", seq_id.into_uuid())))?;
+        sequence_tenants.insert(*seq_id, seq.tenant_id.clone());
         input_schemas.insert(*seq_id, seq.input_schema);
     }
 
-    // Validate each item's data against its sequence's input_schema (422).
+    // Validate each item's data against its sequence's input_schema (422) and
+    // enforce that the sequence belongs to the item's tenant.
     for (i, r) in req.instances.iter().enumerate() {
+        let item_tenant = authoritative_tenants
+            .get(&i)
+            .cloned()
+            .ok_or_else(|| ApiError::Internal(format!("instances[{i}]: tenant not resolved")))?;
+        let seq_tenant = sequence_tenants
+            .get(&r.sequence_id)
+            .cloned()
+            .ok_or_else(|| {
+                ApiError::Internal(format!("instances[{i}]: sequence tenant missing"))
+            })?;
+        if seq_tenant != item_tenant {
+            return Err(ApiError::Forbidden(format!(
+                "instances[{i}]: sequence does not belong to the caller's tenant"
+            )));
+        }
         let schema = input_schemas.get(&r.sequence_id).and_then(Option::as_ref);
         crate::input_schema::validate_input(schema, &r.context.data).map_err(|e| match e {
             ApiError::UnprocessableEntity(msg) => {
@@ -286,10 +314,10 @@ pub async fn create_instances_batch(
             // Same mode-namespacing as the single-create path (see E1).
             let idempotency_key =
                 mode_scoped_idempotency_key(r.idempotency_key.as_deref(), context.runtime.dry_run);
-            let tenant_id = authoritative_tenants
-                .remove(&i)
-                .expect("tenant enforced above");
-            TaskInstance {
+            let tenant_id = authoritative_tenants.remove(&i).ok_or_else(|| {
+                ApiError::Internal(format!("instances[{i}]: tenant not resolved"))
+            })?;
+            Ok::<_, ApiError>(TaskInstance {
                 id: InstanceId::new(),
                 sequence_id: r.sequence_id,
                 tenant_id,
@@ -308,9 +336,9 @@ pub async fn create_instances_batch(
                 budget: r.budget,
                 created_at: now,
                 updated_at: now,
-            }
+            })
         })
-        .collect();
+        .collect::<Result<Vec<_>, _>>()?;
 
     let count = state
         .storage

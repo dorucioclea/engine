@@ -46,6 +46,7 @@ fn make_engine() -> Arc<MobileEngine> {
         handler_timeout_ms: 5000,
         operation_timeout_ms: 10_000,
         telemetry_enabled: false,
+        telemetry_url: String::new(),
         environment: "test".to_string(),
         root_public_key: String::new(),
         sdk_version: "0.1.0".to_string(),

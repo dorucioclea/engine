@@ -34,13 +34,12 @@ pub fn validate_input(
         return Ok(());
     };
     // A schema that fails to compile here should have been rejected at
-    // sequence-create. If it somehow slipped through, fail open rather than
-    // block every instance: a corrupt stored schema is an authoring bug, not
-    // a reason to wedge the sequence.
-    let Ok(validator) = jsonschema::validator_for(schema) else {
-        tracing::warn!("stored input_schema failed to compile — skipping validation");
-        return Ok(());
-    };
+    // sequence-create. If it somehow slipped through, surface the error so
+    // operators know the stored schema is corrupt rather than silently letting
+    // invalid data through.
+    let validator = jsonschema::validator_for(schema).map_err(|e| {
+        ApiError::UnprocessableEntity(format!("stored input_schema is invalid: {e}"))
+    })?;
     let errors: Vec<String> = validator
         .iter_errors(data)
         .map(|e| {

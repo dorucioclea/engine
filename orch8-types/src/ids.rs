@@ -33,8 +33,41 @@ pub struct ExecutionNodeId(Uuid);
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, ToSchema)]
 pub struct BlockId(String);
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, ToSchema)]
 pub struct TenantId(String);
+
+struct TenantIdVisitor;
+
+impl serde::de::Visitor<'_> for TenantIdVisitor {
+    type Value = TenantId;
+
+    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+        formatter.write_str("a non-empty tenant_id string")
+    }
+
+    fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        TenantId::new(value).map_err(serde::de::Error::custom)
+    }
+
+    fn visit_string<E>(self, value: String) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        TenantId::new(value).map_err(serde::de::Error::custom)
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for TenantId {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        deserializer.deserialize_str(TenantIdVisitor)
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, ToSchema)]
 pub struct Namespace(String);
@@ -211,8 +244,10 @@ impl TenantId {
     }
 
     /// Create a `TenantId` without validation.
-    /// Use in tests or when the value is known-valid (e.g. deserialization).
+    /// Use in tests or when the value is known-valid (e.g. deserialized from a
+    /// trusted source). Prefer [`TenantId::new`] for untrusted input.
     #[must_use]
+    #[doc(hidden)]
     pub fn unchecked(s: impl Into<String>) -> Self {
         Self(s.into())
     }
@@ -327,6 +362,20 @@ mod tests {
     #[test]
     fn tenant_id_accepts_non_empty() {
         assert_eq!(TenantId::new("acme").unwrap().as_str(), "acme");
+    }
+
+    #[test]
+    fn tenant_id_deserialize_rejects_empty() {
+        let result: Result<TenantId, _> = serde_json::from_str("\"\"");
+        assert!(result.is_err());
+        let result: Result<TenantId, _> = serde_json::from_str("\"   \"");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn tenant_id_deserialize_accepts_non_empty() {
+        let tid: TenantId = serde_json::from_str("\"acme\"").unwrap();
+        assert_eq!(tid.as_str(), "acme");
     }
 
     #[test]

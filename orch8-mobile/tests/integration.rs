@@ -68,6 +68,7 @@ fn engine_lifecycle() {
         handler_timeout_ms: 5000,
         operation_timeout_ms: 10_000,
         telemetry_enabled: false,
+        telemetry_url: String::new(),
         environment: "production".to_string(),
         root_public_key: String::new(),
         sdk_version: "0.4.0".to_string(),

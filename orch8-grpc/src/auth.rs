@@ -76,11 +76,9 @@ fn stamp_tenant(req: &mut Request<()>, require_tenant: bool) -> Result<(), Statu
 ///   key callers are exempt because their tenant is bound to the key.
 pub fn auth_interceptor(
     storage: Option<Arc<dyn StorageBackend>>,
-    expected_api_key: Option<&str>,
+    expected_digest: Option<[u8; 32]>,
     require_tenant: bool,
 ) -> impl Fn(Request<()>) -> Result<Request<()>, Status> + Clone + Send + Sync + 'static {
-    let expected_digest: Option<[u8; 32]> =
-        expected_api_key.map(orch8_types::auth::precompute_secret_digest);
     move |mut req: Request<()>| {
         // Insecure mode: no key check, just tenant extraction.
         if expected_digest.is_none() {
@@ -238,23 +236,27 @@ mod tests {
         req
     }
 
+    fn digest_of(key: &str) -> [u8; 32] {
+        orch8_types::auth::precompute_secret_digest(key)
+    }
+
     #[test]
     fn interceptor_rejects_missing_api_key() {
-        let ic = auth_interceptor(None, Some("s3cret"), false);
+        let ic = auth_interceptor(None, Some(digest_of("s3cret")), false);
         let err = ic(make_req(&[])).unwrap_err();
         assert_eq!(err.code(), tonic::Code::Unauthenticated);
     }
 
     #[test]
     fn interceptor_rejects_wrong_api_key() {
-        let ic = auth_interceptor(None, Some("s3cret"), false);
+        let ic = auth_interceptor(None, Some(digest_of("s3cret")), false);
         let err = ic(make_req(&[("x-api-key", "nope123")])).unwrap_err();
         assert_eq!(err.code(), tonic::Code::Unauthenticated);
     }
 
     #[test]
     fn interceptor_accepts_matching_api_key() {
-        let ic = auth_interceptor(None, Some("s3cret"), false);
+        let ic = auth_interceptor(None, Some(digest_of("s3cret")), false);
         assert!(ic(make_req(&[("x-api-key", "s3cret")])).is_ok());
     }
 
@@ -381,7 +383,7 @@ mod tests {
         let minted = orch8_types::api_key::mint("acme", "ci", None);
         storage.create_api_key(&minted.record).await.unwrap();
 
-        let ic = auth_interceptor(Some(storage.clone()), Some("root-key"), true);
+        let ic = auth_interceptor(Some(storage.clone()), Some(digest_of("root-key")), true);
         let req = make_req(&[("x-api-key", &minted.secret)]);
         let result = tokio::spawn(async move { ic(req) }).await.unwrap();
         let req = result.expect("per-tenant key must authenticate");
@@ -401,7 +403,7 @@ mod tests {
         let minted = orch8_types::api_key::mint("acme", "ci", None);
         storage.create_api_key(&minted.record).await.unwrap();
 
-        let ic = auth_interceptor(Some(storage.clone()), Some("root-key"), true);
+        let ic = auth_interceptor(Some(storage.clone()), Some(digest_of("root-key")), true);
         let req = make_req(&[("x-api-key", &minted.secret), ("x-tenant-id", "evil")]);
         let result = tokio::spawn(async move { ic(req) }).await.unwrap();
         let err = result.expect_err("mismatched tenant header must fail");
@@ -419,7 +421,7 @@ mod tests {
         storage.create_api_key(&minted.record).await.unwrap();
         storage.revoke_api_key(&minted.record.id).await.unwrap();
 
-        let ic = auth_interceptor(Some(storage.clone()), Some("root-key"), true);
+        let ic = auth_interceptor(Some(storage.clone()), Some(digest_of("root-key")), true);
         let req = make_req(&[("x-api-key", &minted.secret)]);
         let result = tokio::spawn(async move { ic(req) }).await.unwrap();
         let err = result.expect_err("revoked key must fail");

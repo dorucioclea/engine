@@ -112,6 +112,11 @@ async fn get_session_by_key(
             "tenant_id exceeds maximum length of 128".into(),
         ));
     }
+    if key.len() > 512 {
+        return Err(ApiError::InvalidArgument(
+            "session key exceeds maximum length of 512".into(),
+        ));
+    }
     let session = state
         .storage
         .get_session_by_key(&TenantId::unchecked(tenant_id), &key)

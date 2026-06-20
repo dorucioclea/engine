@@ -58,3 +58,45 @@ pub fn create_provider(
     }
     Ok(Box::new(NoopPushProvider))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fcm_rejects_unexpected_token_uri() {
+        let cfg = FcmConfig {
+            project_id: "p".into(),
+            service_account_json: r#"{
+                "client_email": "x@p.iam.gserviceaccount.com",
+                "private_key": "-----BEGIN RSA PRIVATE KEY-----\nMIIBOgIBAAJBALRiMLAHnoDX\n-----END RSA PRIVATE KEY-----",
+                "token_uri": "https://attacker.example.com/token"
+            }"#
+            .into(),
+        };
+        let Err(err) = FcmProvider::new(cfg) else {
+            panic!("unexpected token_uri must fail");
+        };
+        assert!(err.to_string().contains("token_uri"));
+    }
+
+    #[tokio::test]
+    async fn fcm_rejects_oversized_token() {
+        let cfg = FcmConfig {
+            project_id: "p".into(),
+            service_account_json: r#"{
+                "client_email": "x@p.iam.gserviceaccount.com",
+                "private_key": "-----BEGIN RSA PRIVATE KEY-----\nMIIBOgIBAAJBALRiMLAHnoDX\n-----END RSA PRIVATE KEY-----",
+                "token_uri": "https://oauth2.googleapis.com/token"
+            }"#
+            .into(),
+        };
+        let provider = FcmProvider::new(cfg).unwrap();
+        let long_token = "a".repeat(513);
+        let err = provider
+            .send_silent_push(&long_token, "android")
+            .await
+            .expect_err("long token must be rejected");
+        assert!(matches!(err, PushError::InvalidToken));
+    }
+}

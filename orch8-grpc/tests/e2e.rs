@@ -110,3 +110,51 @@ async fn grpc_create_and_get_instance_smoke() {
     assert_eq!(got["id"], "00000000-0000-0000-0000-000000000002");
     drop(client);
 }
+
+#[tokio::test]
+async fn grpc_create_instance_rejects_foreign_sequence() {
+    let addr = spawn_test_server().await;
+    let mut client = Orch8ServiceClient::connect(format!("http://{addr}"))
+        .await
+        .expect("connect to test server");
+
+    // Sequence owned by tenant-a.
+    let seq_def = serde_json::json!({
+        "id": "00000000-0000-0000-0000-000000000003",
+        "tenant_id": "tenant-a",
+        "namespace": "default",
+        "name": "private_seq",
+        "version": 1,
+        "deprecated": false,
+        "blocks": [{ "type": "step", "id": "s1", "handler": "noop", "params": {} }],
+        "created_at": "2024-01-01T00:00:00Z"
+    });
+    client
+        .create_sequence(CreateSequenceRequest {
+            definition_json: seq_def.to_string(),
+        })
+        .await
+        .expect("create sequence");
+
+    // Instance claims to be tenant-b but references tenant-a's sequence.
+    let inst_def = serde_json::json!({
+        "id": "00000000-0000-0000-0000-000000000004",
+        "sequence_id": "00000000-0000-0000-0000-000000000003",
+        "tenant_id": "tenant-b",
+        "namespace": "default",
+        "state": "scheduled",
+        "priority": "Normal",
+        "timezone": "UTC",
+        "metadata": {},
+        "context": { "data": {}, "config": {}, "audit": [], "runtime": {} },
+        "created_at": "2024-01-01T00:00:00Z",
+        "updated_at": "2024-01-01T00:00:00Z"
+    });
+    let err = client
+        .create_instance(CreateInstanceRequest {
+            instance_json: inst_def.to_string(),
+        })
+        .await
+        .expect_err("foreign sequence must be rejected");
+    assert_eq!(err.code(), tonic::Code::NotFound);
+}

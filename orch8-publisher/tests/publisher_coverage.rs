@@ -24,10 +24,18 @@ fn test_key() -> SigningKey {
 }
 
 fn make_manifest_sequence(name: &str, version: i32) -> ManifestSequence {
+    make_manifest_sequence_with_tenant(name, version, "tenant")
+}
+
+fn make_manifest_sequence_with_tenant(
+    name: &str,
+    version: i32,
+    tenant_id: &str,
+) -> ManifestSequence {
     ManifestSequence {
         name: name.to_string(),
         version,
-        url: format!("/tenant/sequences/{name}_v{version}.json"),
+        url: format!("/{tenant_id}/sequences/{name}_v{version}.json"),
         signing_key_id: "key1".to_string(),
         sha256: format!("sha256_{name}_{version}"),
         required_handlers: vec!["echo".to_string()],
@@ -96,9 +104,17 @@ impl CdnBackend for MockCdn {
 }
 
 fn make_sequence_definition(name: &str, version: i32) -> SequenceDefinition {
+    make_sequence_definition_with_tenant(name, version, "test_tenant")
+}
+
+fn make_sequence_definition_with_tenant(
+    name: &str,
+    version: i32,
+    tenant_id: &str,
+) -> SequenceDefinition {
     SequenceDefinition {
         id: SequenceId::new(),
-        tenant_id: TenantId::new("test_tenant").unwrap(),
+        tenant_id: TenantId::new(tenant_id).unwrap(),
         namespace: Namespace::new("default"),
         name: name.to_string(),
         version,
@@ -1027,7 +1043,8 @@ async fn test_93_publisher_publish_sequence_with_mock_cdn() {
     let mock = MockCdn::new();
     let cdn: Box<dyn CdnBackend> = Box::new(mock);
     let gen = ManifestGenerator::new(key.clone(), "key1".to_string());
-    let publisher = SequencePublisher::new(cdn, gen, "test_tenant".to_string(), "key1".to_string());
+    let publisher = SequencePublisher::new(cdn, gen, "test_tenant".to_string(), "key1".to_string())
+        .expect("valid tenant_id");
 
     let seq = make_sequence_definition("publish_test", 1);
     let entry = publisher.publish_sequence(&seq, &key).await.unwrap();
@@ -1043,9 +1060,10 @@ async fn test_94_publisher_uploads_to_cdn() {
     let cdn = Box::new(MemoryCdnBackend::new());
     let gen = ManifestGenerator::new(key.clone(), "key1".to_string());
     let publisher =
-        SequencePublisher::new(cdn, gen, "upload_tenant".to_string(), "key1".to_string());
+        SequencePublisher::new(cdn, gen, "upload_tenant".to_string(), "key1".to_string())
+            .expect("valid tenant_id");
 
-    let seq = make_sequence_definition("cdn_test", 2);
+    let seq = make_sequence_definition_with_tenant("cdn_test", 2, "upload_tenant");
     let entry = publisher.publish_sequence(&seq, &key).await.unwrap();
 
     // The URL should reference the tenant
@@ -1059,9 +1077,10 @@ async fn test_95_publisher_min_sdk_version_applied_to_entry() {
     let cdn = Box::new(MemoryCdnBackend::new());
     let gen = ManifestGenerator::new(key.clone(), "key1".to_string());
     let publisher = SequencePublisher::new(cdn, gen, "tenant".to_string(), "key1".to_string())
+        .expect("valid tenant_id")
         .with_min_sdk_version("5.0.0".to_string());
 
-    let seq = make_sequence_definition("sdk_ver_test", 1);
+    let seq = make_sequence_definition_with_tenant("sdk_ver_test", 1, "tenant");
     let entry = publisher.publish_sequence(&seq, &key).await.unwrap();
     assert_eq!(entry.min_sdk_version, "5.0.0");
 }
@@ -1094,9 +1113,10 @@ async fn test_97_publish_sequence_uploads_json_and_signature() {
     let key = test_key();
     let cdn = Box::new(MemoryCdnBackend::new());
     let gen = ManifestGenerator::new(key.clone(), "key1".to_string());
-    let publisher = SequencePublisher::new(cdn, gen, "t_uploads".to_string(), "key1".to_string());
+    let publisher = SequencePublisher::new(cdn, gen, "t_uploads".to_string(), "key1".to_string())
+        .expect("valid tenant_id");
 
-    let seq = make_sequence_definition("upload_check", 1);
+    let seq = make_sequence_definition_with_tenant("upload_check", 1, "t_uploads");
     let entry = publisher.publish_sequence(&seq, &key).await.unwrap();
 
     // Entry should have a sha256 that forms part of the URL
@@ -1109,7 +1129,8 @@ async fn test_98_publish_manifest_uploads_to_manifest_path() {
     let cdn_box: Box<dyn CdnBackend> = Box::new(MemoryCdnBackend::new());
     let gen = ManifestGenerator::new(key.clone(), "key1".to_string());
     let publisher =
-        SequencePublisher::new(cdn_box, gen, "manifest_t".to_string(), "key1".to_string());
+        SequencePublisher::new(cdn_box, gen, "manifest_t".to_string(), "key1".to_string())
+            .expect("valid tenant_id");
 
     publisher
         .publish_manifest(vec![], vec![], vec![])
@@ -1122,9 +1143,10 @@ async fn test_99_publish_manifest_contains_signature_and_json() {
     let key = test_key();
     let cdn = Box::new(MemoryCdnBackend::new());
     let gen = ManifestGenerator::new(key.clone(), "key1".to_string());
-    let publisher = SequencePublisher::new(cdn, gen, "sig_test".to_string(), "key1".to_string());
+    let publisher = SequencePublisher::new(cdn, gen, "sig_test".to_string(), "key1".to_string())
+        .expect("valid tenant_id");
 
-    let seq = make_manifest_sequence("included", 1);
+    let seq = make_manifest_sequence_with_tenant("included", 1, "sig_test");
     // publish_manifest should succeed
     publisher
         .publish_manifest(vec![seq], vec![], vec![])
@@ -1137,7 +1159,8 @@ async fn test_100_publisher_required_handlers_extracted_from_sequence() {
     let key = test_key();
     let cdn = Box::new(MemoryCdnBackend::new());
     let gen = ManifestGenerator::new(key.clone(), "key1".to_string());
-    let publisher = SequencePublisher::new(cdn, gen, "handler_t".to_string(), "key1".to_string());
+    let publisher = SequencePublisher::new(cdn, gen, "handler_t".to_string(), "key1".to_string())
+        .expect("valid tenant_id");
 
     let seq = SequenceDefinition {
         id: SequenceId::new(),
