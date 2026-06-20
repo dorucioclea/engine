@@ -60,48 +60,25 @@ describe("emit_event to Invalid Target", () => {
     assert.ok(dlq.some((i) => i.id === id), "missing trigger should land in DLQ");
   });
 
-  it("fails permanently when targeting a trigger bound to a non-existent sequence", async () => {
-    // A trigger exists (not 404) but its target sequence_name resolves to
-    // nothing at fire-time. We exercise this by creating the trigger against
-    // a sequence_name that was never registered. emit_event will succeed the
-    // trigger lookup then fail when instance creation runs — OR it will fail
-    // at dedupe/create step. Either way the emit step must terminate rather
-    // than hang.
+  it("rejects trigger creation when bound to a non-existent sequence", async () => {
+    // The server validates that the target sequence exists at trigger creation
+    // time (security hardening). Attempting to create a trigger pointing to a
+    // non-existent sequence_name must fail with 404.
     const tenantId = `emit-bad-seq-${uuid().slice(0, 8)}`;
     const namespace = "default";
     const slug = `bad-seq-${uuid().slice(0, 8)}`;
 
-    await client.createTrigger({
-      slug,
-      sequence_name: `never-registered-${uuid().slice(0, 8)}`,
-      tenant_id: tenantId,
-      namespace,
-      trigger_type: "event",
-    });
-
-    const seq = testSequence(
-      "emit-bad-seq",
-      [step("e1", "emit_event", { trigger_slug: slug, data: {} })],
-      { tenantId, namespace },
-    );
-    await client.createSequence(seq);
-
-    const { id } = await client.createInstance({
-      sequence_id: seq.id,
-      tenant_id: tenantId,
-      namespace,
-    });
-
-    // The step should terminate the instance — `failed` is the expected
-    // outcome, but we accept `completed` as well in case the engine
-    // eventually makes unknown sequences a no-op success: the assertion is
-    // simply that the instance does NOT hang.
-    const final = await client.waitForState(id, ["failed", "completed"], {
-      timeoutMs: 10_000,
-    });
-    assert.ok(
-      final.state === "failed" || final.state === "completed",
-      `expected terminal state, got ${final.state}`,
-    );
+    try {
+      await client.createTrigger({
+        slug,
+        sequence_name: `never-registered-${uuid().slice(0, 8)}`,
+        tenant_id: tenantId,
+        namespace,
+        trigger_type: "event",
+      });
+      assert.fail("should throw 404");
+    } catch (err: any) {
+      assert.equal(err.status, 404);
+    }
   });
 });
