@@ -21,20 +21,21 @@ describe("Trigger Edge Cases", () => {
     await stopServer(server);
   });
 
-  it("create trigger with non-existent sequence_name succeeds (no validation)", async () => {
-    // The trigger API currently does not validate that the referenced
-    // sequence_name exists at creation time.
+  it("create trigger with non-existent sequence_name returns 404", async () => {
     const slug = `bad-seq-${uuid().slice(0, 8)}`;
     const seqName = `nonexistent-${uuid().slice(0, 8)}`;
-    const result = await client.createTrigger({
-      tenant_id: "test",
-      namespace: "default",
-      slug,
-      sequence_name: seqName,
-    });
-    assert.equal(result.slug, slug);
-    assert.equal(result.sequence_name, seqName);
-    await client.deleteTrigger(slug);
+    await assert.rejects(
+      () => client.createTrigger({
+        tenant_id: "test",
+        namespace: "default",
+        slug,
+        sequence_name: seqName,
+      }),
+      (err: unknown) => {
+        assert.equal((err as ApiError).status, 404);
+        return true;
+      },
+    );
   });
 
   it("GET /triggers/{slug} is not tenant-scoped by slug alone", async () => {

@@ -55,18 +55,20 @@ describe("Cron Update and Metadata", () => {
   });
 
   it("list cron is tenant-scoped", async () => {
-    const seq = testSequence("cron-scope", [step("s1", "noop")]);
-    await client.createSequence(seq);
+    const seqA = testSequence("cron-scope-a", [step("s1", "noop")], { tenantId: "tenant-a" });
+    const seqB = testSequence("cron-scope-b", [step("s1", "noop")], { tenantId: "tenant-b" });
+    await client.createSequence(seqA);
+    await client.createSequence(seqB);
 
     await client.createCron({
-      sequence_id: seq.id,
+      sequence_id: seqA.id,
       tenant_id: "tenant-a",
       namespace: "default",
       cron_expr: "0 * * * *",
       timezone: "UTC",
     });
     await client.createCron({
-      sequence_id: seq.id,
+      sequence_id: seqB.id,
       tenant_id: "tenant-b",
       namespace: "default",
       cron_expr: "0 * * * *",

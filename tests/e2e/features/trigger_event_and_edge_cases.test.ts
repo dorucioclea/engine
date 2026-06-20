@@ -4,7 +4,7 @@
  */
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { Orch8Client, testSequence, step, uuid } from "../client.ts";
+import { Orch8Client, testSequence, step, uuid, ApiError } from "../client.ts";
 import { startServer, stopServer } from "../harness.ts";
 import type { ServerHandle } from "../harness.ts";
 
@@ -118,17 +118,22 @@ describe("Trigger Event Type and Edge Cases", () => {
     }
   });
 
-  it("trigger with non-existent sequence_name still creates", async () => {
+  it("trigger with non-existent sequence_name returns 404", async () => {
     const tenantId = `trig-noseq-${uuid().slice(0, 8)}`;
     const slug = `noseq-${uuid().slice(0, 8)}`;
 
-    const trigger = await client.createTrigger({
-      slug,
-      sequence_name: "definitely-does-not-exist",
-      tenant_id: tenantId,
-      namespace: "default",
-      trigger_type: "webhook",
-    });
-    assert.equal(trigger.slug, slug);
+    await assert.rejects(
+      () => client.createTrigger({
+        slug,
+        sequence_name: "definitely-does-not-exist",
+        tenant_id: tenantId,
+        namespace: "default",
+        trigger_type: "webhook",
+      }),
+      (err: unknown) => {
+        assert.equal((err as ApiError).status, 404);
+        return true;
+      },
+    );
   });
 });

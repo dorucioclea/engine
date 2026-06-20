@@ -162,7 +162,7 @@ describe("Performance and Load Testing", () => {
     const operationPromises = Array.from({ length: operations }, async (_, i) => {
       const { id } = await client.createInstance({
         sequence_id: seq.id,
-        tenant_id: `tenant-${i % 5}`, // Use multiple tenants
+        tenant_id: "test",
         namespace: "default",
       });
 
@@ -171,7 +171,7 @@ describe("Performance and Load Testing", () => {
       assert.equal(instance.id, id);
 
       // Also list instances for this tenant
-      const list = await client.listInstances({ tenant_id: `tenant-${i % 5}` });
+      const list = await client.listInstances({ tenant_id: "test" });
       assert.ok(list.length >= 1);
 
       return id;

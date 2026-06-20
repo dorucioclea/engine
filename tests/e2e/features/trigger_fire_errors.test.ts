@@ -30,21 +30,19 @@ describe("Trigger Fire Errors", () => {
     }
   });
 
-  it("fire trigger for missing sequence returns 500/404", async () => {
+  it("create trigger for missing sequence returns 404", async () => {
     const slug = `trig-miss-${uuid().slice(0, 8)}`;
-    await client.createTrigger({
-      slug,
-      sequence_name: `definitely-missing-${uuid().slice(0, 8)}`,
-      tenant_id: "test",
-      namespace: "default",
-      trigger_type: "event",
-    });
-
     try {
-      await client.fireTrigger(slug, {});
-      assert.fail("should throw");
+      await client.createTrigger({
+        slug,
+        sequence_name: `definitely-missing-${uuid().slice(0, 8)}`,
+        tenant_id: "test",
+        namespace: "default",
+        trigger_type: "event",
+      });
+      assert.fail("should throw 404");
     } catch (err: any) {
-      assert.ok(err.status === 404 || err.status === 500, `expected 404/500, got ${err.status}`);
+      assert.equal(err.status, 404);
     }
   });
 
