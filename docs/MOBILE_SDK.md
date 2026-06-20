@@ -234,6 +234,7 @@ engine.setListener(listener: MyListener())
 | `handlerTimeoutMs` | u64 | 30000 | Handler call timeout |
 | `operationTimeoutMs` | u64 | 10000 | Sync API call timeout |
 | `telemetryEnabled` | bool | true | Telemetry collection |
+| `telemetryUrl` | String | `""` | HTTPS endpoint for telemetry batch delivery (port 443, public host only). Empty = telemetry disabled |
 | `environment` | String | "production" | Target environment |
 | `rootPublicKey` | String | "" | Ed25519 key for manifest verification |
 | `sdkVersion` | String | crate version | SDK version for compatibility checks |

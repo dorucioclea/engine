@@ -80,13 +80,18 @@ Only instance-terminal events are emitted today. Block-level and signal events a
 
 ## Signing and authentication
 
-**Today: none.** Payloads are sent unsigned over whatever transport the URL specifies. Protect endpoints by:
+When a webhook secret is configured, payloads are signed with HMAC-SHA256. The engine sends two headers:
+
+- `X-Orch8-Timestamp` — UNIX timestamp of the signing moment
+- `X-Orch8-Signature` — `sha256=<hex-encoded HMAC>` over `{timestamp}.{body}`
+
+Verify by recomputing the HMAC on the receiving side and comparing. The timestamp prevents replay attacks.
+
+Without a secret, payloads are sent unsigned. In that case, protect endpoints by:
 
 - Making them private (VPC, private network, IP allowlist).
 - Using HTTPS + a secret path component (`https://hooks.internal/orch8-events-<random>`).
 - Gating at a reverse proxy with `Authorization` you control.
-
-HMAC signing (`X-Orch8-Signature`) is on the roadmap but not implemented.
 
 ---
 

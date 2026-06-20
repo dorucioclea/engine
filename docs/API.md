@@ -57,11 +57,11 @@ POST /sequences
       "params": { "template": "welcome" },
       "retry": {
         "max_attempts": 3,
-        "initial_backoff": "1s",
-        "max_backoff": "60s",
+        "initial_backoff": 1000,
+        "max_backoff": 60000,
         "backoff_multiplier": 2.0
       },
-      "timeout": "30s"
+      "timeout": 30000
     },
     {
       "type": "step",
@@ -874,17 +874,17 @@ All blocks are defined in the `blocks` array of a sequence. Blocks can nest arbi
   "handler": "handler_name",
   "params": {},
   "delay": {
-    "duration": "3600s",
+    "duration": 3600000,
     "business_days_only": false,
-    "jitter": "300s"
+    "jitter": 300000
   },
   "retry": {
     "max_attempts": 3,
-    "initial_backoff": "1s",
-    "max_backoff": "60s",
+    "initial_backoff": 1000,
+    "max_backoff": 60000,
     "backoff_multiplier": 2.0
   },
-  "timeout": "30s",
+  "timeout": 30000,
   "rate_limit_key": "resource:identifier"
 }
 ```

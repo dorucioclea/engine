@@ -141,6 +141,13 @@ Blocks are recursive — a Parallel can contain TryCatch, which can contain Step
 | `merge_state` | Merge an object into session-scoped state |
 | `transform` | Transform context data using expressions |
 | `assert` | Assert a condition, fail the step if false |
+| `mcp_call` | Invoke an MCP server tool (JSON-RPC over stdio/HTTP) |
+| `agent` | Autonomous agent loop — LLM + tool dispatch with durable checkpointing |
+| `embed` | Generate vector embeddings for text via configured provider |
+| `memory_store` | Store a vector embedding + payload into semantic memory |
+| `memory_search` | Search semantic memory by similarity |
+| `blob_put` | Store a binary artifact in the configured artifact backend |
+| `blob_get` | Retrieve a binary artifact by key |
 
 See [`API.md` — Workflow coordination handlers](API.md#workflow-coordination-handlers) for full param/return schemas and error semantics.
 
