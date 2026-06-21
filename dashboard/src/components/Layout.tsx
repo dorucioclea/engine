@@ -44,6 +44,7 @@ const NAV = [
   { to: "/sequences", label: "Sequences", icon: IconLayers },
   { to: "/tasks", label: "Tasks", icon: IconList },
   { to: "/workers", label: "Workers", icon: IconWorkers },
+  { to: "/queues", label: "Queues", icon: IconList },
   { to: "/cron", label: "Cron", icon: IconClock },
   { to: "/triggers", label: "Triggers", icon: IconZap },
   { to: "/sessions", label: "Sessions", icon: IconSession },
@@ -52,8 +53,10 @@ const NAV = [
   { to: "/credentials", label: "Credentials", icon: IconKey },
   { to: "/pools", label: "Pools", icon: IconDatabase },
   { to: "/mobile", label: "Mobile", icon: IconPhone },
+  { to: "/rollback", label: "Rollback", icon: IconShield },
   { to: "/operations", label: "Operations", icon: IconShield },
   { to: "/settings", label: "Settings", icon: IconSliders },
+  { to: "/api-keys", label: "API Keys", icon: IconKey },
 ];
 
 type ConnState = "connecting" | "online" | "offline";

@@ -1,6 +1,12 @@
 import { useCallback, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { listSequences, createSequence, type SequenceDefinition } from "../api";
+import {
+  listSequences,
+  createSequence,
+  deprecateSequence,
+  deleteSequence,
+  type SequenceDefinition,
+} from "../api";
 import { usePolling } from "../hooks/usePolling";
 import { usePageTitle } from "../hooks/usePageTitle";
 import { PageHeader } from "../components/ui/PageHeader";
@@ -130,6 +136,37 @@ export default function Sequences() {
     return groups.filter((g) => g.name.toLowerCase().includes(q));
   }, [groups, nameFilter]);
 
+  const [busySeq, setBusySeq] = useState<string | null>(null);
+
+  const handleDeprecate = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setBusySeq(id);
+    try {
+      await deprecateSequence(id);
+      flash(`Deprecated ${id.slice(0, 8)}...`);
+      refresh();
+    } catch (err) {
+      flash(`Failed: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setBusySeq(null);
+    }
+  };
+
+  const handleDelete = async (id: string, name: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!window.confirm(`Delete sequence "${name}" (${id.slice(0, 8)}...)? This cannot be undone.`)) return;
+    setBusySeq(id);
+    try {
+      await deleteSequence(id);
+      flash(`Deleted ${id.slice(0, 8)}...`);
+      refresh();
+    } catch (err) {
+      flash(`Failed: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setBusySeq(null);
+    }
+  };
+
   const hasFilters = Boolean(tenant || namespace || nameFilter);
 
   return (
@@ -246,6 +283,7 @@ export default function Sequences() {
               <TH className="text-right">Versions</TH>
               <TH>Head</TH>
               <TH>Latest deploy</TH>
+              <TH className="text-right">Actions</TH>
             </THead>
               <tbody>
                 {filtered.map((g) => {
@@ -302,6 +340,28 @@ export default function Sequences() {
                       </TD>
                       <TD className="align-top">
                         <Relative at={head.created_at} />
+                      </TD>
+                      <TD className="align-top text-right">
+                        <div className="inline-flex gap-1">
+                          {!head.deprecated && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              disabled={busySeq === head.id}
+                              onClick={(e) => handleDeprecate(head.id, e)}
+                            >
+                              Deprecate
+                            </Button>
+                          )}
+                          <Button
+                            variant="danger"
+                            size="sm"
+                            disabled={busySeq === head.id}
+                            onClick={(e) => handleDelete(head.id, head.name, e)}
+                          >
+                            Delete
+                          </Button>
+                        </div>
                       </TD>
                     </TR>
                   );

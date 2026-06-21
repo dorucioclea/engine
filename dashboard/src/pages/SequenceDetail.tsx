@@ -1,7 +1,12 @@
 import { useEffect, useState } from "react";
 import { Link, useParams, useNavigate } from "react-router-dom";
 import { usePageTitle } from "../hooks/usePageTitle";
-import { getSequence, createInstance, type SequenceDefinition } from "../api";
+import {
+  getSequence,
+  createInstance,
+  setSequenceStatus,
+  type SequenceDefinition,
+} from "../api";
 import { PageHeader } from "../components/ui/PageHeader";
 import { Section } from "../components/ui/Section";
 import { Glossary, type GlossaryItem } from "../components/ui/Glossary";
@@ -281,6 +286,27 @@ export default function SequenceDetail() {
   const [seq, setSeq] = useState<SequenceDefinition | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const [toast, setToast] = useState<string | null>(null);
+  const [statusBusy, setStatusBusy] = useState(false);
+
+  const changeStatus = async (status: "active" | "deprecated" | "archived") => {
+    if (!id) return;
+    setStatusBusy(true);
+    try {
+      await setSequenceStatus(id, status);
+      setToast(`Status set to ${status}`);
+      setTimeout(() => setToast(null), 2500);
+      // Reload the sequence to reflect the change.
+      const updated = await getSequence(id);
+      setSeq(updated);
+    } catch (e) {
+      setToast(`Failed: ${e instanceof Error ? e.message : String(e)}`);
+      setTimeout(() => setToast(null), 3500);
+    } finally {
+      setStatusBusy(false);
+    }
+  };
+
   const [runOpen, setRunOpen] = useState(false);
   const [runJson, setRunJson] = useState("{}");
   const [runBusy, setRunBusy] = useState(false);
@@ -369,6 +395,33 @@ export default function SequenceDetail() {
                 </Button>
               )}
               {seq.deprecated ? (
+                <Button
+                  variant="default"
+                  size="sm"
+                  disabled={statusBusy}
+                  onClick={() => changeStatus("active")}
+                >
+                  Active
+                </Button>
+              ) : (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={statusBusy}
+                  onClick={() => changeStatus("deprecated")}
+                >
+                  Deprecated
+                </Button>
+              )}
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={statusBusy}
+                onClick={() => changeStatus("archived")}
+              >
+                Archived
+              </Button>
+              {seq.deprecated ? (
                 <Badge tone="hold">deprecated</Badge>
               ) : (
                 <Badge tone="ok">active</Badge>
@@ -378,6 +431,7 @@ export default function SequenceDetail() {
         }
       />
 
+      {toast && <div className="notice notice-ok">{toast}</div>}
       {error && <div className="notice notice-warn">{error}</div>}
 
       {seq && (

@@ -11,6 +11,17 @@ import {
   sendSignal,
   retryInstance,
   streamInstance,
+  getInstanceTimeline,
+  listInstanceArtifacts,
+  getArtifactUrl,
+  getInstanceAudit,
+  listCheckpoints,
+  saveCheckpoint,
+  pruneCheckpoints,
+  forkInstance,
+  resumeFromBlock,
+  patchInstanceContext,
+  injectBlocks,
   ApiRequestError,
   type BlockType,
   type ExecutionNode,
@@ -20,12 +31,17 @@ import {
   type SignalType,
   type WorkerTask,
   type StepLog,
+  type TimelineEntry,
+  type ArtifactRef,
+  type AuditEntry,
+  type Checkpoint,
 } from "../api";
 import { PageHeader } from "../components/ui/PageHeader";
 import { Section } from "../components/ui/Section";
 import { Glossary, type GlossaryItem } from "../components/ui/Glossary";
 import { Badge, INSTANCE_TONE, NODE_TONE } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
+import { Table, THead, TH, TR, TD, Empty } from "../components/ui/Table";
 import { Relative } from "../components/ui/Relative";
 import { Input } from "../components/ui/Input";
 import { StatusDot } from "../components/ui/StatusDot";
@@ -104,6 +120,14 @@ const PAGE_GLOSSARY: GlossaryItem[] = [
   },
 ];
 
+type DetailTab = "tree" | "timeline" | "artifacts" | "audit";
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 interface TreeNode extends ExecutionNode {
   children: TreeNode[];
 }
@@ -167,12 +191,14 @@ function TreeNodeView({
   tasksByBlock,
   depth,
   now,
+  onResumeFrom,
 }: {
   node: TreeNode;
   outputs: Map<string, BlockOutput>;
   tasksByBlock: Map<string, WorkerTask[]>;
   depth: number;
   now: number;
+  onResumeFrom?: (blockId: string) => void;
 }) {
   const [expanded, setExpanded] = useState(true);
   const output = outputs.get(node.block_id);
@@ -223,6 +249,19 @@ function TreeNodeView({
             >
               {formatDuration(node, now)}
             </span>
+            {node.state === "failed" && onResumeFrom && (
+              <Button
+                size="sm"
+                variant="primary"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onResumeFrom(node.block_id);
+                }}
+                title="Resume execution from this failed block"
+              >
+                <IconRetry size={11} /> Resume from here
+              </Button>
+            )}
           </div>
           {expanded && failedTasks.length > 0 && (
             <div className="mt-1.5 space-y-1.5">
@@ -274,6 +313,7 @@ function TreeNodeView({
               tasksByBlock={tasksByBlock}
               depth={depth + 1}
               now={now}
+              onResumeFrom={onResumeFrom}
             />
           ))}
         </div>
@@ -343,6 +383,28 @@ export default function InstanceDetail() {
   const [busyRetry, setBusyRetry] = useState(false);
   const [busySignal, setBusySignal] = useState(false);
 
+  const [activeTab, setActiveTab] = useState<DetailTab>("tree");
+  const [timeline, setTimeline] = useState<TimelineEntry[]>([]);
+  const [artifacts, setArtifacts] = useState<ArtifactRef[]>([]);
+  const [audit, setAudit] = useState<AuditEntry[]>([]);
+  const [checkpoints, setCheckpoints] = useState<Checkpoint[]>([]);
+  const [busyCheckpointSave, setBusyCheckpointSave] = useState(false);
+  const [busyCheckpointPrune, setBusyCheckpointPrune] = useState(false);
+
+  const [forkOpen, setForkOpen] = useState(false);
+  const [forkDryRun, setForkDryRun] = useState(false);
+  const [forkContextPatch, setForkContextPatch] = useState("");
+  const [busyFork, setBusyFork] = useState(false);
+
+  const [editContextOpen, setEditContextOpen] = useState(false);
+  const [editContextJson, setEditContextJson] = useState("");
+  const [busyEditContext, setBusyEditContext] = useState(false);
+
+  const [injectOpen, setInjectOpen] = useState(false);
+  const [injectParentBlockId, setInjectParentBlockId] = useState("");
+  const [injectBlocksJson, setInjectBlocksJson] = useState("[]");
+  const [busyInject, setBusyInject] = useState(false);
+
   const refresh = useCallback(async () => {
     if (!id) return;
     try {
@@ -380,6 +442,22 @@ export default function InstanceDetail() {
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    if (!id || !initialized) return;
+    if (activeTab === "timeline") {
+      getInstanceTimeline(id).then(setTimeline).catch(() => setTimeline([]));
+    } else if (activeTab === "artifacts") {
+      listInstanceArtifacts(id).then(setArtifacts).catch(() => setArtifacts([]));
+    } else if (activeTab === "audit") {
+      getInstanceAudit(id).then(setAudit).catch(() => setAudit([]));
+    }
+  }, [id, activeTab, initialized]);
+
+  useEffect(() => {
+    if (!id || !initialized) return;
+    listCheckpoints(id).then(setCheckpoints).catch(() => setCheckpoints([]));
+  }, [id, initialized]);
 
   useEffect(() => {
     if (!id || !live || !instance) return;
@@ -474,6 +552,109 @@ export default function InstanceDetail() {
       setToast(`Failed: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       setBusyRetry(false);
+      setTimeout(() => setToast(null), 2500);
+    }
+  };
+
+  const doResumeFrom = async (blockId: string) => {
+    if (!id) return;
+    try {
+      await resumeFromBlock(id, blockId);
+      setToast(`Resuming from ${blockId}`);
+      await refresh();
+    } catch (e) {
+      setToast(`Failed: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setTimeout(() => setToast(null), 2500);
+    }
+  };
+
+  const doFork = async () => {
+    if (!id) return;
+    setBusyFork(true);
+    try {
+      let contextPatch: Record<string, unknown> | undefined;
+      if (forkContextPatch.trim()) {
+        contextPatch = JSON.parse(forkContextPatch);
+      }
+      const res = await forkInstance(id, { dry_run: forkDryRun, context_patch: contextPatch });
+      if (forkDryRun) {
+        setToast("Dry run complete — no instance created");
+      } else {
+        setForkOpen(false);
+        navigate(`/instances/${res.id}`);
+        return;
+      }
+    } catch (e) {
+      setToast(`Failed: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setBusyFork(false);
+      setTimeout(() => setToast(null), 2500);
+    }
+  };
+
+  const doEditContext = async () => {
+    if (!id) return;
+    setBusyEditContext(true);
+    try {
+      const patch = JSON.parse(editContextJson);
+      await patchInstanceContext(id, patch);
+      setToast("Context updated");
+      setEditContextOpen(false);
+      await refresh();
+    } catch (e) {
+      setToast(`Failed: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setBusyEditContext(false);
+      setTimeout(() => setToast(null), 2500);
+    }
+  };
+
+  const doInjectBlocks = async () => {
+    if (!id) return;
+    setBusyInject(true);
+    try {
+      const blocks = JSON.parse(injectBlocksJson);
+      await injectBlocks(id, { parent_block_id: injectParentBlockId, blocks });
+      setToast("Blocks injected");
+      setInjectOpen(false);
+      await refresh();
+    } catch (e) {
+      setToast(`Failed: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setBusyInject(false);
+      setTimeout(() => setToast(null), 2500);
+    }
+  };
+
+  const doSaveCheckpoint = async () => {
+    if (!id) return;
+    setBusyCheckpointSave(true);
+    try {
+      await saveCheckpoint(id);
+      setToast("Checkpoint saved");
+      const cp = await listCheckpoints(id).catch(() => [] as Checkpoint[]);
+      setCheckpoints(cp);
+    } catch (e) {
+      setToast(`Failed: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setBusyCheckpointSave(false);
+      setTimeout(() => setToast(null), 2500);
+    }
+  };
+
+  const doPruneCheckpoints = async () => {
+    if (!id) return;
+    setBusyCheckpointPrune(true);
+    try {
+      await pruneCheckpoints(id);
+      setToast("Checkpoints pruned");
+      const cp = await listCheckpoints(id).catch(() => [] as Checkpoint[]);
+      setCheckpoints(cp);
+    } catch (e) {
+      setToast(`Failed: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setBusyCheckpointPrune(false);
       setTimeout(() => setToast(null), 2500);
     }
   };
@@ -868,6 +1049,41 @@ export default function InstanceDetail() {
                 >
                   <IconRetry size={13} /> Retry
                 </Button>
+                <Button
+                  size="sm"
+                  disabled={busyFork || !instance}
+                  title="Fork this execution into a new instance"
+                  onClick={() => {
+                    setForkContextPatch("");
+                    setForkDryRun(false);
+                    setForkOpen(!forkOpen);
+                  }}
+                >
+                  Fork
+                </Button>
+                <Button
+                  size="sm"
+                  disabled={!instance}
+                  title="Edit the shared context of this execution"
+                  onClick={() => {
+                    setEditContextJson(JSON.stringify(instance?.context ?? {}, null, 2));
+                    setEditContextOpen(!editContextOpen);
+                  }}
+                >
+                  Edit context
+                </Button>
+                <Button
+                  size="sm"
+                  disabled={!instance || terminal}
+                  title="Inject blocks into the execution graph"
+                  onClick={() => {
+                    setInjectParentBlockId("");
+                    setInjectBlocksJson("[]");
+                    setInjectOpen(!injectOpen);
+                  }}
+                >
+                  Inject blocks
+                </Button>
 
                 <div className="flex gap-1.5 ml-auto items-center">
                   <Input
@@ -898,52 +1114,291 @@ export default function InstanceDetail() {
             </div>
           </Section>
 
+          {forkOpen && (
+            <Section eyebrow="Fork" title="Fork this execution">
+              <div className="space-y-4">
+                <label className="flex items-center gap-2 text-[13px]">
+                  <input
+                    type="checkbox"
+                    checked={forkDryRun}
+                    onChange={(e) => setForkDryRun(e.target.checked)}
+                    className="accent-signal"
+                  />
+                  Dry run
+                </label>
+                <div>
+                  <div className="field-label mb-1">Context patch (optional JSON)</div>
+                  <textarea
+                    value={forkContextPatch}
+                    onChange={(e) => setForkContextPatch(e.target.value)}
+                    rows={6}
+                    spellCheck={false}
+                    placeholder='{"key": "value"}'
+                    className="w-full bg-sunken border border-rule px-2.5 py-2 text-[12px] font-mono text-ink placeholder:text-faint focus:border-signal focus:outline-none"
+                  />
+                </div>
+                <div className="flex justify-end gap-2">
+                  <Button size="sm" variant="ghost" onClick={() => setForkOpen(false)}>Cancel</Button>
+                  <Button size="sm" variant="primary" disabled={busyFork} onClick={doFork}>
+                    {busyFork ? "Forking…" : forkDryRun ? "Dry run" : "Fork"}
+                  </Button>
+                </div>
+              </div>
+            </Section>
+          )}
+
+          {editContextOpen && (
+            <Section eyebrow="Edit context" title="Patch execution context">
+              <div className="space-y-4">
+                <div>
+                  <div className="field-label mb-1">context (JSON)</div>
+                  <textarea
+                    value={editContextJson}
+                    onChange={(e) => setEditContextJson(e.target.value)}
+                    rows={12}
+                    spellCheck={false}
+                    className="w-full bg-sunken border border-rule px-2.5 py-2 text-[12px] font-mono text-ink placeholder:text-faint focus:border-signal focus:outline-none"
+                  />
+                </div>
+                <div className="flex justify-end gap-2">
+                  <Button size="sm" variant="ghost" onClick={() => setEditContextOpen(false)}>Cancel</Button>
+                  <Button size="sm" variant="primary" disabled={busyEditContext} onClick={doEditContext}>
+                    {busyEditContext ? "Saving…" : "Save"}
+                  </Button>
+                </div>
+              </div>
+            </Section>
+          )}
+
+          {injectOpen && (
+            <Section eyebrow="Inject blocks" title="Inject blocks into execution">
+              <div className="space-y-4">
+                <div>
+                  <div className="field-label mb-1">Parent block ID (optional)</div>
+                  <Input
+                    type="text"
+                    value={injectParentBlockId}
+                    onChange={(e) => setInjectParentBlockId(e.target.value)}
+                    placeholder="leave empty for root"
+                    className="w-full font-mono"
+                  />
+                </div>
+                <div>
+                  <div className="field-label mb-1">Blocks (JSON array)</div>
+                  <textarea
+                    value={injectBlocksJson}
+                    onChange={(e) => setInjectBlocksJson(e.target.value)}
+                    rows={10}
+                    spellCheck={false}
+                    className="w-full bg-sunken border border-rule px-2.5 py-2 text-[12px] font-mono text-ink placeholder:text-faint focus:border-signal focus:outline-none"
+                  />
+                </div>
+                <div className="flex justify-end gap-2">
+                  <Button size="sm" variant="ghost" onClick={() => setInjectOpen(false)}>Cancel</Button>
+                  <Button size="sm" variant="primary" disabled={busyInject} onClick={doInjectBlocks}>
+                    {busyInject ? "Injecting…" : "Inject"}
+                  </Button>
+                </div>
+              </div>
+            </Section>
+          )}
+
           <Section
-            eyebrow="Execution tree"
-            title="What actually ran"
-            description={
-              <>
-                Every block the engine touched, indented by parent/child. The
-                coloured left border mirrors the state. Click the chevron to
-                fold — blocks with outputs or failures can be opened; others
-                have none to show. Duration is measured from{" "}
-                <code className="font-mono">started_at</code> to{" "}
-                <code className="font-mono">completed_at</code>.
-              </>
-            }
+            eyebrow="Checkpoints"
+            title="Execution checkpoints"
+            description="Snapshots of execution state that can be saved and pruned."
             meta={
-              <>
-                <span>
-                  <span className="text-faint">NODES</span>{" "}
-                  <span className="text-ink-dim">{tree.length}</span>
-                </span>
-                {(Object.keys(counts) as NodeState[])
-                  .filter((s) => counts[s] > 0)
-                  .map((s) => (
-                    <Badge key={s} tone={NODE_TONE[s] ?? "dim"}>
-                      {s} {counts[s]}
-                    </Badge>
-                  ))}
-              </>
+              <span>
+                <span className="text-faint">COUNT</span>{" "}
+                <span className="text-ink-dim">{checkpoints.length}</span>
+              </span>
             }
           >
+            <div className="flex items-center gap-2">
+              <Button size="sm" disabled={busyCheckpointSave || !instance} onClick={doSaveCheckpoint}>
+                {busyCheckpointSave ? "Saving…" : "Save checkpoint"}
+              </Button>
+              <Button
+                size="sm"
+                variant="danger"
+                disabled={busyCheckpointPrune || checkpoints.length === 0}
+                onClick={() => {
+                  if (confirm("Prune all checkpoints for this execution?")) doPruneCheckpoints();
+                }}
+              >
+                {busyCheckpointPrune ? "Pruning…" : "Prune"}
+              </Button>
+            </div>
+          </Section>
+
+          <Section
+            eyebrow="Data"
+            title="Execution data"
+            description="Switch between views of the execution's runtime data."
+          >
             <div>
-              {roots.length === 0 ? (
-                <div className="text-muted text-[13px] py-6 text-center font-mono">
-                  No execution nodes yet — the engine hasn't started this
-                  execution, or the tree hasn't been persisted.
+              <div className="flex gap-0 border-b border-rule mb-6">
+                {(["tree", "timeline", "artifacts", "audit"] as DetailTab[]).map((tab) => (
+                  <button
+                    key={tab}
+                    onClick={() => setActiveTab(tab)}
+                    className={`px-4 py-2 text-[12px] font-medium uppercase tracking-wider border-b-2 transition-colors ${
+                      activeTab === tab
+                        ? "border-signal text-ink"
+                        : "border-transparent text-muted hover:text-ink"
+                    }`}
+                  >
+                    {tab === "tree" ? "Execution tree" : tab}
+                  </button>
+                ))}
+              </div>
+
+              {activeTab === "tree" && (
+                <div>
+                  <div className="flex items-center gap-2 mb-4 flex-wrap">
+                    <span>
+                      <span className="text-faint text-[11px] uppercase tracking-wider">NODES</span>{" "}
+                      <span className="text-ink-dim text-[13px]">{tree.length}</span>
+                    </span>
+                    {(Object.keys(counts) as NodeState[])
+                      .filter((s) => counts[s] > 0)
+                      .map((s) => (
+                        <Badge key={s} tone={NODE_TONE[s] ?? "dim"}>
+                          {s} {counts[s]}
+                        </Badge>
+                      ))}
+                  </div>
+                  {roots.length === 0 ? (
+                    <div className="text-muted text-[13px] py-6 text-center font-mono">
+                      No execution nodes yet — the engine hasn't started this
+                      execution, or the tree hasn't been persisted.
+                    </div>
+                  ) : (
+                    roots.map((r) => (
+                      <TreeNodeView
+                        key={r.id}
+                        node={r}
+                        outputs={outputsByBlock}
+                        tasksByBlock={tasksByBlock}
+                        depth={0}
+                        now={now}
+                        onResumeFrom={instance?.state === "failed" ? doResumeFrom : undefined}
+                      />
+                    ))
+                  )}
                 </div>
-              ) : (
-                roots.map((r) => (
-                  <TreeNodeView
-                    key={r.id}
-                    node={r}
-                    outputs={outputsByBlock}
-                    tasksByBlock={tasksByBlock}
-                    depth={0}
-                    now={now}
-                  />
-                ))
+              )}
+
+              {activeTab === "timeline" && (
+                <Table>
+                  <THead>
+                    <TH>Block ID</TH>
+                    <TH>Type</TH>
+                    <TH>State</TH>
+                    <TH>Started</TH>
+                    <TH>Completed</TH>
+                    <TH className="text-right">Duration</TH>
+                  </THead>
+                  <tbody>
+                    {timeline.length === 0 ? (
+                      <Empty colSpan={6}>No timeline entries</Empty>
+                    ) : (
+                      timeline.map((t, i) => (
+                        <TR key={`${t.block_id}-${i}`}>
+                          <TD className="font-mono text-[12px]">{t.block_id}</TD>
+                          <TD>
+                            <span className="inline-block border border-rule text-muted text-[10px] font-mono uppercase tracking-[0.1em] px-1.5 py-[1px]">
+                              {t.block_type}
+                            </span>
+                          </TD>
+                          <TD>
+                            <Badge tone={NODE_TONE[t.state as NodeState] ?? "dim"} dot>
+                              {t.state}
+                            </Badge>
+                          </TD>
+                          <TD className="text-[12px] tabular">
+                            {t.started_at ? new Date(t.started_at).toLocaleString() : "—"}
+                          </TD>
+                          <TD className="text-[12px] tabular">
+                            {t.completed_at ? new Date(t.completed_at).toLocaleString() : "—"}
+                          </TD>
+                          <TD className="text-right font-mono text-[12px] tabular">
+                            {t.duration_ms !== null ? `${t.duration_ms}ms` : "—"}
+                          </TD>
+                        </TR>
+                      ))
+                    )}
+                  </tbody>
+                </Table>
+              )}
+
+              {activeTab === "artifacts" && (
+                <Table>
+                  <THead>
+                    <TH>Key</TH>
+                    <TH>Size</TH>
+                    <TH>Content type</TH>
+                    <TH>Created</TH>
+                    <TH></TH>
+                  </THead>
+                  <tbody>
+                    {artifacts.length === 0 ? (
+                      <Empty colSpan={5}>No artifacts</Empty>
+                    ) : (
+                      artifacts.map((a) => (
+                        <TR key={a.key}>
+                          <TD className="font-mono text-[12px]">{a.key}</TD>
+                          <TD className="font-mono text-[12px] text-muted">{formatBytes(a.size)}</TD>
+                          <TD className="text-[12px] text-muted">{a.content_type ?? "—"}</TD>
+                          <TD className="text-[12px] tabular">
+                            {new Date(a.created_at).toLocaleString()}
+                          </TD>
+                          <TD>
+                            <a
+                              href={getArtifactUrl(a.key)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-signal text-[12px] hover:underline"
+                            >
+                              Download
+                            </a>
+                          </TD>
+                        </TR>
+                      ))
+                    )}
+                  </tbody>
+                </Table>
+              )}
+
+              {activeTab === "audit" && (
+                <Table>
+                  <THead>
+                    <TH>Action</TH>
+                    <TH>Actor</TH>
+                    <TH>Detail</TH>
+                    <TH>Created</TH>
+                  </THead>
+                  <tbody>
+                    {audit.length === 0 ? (
+                      <Empty colSpan={4}>No audit entries</Empty>
+                    ) : (
+                      audit.map((a, i) => (
+                        <TR key={`${a.action}-${i}`}>
+                          <TD className="font-mono text-[12px]">{a.action}</TD>
+                          <TD className="font-mono text-[12px] text-muted">{a.actor ?? "—"}</TD>
+                          <TD>
+                            <pre className="text-[11px] font-mono text-muted max-w-md truncate">
+                              {JSON.stringify(a.detail)}
+                            </pre>
+                          </TD>
+                          <TD className="text-[12px] tabular">
+                            {new Date(a.created_at).toLocaleString()}
+                          </TD>
+                        </TR>
+                      ))
+                    )}
+                  </tbody>
+                </Table>
               )}
             </div>
           </Section>

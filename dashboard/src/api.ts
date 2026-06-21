@@ -439,6 +439,62 @@ export function createSequence(
   return mutate("/sequences", "POST", body, undefined, signal);
 }
 
+export function deprecateSequence(
+  id: string,
+  signal?: AbortSignal,
+): Promise<null> {
+  return mutate(`/sequences/${encodeURIComponent(id)}/deprecate`, "POST", undefined, undefined, signal);
+}
+
+export function deleteSequence(
+  id: string,
+  signal?: AbortSignal,
+): Promise<null> {
+  return mutate(`/sequences/${encodeURIComponent(id)}`, "DELETE", undefined, undefined, signal);
+}
+
+export function setSequenceStatus(
+  id: string,
+  status: "active" | "deprecated" | "archived",
+  signal?: AbortSignal,
+): Promise<null> {
+  return mutate(`/sequences/${encodeURIComponent(id)}/status`, "PUT", { status }, undefined, signal);
+}
+
+// ─── Version Pins ───────────────────────────────────────────────────────────
+
+export interface VersionPin {
+  tenant_id: string;
+  handler_name: string;
+  min_version: number;
+  created_at: string;
+}
+
+export function listVersionPins(signal?: AbortSignal): Promise<VersionPin[]> {
+  return request("/version-pins", undefined, signal);
+}
+
+export function setVersionPin(
+  body: { tenant_id: string; handler_name: string; min_version: number },
+  signal?: AbortSignal,
+): Promise<VersionPin> {
+  return mutate("/version-pins", "PUT", body, undefined, signal);
+}
+
+export function deleteVersionPin(
+  tenantId: string,
+  handlerName: string,
+  signal?: AbortSignal,
+): Promise<null> {
+  return mutate(
+    `/version-pins/${encodeURIComponent(tenantId)}/${encodeURIComponent(handlerName)}`,
+    "DELETE",
+    undefined,
+    undefined,
+    signal,
+  );
+}
+
 // ─── Usage / cost ────────────────────────────────────────────────────────────
 
 export interface UsageEntry {
@@ -1262,4 +1318,325 @@ export function listMobileDevices(
   signal?: AbortSignal,
 ): Promise<MobileDevicesResponse> {
   return request("/mobile/devices", params, signal);
+}
+
+// ─── Instance Fork ──────────────────────────────────────────────────────────
+
+export interface ForkInstanceRequest {
+  dry_run?: boolean;
+  context_patch?: Record<string, unknown>;
+}
+
+export function forkInstance(
+  id: string,
+  body?: ForkInstanceRequest,
+  signal?: AbortSignal,
+): Promise<{ id: string }> {
+  return mutate(`/instances/${encodeURIComponent(id)}/fork`, "POST", body ?? {}, undefined, signal);
+}
+
+// ─── Resume-from-block ──────────────────────────────────────────────────────
+
+export interface ResumeFromRequest {
+  context_patch?: Record<string, unknown>;
+}
+
+export function resumeFromBlock(
+  id: string,
+  blockId: string,
+  body?: ResumeFromRequest,
+  signal?: AbortSignal,
+): Promise<{ id: string; state: string }> {
+  return mutate(
+    `/instances/${encodeURIComponent(id)}/resume-from/${encodeURIComponent(blockId)}`,
+    "POST",
+    body ?? {},
+    undefined,
+    signal,
+  );
+}
+
+// ─── Instance Timeline ──────────────────────────────────────────────────────
+
+export interface TimelineEntry {
+  block_id: string;
+  block_type: string;
+  state: string;
+  started_at: string | null;
+  completed_at: string | null;
+  duration_ms: number | null;
+  error: string | null;
+}
+
+export function getInstanceTimeline(id: string, signal?: AbortSignal): Promise<TimelineEntry[]> {
+  return request(`/instances/${encodeURIComponent(id)}/timeline`, undefined, signal);
+}
+
+// ─── Instance Artifacts ─────────────────────────────────────────────────────
+
+export interface ArtifactRef {
+  key: string;
+  size: number;
+  content_type: string | null;
+  created_at: string;
+}
+
+export function listInstanceArtifacts(id: string, signal?: AbortSignal): Promise<ArtifactRef[]> {
+  return request(`/instances/${encodeURIComponent(id)}/artifacts`, undefined, signal);
+}
+
+export function getArtifactUrl(key: string): string {
+  const url = new URL(`/artifacts/${encodeURIComponent(key)}`, getApiUrl());
+  const apiKey = getApiKey();
+  if (apiKey) url.searchParams.set("api_key", apiKey);
+  return url.toString();
+}
+
+// ─── Instance Audit Log ─────────────────────────────────────────────────────
+
+export interface AuditEntry {
+  action: string;
+  actor: string | null;
+  detail: Record<string, unknown>;
+  created_at: string;
+}
+
+export function getInstanceAudit(id: string, signal?: AbortSignal): Promise<AuditEntry[]> {
+  return request(`/instances/${encodeURIComponent(id)}/audit`, undefined, signal);
+}
+
+// ─── Instance Checkpoints ───────────────────────────────────────────────────
+
+export interface Checkpoint {
+  id: string;
+  instance_id: string;
+  created_at: string;
+  context: Record<string, unknown>;
+}
+
+export function listCheckpoints(instanceId: string, signal?: AbortSignal): Promise<Checkpoint[]> {
+  return request(`/instances/${encodeURIComponent(instanceId)}/checkpoints`, undefined, signal);
+}
+
+export function saveCheckpoint(instanceId: string, signal?: AbortSignal): Promise<Checkpoint> {
+  return mutate(`/instances/${encodeURIComponent(instanceId)}/checkpoints`, "POST", {}, undefined, signal);
+}
+
+export function pruneCheckpoints(instanceId: string, signal?: AbortSignal): Promise<{ pruned: number }> {
+  return mutate(`/instances/${encodeURIComponent(instanceId)}/checkpoints/prune`, "POST", {}, undefined, signal);
+}
+
+// ─── Inject Blocks ──────────────────────────────────────────────────────────
+
+export interface InjectBlocksRequest {
+  parent_block_id: string;
+  blocks: unknown[];
+}
+
+export function injectBlocks(
+  instanceId: string,
+  body: InjectBlocksRequest,
+  signal?: AbortSignal,
+): Promise<{ injected: number }> {
+  return mutate(`/instances/${encodeURIComponent(instanceId)}/inject-blocks`, "POST", body, undefined, signal);
+}
+
+// ─── Patch Instance Context ─────────────────────────────────────────────────
+
+export function patchInstanceContext(
+  id: string,
+  data: Record<string, unknown>,
+  signal?: AbortSignal,
+): Promise<null> {
+  return mutate(`/instances/${encodeURIComponent(id)}/context`, "PATCH", { data }, undefined, signal);
+}
+
+// ─── API Keys ───────────────────────────────────────────────────────────────
+
+export interface ApiKeyDef {
+  id: string;
+  tenant_id: string;
+  name: string;
+  prefix: string;
+  last_used_at: string | null;
+  created_at: string;
+}
+
+export interface CreateApiKeyRequest {
+  tenant_id?: string;
+  name: string;
+}
+
+export interface CreateApiKeyResponse {
+  id: string;
+  key: string;
+}
+
+export function listApiKeys(signal?: AbortSignal): Promise<ApiKeyDef[]> {
+  return request("/api-keys", undefined, signal);
+}
+
+export function createApiKey(body: CreateApiKeyRequest, signal?: AbortSignal): Promise<CreateApiKeyResponse> {
+  return mutate("/api-keys", "POST", body, undefined, signal);
+}
+
+export function revokeApiKey(id: string, signal?: AbortSignal): Promise<null> {
+  return mutate(`/api-keys/${encodeURIComponent(id)}`, "DELETE", undefined, undefined, signal);
+}
+
+// ─── Queue Routing Rules ────────────────────────────────────────────────────
+
+export interface RoutingRule {
+  id: string;
+  tenant_id: string;
+  handler_name: string;
+  queue_name: string;
+  priority: number;
+  created_at: string;
+}
+
+export interface CreateRoutingRuleRequest {
+  tenant_id: string;
+  handler_name: string;
+  queue_name: string;
+  priority?: number;
+}
+
+export function listRoutingRules(
+  params?: { tenant_id?: string; handler_name?: string },
+  signal?: AbortSignal,
+): Promise<RoutingRule[]> {
+  return request("/routing-rules", params, signal);
+}
+
+export function createRoutingRule(body: CreateRoutingRuleRequest, signal?: AbortSignal): Promise<RoutingRule> {
+  return mutate("/routing-rules", "POST", body, undefined, signal);
+}
+
+export function deleteRoutingRule(id: string, signal?: AbortSignal): Promise<null> {
+  return mutate(`/routing-rules/${encodeURIComponent(id)}`, "DELETE", undefined, undefined, signal);
+}
+
+// ─── Queue Dispatch Config ──────────────────────────────────────────────────
+
+export interface DispatchConfig {
+  tenant_id: string;
+  queue_name: string;
+  mode: "poll" | "push";
+  target_url: string | null;
+  created_at: string;
+}
+
+export interface SetDispatchRequest {
+  tenant_id: string;
+  queue_name: string;
+  mode: "poll" | "push";
+  target_url?: string;
+}
+
+export function listDispatchConfigs(
+  params?: { tenant_id?: string },
+  signal?: AbortSignal,
+): Promise<DispatchConfig[]> {
+  return request("/queues/dispatch", params, signal);
+}
+
+export function setDispatchConfig(body: SetDispatchRequest, signal?: AbortSignal): Promise<DispatchConfig> {
+  return mutate("/queues/dispatch", "POST", body, undefined, signal);
+}
+
+export function deleteDispatchConfig(
+  tenantId: string,
+  queueName: string,
+  signal?: AbortSignal,
+): Promise<null> {
+  return mutate(
+    `/queues/dispatch/${encodeURIComponent(tenantId)}/${encodeURIComponent(queueName)}`,
+    "DELETE",
+    undefined,
+    undefined,
+    signal,
+  );
+}
+
+// ─── Rollback Policies ──────────────────────────────────────────────────────
+
+export interface RollbackPolicy {
+  name: string;
+  tenant_id: string;
+  config: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface CreateRollbackPolicyRequest {
+  name: string;
+  tenant_id?: string;
+  config: Record<string, unknown>;
+}
+
+export function listRollbackPolicies(signal?: AbortSignal): Promise<RollbackPolicy[]> {
+  return request("/rollback-policies", undefined, signal);
+}
+
+export function getRollbackPolicy(name: string, signal?: AbortSignal): Promise<RollbackPolicy> {
+  return request(`/rollback-policies/${encodeURIComponent(name)}`, undefined, signal);
+}
+
+export function createRollbackPolicy(body: CreateRollbackPolicyRequest, signal?: AbortSignal): Promise<RollbackPolicy> {
+  return mutate("/rollback-policies", "POST", body, undefined, signal);
+}
+
+export function deleteRollbackPolicy(name: string, signal?: AbortSignal): Promise<null> {
+  return mutate(`/rollback-policies/${encodeURIComponent(name)}`, "DELETE", undefined, undefined, signal);
+}
+
+// ─── Batch Create Instances ─────────────────────────────────────────────────
+
+export function batchCreateInstances(
+  instances: CreateInstanceBody[],
+  signal?: AbortSignal,
+): Promise<{ created: number; ids: string[] }> {
+  return mutate("/instances/batch", "POST", { instances }, undefined, signal);
+}
+
+// ─── Bulk State / Reschedule ────────────────────────────────────────────────
+
+export interface BulkStateRequest {
+  filter: {
+    tenant_id?: string;
+    namespace?: string;
+    states?: string[];
+  };
+  state: string;
+  dry_run?: boolean;
+}
+
+export function bulkUpdateState(
+  body: BulkStateRequest,
+  signal?: AbortSignal,
+): Promise<BatchActionResult> {
+  return mutate("/instances/bulk/state", "PATCH", body, undefined, signal);
+}
+
+export interface BulkRescheduleRequest {
+  filter: {
+    tenant_id?: string;
+    namespace?: string;
+    states?: string[];
+  };
+  next_fire_at: string;
+  dry_run?: boolean;
+}
+
+export function bulkReschedule(
+  body: BulkRescheduleRequest,
+  signal?: AbortSignal,
+): Promise<BatchActionResult> {
+  return mutate("/instances/bulk/reschedule", "PATCH", body, undefined, signal);
+}
+
+// ─── Session Instances ──────────────────────────────────────────────────────
+
+export function listSessionInstances(id: string, signal?: AbortSignal): Promise<TaskInstance[]> {
+  return request(`/sessions/${encodeURIComponent(id)}/instances`, undefined, signal);
 }

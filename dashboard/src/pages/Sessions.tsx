@@ -1,12 +1,15 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { usePolling } from "../hooks/usePolling";
 import { usePageTitle } from "../hooks/usePageTitle";
 import {
   listSessions,
   createSession,
   updateSessionState,
+  listSessionInstances,
   type Session,
   type SessionState,
+  type TaskInstance,
 } from "../api";
 import { PageHeader } from "../components/ui/PageHeader";
 import { PageMeta } from "../components/ui/PageMeta";
@@ -15,10 +18,10 @@ import { Glossary, type GlossaryItem } from "../components/ui/Glossary";
 import { Table, THead, TH, TR, TD, Empty } from "../components/ui/Table";
 import { Button } from "../components/ui/Button";
 import { Input, FieldLabel } from "../components/ui/Input";
-import { Badge } from "../components/ui/Badge";
+import { Badge, INSTANCE_TONE } from "../components/ui/Badge";
 import { Relative } from "../components/ui/Relative";
 import { Id } from "../components/ui/Mono";
-import { IconPlus, IconPause, IconPlay } from "../components/ui/Icons";
+import { IconPlus, IconPause, IconPlay, IconChevronRight, IconChevronDown } from "../components/ui/Icons";
 import { SkeletonTable } from "../components/ui/Skeleton";
 
 const SESSION_TONE: Record<SessionState, "ok" | "hold" | "dim" | "warn"> = {
@@ -52,6 +55,7 @@ export default function Sessions() {
   const { data, loading, updatedAt, refresh } = usePolling<Session[]>(fetcher, 5000);
   const [showForm, setShowForm] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const flash = (msg: string) => {
     setToast(msg);
@@ -120,54 +124,73 @@ export default function Sessions() {
               <TH className="text-right">Actions</TH>
             </THead>
             <tbody>
-              {data.map((s) => (
-                <TR key={s.id}>
-                  <TD>
-                    <Badge tone={SESSION_TONE[s.state]} dot live={s.state === "active"}>
-                      {s.state}
-                    </Badge>
-                  </TD>
-                  <TD className="font-mono text-[12px] text-ink">{s.session_key}</TD>
-                  <TD>
-                    <Id value={s.tenant_id} copy className="!text-muted" />
-                  </TD>
-                  <TD>
-                    <Relative at={s.created_at} />
-                  </TD>
-                  <TD className="text-right">
-                    <div className="inline-flex gap-1">
-                      {s.state === "active" && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => {
-                            updateSessionState(s.id, { state: "paused" })
-                              .then(() => refresh())
-                              .catch((e) => flash(String(e)));
-                          }}
-                          title="Pause session"
-                        >
-                          <IconPause size={13} />
-                        </Button>
-                      )}
-                      {s.state === "paused" && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => {
-                            updateSessionState(s.id, { state: "active" })
-                              .then(() => refresh())
-                              .catch((e) => flash(String(e)));
-                          }}
-                          title="Resume session"
-                        >
-                          <IconPlay size={13} />
-                        </Button>
-                      )}
-                    </div>
-                  </TD>
-                </TR>
-              ))}
+              {data.map((s) => {
+                const expanded = expandedId === s.id;
+                return (
+                  <>
+                    <TR
+                      key={s.id}
+                      className="cursor-pointer"
+                      onClick={() => setExpandedId(expanded ? null : s.id)}
+                    >
+                      <TD>
+                        <span className="inline-flex items-center gap-1">
+                          {expanded ? <IconChevronDown size={12} /> : <IconChevronRight size={12} />}
+                          <Badge tone={SESSION_TONE[s.state]} dot live={s.state === "active"}>
+                            {s.state}
+                          </Badge>
+                        </span>
+                      </TD>
+                      <TD className="font-mono text-[12px] text-ink">{s.session_key}</TD>
+                      <TD>
+                        <Id value={s.tenant_id} copy className="!text-muted" />
+                      </TD>
+                      <TD>
+                        <Relative at={s.created_at} />
+                      </TD>
+                      <TD className="text-right">
+                        <div className="inline-flex gap-1" onClick={(e) => e.stopPropagation()}>
+                          {s.state === "active" && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => {
+                                updateSessionState(s.id, { state: "paused" })
+                                  .then(() => refresh())
+                                  .catch((e) => flash(String(e)));
+                              }}
+                              title="Pause session"
+                            >
+                              <IconPause size={13} />
+                            </Button>
+                          )}
+                          {s.state === "paused" && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => {
+                                updateSessionState(s.id, { state: "active" })
+                                  .then(() => refresh())
+                                  .catch((e) => flash(String(e)));
+                              }}
+                              title="Resume session"
+                            >
+                              <IconPlay size={13} />
+                            </Button>
+                          )}
+                        </div>
+                      </TD>
+                    </TR>
+                    {expanded && (
+                      <tr key={`${s.id}-instances`}>
+                        <TD colSpan={99} className="!p-0">
+                          <SessionInstancesPanel sessionId={s.id} />
+                        </TD>
+                      </tr>
+                    )}
+                  </>
+                );
+              })}
               {data.length === 0 && (
                 <Empty colSpan={99}>
                   No sessions yet. Create one to group related executions.
@@ -177,6 +200,70 @@ export default function Sessions() {
           </Table>
         </Section>
       )}
+    </div>
+  );
+}
+
+function SessionInstancesPanel({ sessionId }: { sessionId: string }) {
+  const [instances, setInstances] = useState<TaskInstance[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    listSessionInstances(sessionId)
+      .then((data) => {
+        if (!cancelled) setInstances(data);
+      })
+      .catch((e) => {
+        if (!cancelled) setError(e instanceof Error ? e.message : String(e));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionId]);
+
+  if (loading) return <div className="px-8 py-4 text-[12px] text-muted">Loading instances...</div>;
+  if (error) return <div className="px-8 py-4 text-[12px] text-warn">Failed: {error}</div>;
+  if (instances.length === 0)
+    return <div className="px-8 py-4 text-[12px] text-faint">No instances in this session.</div>;
+
+  return (
+    <div className="bg-bg-inset border-t border-b border-rule">
+      <table className="w-full text-[12px]">
+        <thead>
+          <tr className="text-faint uppercase tracking-wider text-[10px]">
+            <th className="text-left px-8 py-2">ID</th>
+            <th className="text-left px-4 py-2">State</th>
+            <th className="text-left px-4 py-2">Sequence</th>
+            <th className="text-left px-4 py-2">Updated</th>
+          </tr>
+        </thead>
+        <tbody>
+          {instances.map((i) => (
+            <tr key={i.id} className="border-t border-rule/50">
+              <td className="px-8 py-2 font-mono">
+                <Link to={`/instances/${i.id}`} className="text-signal hover:underline">
+                  {i.id.slice(0, 12)}...
+                </Link>
+              </td>
+              <td className="px-4 py-2">
+                <Badge tone={INSTANCE_TONE[i.state] ?? "dim"} dot>
+                  {i.state}
+                </Badge>
+              </td>
+              <td className="px-4 py-2 font-mono text-muted">{i.sequence_id}</td>
+              <td className="px-4 py-2">
+                <Relative at={i.updated_at} />
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }

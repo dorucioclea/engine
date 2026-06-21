@@ -5,9 +5,13 @@ import {
   listWorkers,
   listHandlers,
   enqueueWorkerCommand,
+  listVersionPins,
+  setVersionPin,
+  deleteVersionPin,
   type WorkerInfo,
   type HandlerCatalog,
   type WorkerCommandKind,
+  type VersionPin,
 } from "../api";
 import { Button } from "../components/ui/Button";
 import { PageHeader } from "../components/ui/PageHeader";
@@ -15,6 +19,7 @@ import { PageMeta } from "../components/ui/PageMeta";
 import { Section } from "../components/ui/Section";
 import { Glossary, type GlossaryItem } from "../components/ui/Glossary";
 import { Badge } from "../components/ui/Badge";
+import { Input } from "../components/ui/Input";
 import { Table, THead, TH, TR, TD, Empty } from "../components/ui/Table";
 import { Id } from "../components/ui/Mono";
 import { Relative } from "../components/ui/Relative";
@@ -79,6 +84,20 @@ export default function Workers() {
     [],
   );
   const { data: catalog } = usePolling<HandlerCatalog>(handlersFetcher, 30000);
+
+  const pinsFetcher = useCallback(
+    (signal?: AbortSignal) => listVersionPins(signal),
+    [],
+  );
+  const {
+    data: pins,
+    refresh: refreshPins,
+  } = usePolling<VersionPin[]>(pinsFetcher, 10000);
+
+  const [pinTenant, setPinTenant] = useState("");
+  const [pinHandler, setPinHandler] = useState("");
+  const [pinVersion, setPinVersion] = useState("");
+  const [pinBusy, setPinBusy] = useState(false);
 
   const [toast, setToast] = useState<string | null>(null);
   const [busyWorker, setBusyWorker] = useState<string | null>(null);
@@ -270,6 +289,132 @@ export default function Workers() {
           </div>
         </Section>
       )}
+
+      <Section
+        eyebrow="Deployment"
+        title="Version Pins"
+        description={
+          <>
+            Pin a minimum worker version per tenant + handler. Workers below
+            the pinned version will not receive tasks for that handler — use
+            this to enforce a rolling deploy floor.
+          </>
+        }
+      >
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-[1fr_1fr_1fr_auto] gap-3 items-end">
+            <div>
+              <label className="field-label block mb-1.5">Tenant ID</label>
+              <Input
+                type="text"
+                placeholder="tenant-a"
+                value={pinTenant}
+                onChange={(e) => setPinTenant(e.target.value)}
+              />
+            </div>
+            <div>
+              <label className="field-label block mb-1.5">Handler name</label>
+              <Input
+                type="text"
+                placeholder="my_handler"
+                value={pinHandler}
+                onChange={(e) => setPinHandler(e.target.value)}
+              />
+            </div>
+            <div>
+              <label className="field-label block mb-1.5">Min version</label>
+              <Input
+                type="number"
+                placeholder="1"
+                value={pinVersion}
+                onChange={(e) => setPinVersion(e.target.value)}
+              />
+            </div>
+            <Button
+              variant="primary"
+              size="sm"
+              disabled={pinBusy || !pinTenant.trim() || !pinHandler.trim() || !pinVersion.trim()}
+              onClick={async () => {
+                setPinBusy(true);
+                try {
+                  await setVersionPin({
+                    tenant_id: pinTenant.trim(),
+                    handler_name: pinHandler.trim(),
+                    min_version: Number(pinVersion),
+                  });
+                  setToast(`Version pin set for ${pinHandler.trim()}`);
+                  setTimeout(() => setToast(null), 2500);
+                  setPinTenant("");
+                  setPinHandler("");
+                  setPinVersion("");
+                  refreshPins();
+                } catch (e) {
+                  setToast(`Failed: ${e instanceof Error ? e.message : String(e)}`);
+                  setTimeout(() => setToast(null), 3500);
+                } finally {
+                  setPinBusy(false);
+                }
+              }}
+            >
+              Set Pin
+            </Button>
+          </div>
+
+          <Table>
+            <THead>
+              <TH>Tenant</TH>
+              <TH>Handler</TH>
+              <TH>Min version</TH>
+              <TH>Created</TH>
+              <TH className="text-right">Actions</TH>
+            </THead>
+            <tbody>
+              {(!pins || pins.length === 0) && (
+                <Empty colSpan={5}>
+                  No version pins configured. Use the form above to pin a
+                  minimum worker version for a handler.
+                </Empty>
+              )}
+              {pins?.map((p) => (
+                <TR key={`${p.tenant_id}/${p.handler_name}`}>
+                  <TD>
+                    <Id value={p.tenant_id} copy className="!text-muted" />
+                  </TD>
+                  <TD>
+                    <Badge tone="neutral">{p.handler_name}</Badge>
+                  </TD>
+                  <TD>
+                    <span className="font-mono text-[12px]">{p.min_version}</span>
+                  </TD>
+                  <TD>
+                    <Relative at={p.created_at} />
+                  </TD>
+                  <TD className="text-right">
+                    <Button
+                      variant="danger"
+                      size="sm"
+                      onClick={async () => {
+                        if (!window.confirm(`Delete version pin for ${p.handler_name} (tenant ${p.tenant_id})?`)) return;
+                        try {
+                          await deleteVersionPin(p.tenant_id, p.handler_name);
+                          setToast(`Deleted pin for ${p.handler_name}`);
+                          setTimeout(() => setToast(null), 2500);
+                          refreshPins();
+                        } catch (e) {
+                          setToast(`Failed: ${e instanceof Error ? e.message : String(e)}`);
+                          setTimeout(() => setToast(null), 3500);
+                        }
+                      }}
+                    >
+                      Delete
+                    </Button>
+                  </TD>
+                </TR>
+              ))}
+            </tbody>
+          </Table>
+        </div>
+      </Section>
     </div>
   );
 }

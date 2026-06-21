@@ -16,6 +16,9 @@ import Sessions from "./pages/Sessions";
 import Plugins from "./pages/Plugins";
 import Credentials from "./pages/Credentials";
 import Pools from "./pages/Pools";
+import QueueRouting from "./pages/QueueRouting";
+import ApiKeys from "./pages/ApiKeys";
+import RollbackPolicies from "./pages/RollbackPolicies";
 import Settings from "./pages/Settings";
 import MobileSync from "./pages/MobileSync";
 import Usage from "./pages/Usage";
@@ -41,7 +44,10 @@ export default function App() {
           <Route path="plugins" element={<Plugins />} />
           <Route path="credentials" element={<Credentials />} />
           <Route path="pools" element={<Pools />} />
+          <Route path="queues" element={<QueueRouting />} />
           <Route path="mobile" element={<MobileSync />} />
+          <Route path="api-keys" element={<ApiKeys />} />
+          <Route path="rollback" element={<RollbackPolicies />} />
           <Route path="settings" element={<Settings />} />
         </Route>
       </Routes>
