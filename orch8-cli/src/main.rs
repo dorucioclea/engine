@@ -99,8 +99,8 @@ enum Commands {
     /// Browse built-in sequence templates.
     #[command(subcommand)]
     Templates(TemplatesCmd),
-    /// Run a sequence locally on an ephemeral in-process engine with hot
-    /// reload and optional virtual time (no server needed).
+    /// Local workflow studio: run sequences with hot reload, optional HTTP
+    /// API server, embedded dashboard, directory watching, and virtual time.
     Dev(DevCmd),
     /// Replay/diff tooling.
     #[command(subcommand)]

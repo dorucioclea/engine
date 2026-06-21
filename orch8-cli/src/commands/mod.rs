@@ -2,6 +2,7 @@ pub mod checkpoint;
 pub mod config;
 pub mod cron;
 pub mod dev;
+pub mod dev_server;
 pub mod health;
 pub mod init;
 pub mod instance;
