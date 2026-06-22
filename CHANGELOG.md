@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] — 2026-06-21
+
 ### Added
 
 - **`orch8 dev` — Local Workflow Studio**: the dev command is now a full local development environment with five new capabilities: **`--server`** boots a complete HTTP API server backed by file-persistent SQLite (`.orch8/dev.db`) alongside the dev loop — the full REST API, Swagger UI, and health endpoints are available at `http://localhost:8080` (configurable via `--port`), running in insecure mode with permissive CORS for frictionless local development. **Embedded dashboard** serves the pre-built dashboard SPA from the binary itself — any path not matched by the API falls through to the SPA router, so navigating to `http://localhost:8080/` opens the dashboard with no separate process. **`--workflows <dir>`** watches a directory of `*.json` sequence files, loading all of them on startup and hot-reloading on change (mtime+size poll, same mechanism as the primary sequence file); this replaces the single-file workflow with a multi-sequence project layout. **`--auto-run`** automatically starts a new instance after each hot-reload, whether from the primary sequence file or from the workflows directory — useful for iterating on a sequence without manually re-triggering. The startup banner now shows a compact feature line (e.g. `server:8080, timers:virtual, workflows, auto-run`) so you can see at a glance what's active.
@@ -271,7 +273,8 @@ First public pre-release.
 
 ---
 
-[Unreleased]: https://github.com/orch8-io/engine/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/orch8-io/engine/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/orch8-io/engine/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/orch8-io/engine/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/orch8-io/engine/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/orch8-io/engine/compare/v0.2.0...v0.3.1
